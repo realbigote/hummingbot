@@ -3,6 +3,7 @@
 import asyncio
 import aiohttp
 import logging
+import os
 import time
 from typing import (
     AsyncIterable,
@@ -15,11 +16,12 @@ from hummingbot.core.data_type.user_stream_tracker_data_source import UserStream
 from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.logger import HummingbotLogger
 
-BINANCE_API_ENDPOINT = "https://api.binance.com/api/v1/"
-BINANCE_USER_STREAM_ENDPOINT = "userDataStream"
+PEATIO_API_ENDPOINT = "https://opendax.tokamaktech.net/api/v2/"
+PEATIO_SIGNIN = "barong/identity/sessions"
+PEATIO_USER_STREAM_ENDPOINT = "peatio/account/balances"
 
 
-class BinanceAPIUserStreamDataSource(UserStreamTrackerDataSource):
+class PeatioAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
     MESSAGE_TIMEOUT = 30.0
     PING_TIMEOUT = 10.0
@@ -32,8 +34,8 @@ class BinanceAPIUserStreamDataSource(UserStreamTrackerDataSource):
             cls._bausds_logger = logging.getLogger(__name__)
         return cls._bausds_logger
 
-    def __init__(self, binance_client: BinanceClient):
-        self._binance_client: BinanceClient = binance_client
+    def __init__(self, peatio_client: PeatioClient):
+        self._peatio_client:PeatioClient = peatio_client
         self._current_listen_key = None
         self._listen_for_user_stream_task = None
         self._last_recv_time: float = 0
@@ -45,19 +47,20 @@ class BinanceAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
     async def get_listen_key(self):
         async with aiohttp.ClientSession() as client:
-            async with client.post(f"{BINANCE_API_ENDPOINT}{BINANCE_USER_STREAM_ENDPOINT}",
-                                   headers={"X-MBX-APIKEY": self._binance_client.API_KEY}) as response:
+            async with client.post(f"{PEATIO_API_ENDPOINT}{PEATIO_SIGNIN}",
+                                   headers={"email": self._peatio_client.email,
+                                            "password": self._peatio_client.password 
+                                           }) as response:
                 response: aiohttp.ClientResponse = response
                 if response.status != 200:
-                    raise IOError(f"Error fetching Binance user stream listen key. HTTP status is {response.status}.")
-                data: Dict[str, str] = await response.json()
-                return data["listenKey"]
+                    raise IOError(f"Error fetching Peatio user stream listen key. HTTP status is {response.status}.")
+                data: Dict[str, str] = await response.cookies
+                return data
 
     async def ping_listen_key(self, listen_key: str) -> bool:
         async with aiohttp.ClientSession() as client:
-            async with client.put(f"{BINANCE_API_ENDPOINT}{BINANCE_USER_STREAM_ENDPOINT}",
-                                  headers={"X-MBX-APIKEY": self._binance_client.API_KEY},
-                                  params={"listenKey": listen_key}) as response:
+            async with client.get(f"{PEATIO_API_ENDPOINT}{PEATIO_USER_STREAM_ENDPOINT}",
+                                  cookies = self._current_listen_key) as response:
                 data: [str, any] = await response.json()
                 if "code" in data:
                     self.logger().warning(f"Failed to refresh the listen key {listen_key}: {data}")
@@ -96,7 +99,7 @@ class BinanceAPIUserStreamDataSource(UserStreamTrackerDataSource):
             return
 
     async def get_ws_connection(self) -> websockets.WebSocketClientProtocol:
-        stream_url: str = f"wss://stream.binance.com:9443/ws/{self._current_listen_key}"
+        stream_url: str = f"wss://stream.binance.com:9443/ws/{self._current_listen_key}?stream=order&stream=trade"
         self.logger().info(f"Reconnecting to {stream_url}.")
 
         # Create the WS connection.
@@ -141,3 +144,8 @@ class BinanceAPIUserStreamDataSource(UserStreamTrackerDataSource):
             except Exception:
                 self.logger().error("Unexpected error. Retrying after 5 seconds...", exc_info=True)
                 await asyncio.sleep(5.0)
+
+class PeatioClient:
+  def __init__(self):
+    self.email = os.getenv(PEATIO_EXCHANGE_API_KEY, "admin@barong.io")
+    self.password = os.getenv(PEATIO_PW, "0lDHd9ufs9t@")

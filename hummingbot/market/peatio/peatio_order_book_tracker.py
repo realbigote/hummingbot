@@ -3,6 +3,7 @@
 import asyncio
 from collections import deque, defaultdict
 import logging
+import os
 import time
 from typing import (
     Deque,
@@ -51,14 +52,15 @@ class PeatioOrderBookTracker(OrderBookTracker):
             if self._data_source_type is OrderBookTrackerDataSourceType.REMOTE_API:
                 self._data_source = RemoteAPIOrderBookDataSource()
             elif self._data_source_type is OrderBookTrackerDataSourceType.EXCHANGE_API:
-                self._data_source = BinanceAPIOrderBookDataSource(trading_pairs=self._trading_pairs)
+                self._data_source = PeatioAPIOrderBookDataSource(trading_pairs=self._trading_pairs)
             else:
                 raise ValueError(f"data_source_type {self._data_source_type} is not supported.")
         return self._data_source
 
     @property
     def exchange_name(self) -> str:
-        return "binance"
+        return os.getenv("PEATIO_EXCHANGE")
+        
 
     async def start(self):
         await super().start()

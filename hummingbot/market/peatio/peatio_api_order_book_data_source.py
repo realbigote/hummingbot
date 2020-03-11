@@ -2,6 +2,7 @@
 
 import asyncio
 import aiohttp
+from collections import namedtuple
 import logging
 import pandas as pd
 from typing import (
@@ -26,14 +27,12 @@ from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.logger import HummingbotLogger
 from hummingbot.market.peatio.peatio_order_book import PeatioOrderBook
 
-TRADING_PAIR_FILTER = re.compile(r"(BTC|ETH|USDT)$")
+PEATIO_REST_URL = "https://opendax.tokamaktech.net/api/v2/peatio/public/"
+DIFF_STREAM_URL = "wss://opendax.tokamaktech.net/api/v2/ranger/public/"
+TICKER_PRICE_CHANGE_URL = "https://opendax.tokamaktech.net/api/v2/peatio/public/markets/tickers"
+EXCHANGE_INFO_URL = "https://opendax.tokamaktech.net/api/v2/peatio/public/markets"
 
-PEATIO_REST_URL = "https://api.binance.com/api/v1/depth"
-DIFF_STREAM_URL = "wss://ranger.peatio/"
-TICKER_PRICE_CHANGE_URL = "https://api.binance.com/api/v1/ticker/24hr"
-EXCHANGE_INFO_URL = "https://api.binance.com/api/v1/exchangeInfo"
-
-BookStructure = namedtuple("Book", ["price", "amount"])
+OrderBookRow = namedtuple("Book", ["price", "amount"])
 
 class PeatioAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
@@ -58,8 +57,9 @@ class PeatioAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def get_active_exchange_markets(cls) -> pd.DataFrame:
         async with aiohttp.ClientSession() as client:
 
-            market_response = await safe_gather(
-                client.get("{PEATIO_REST_URL}/public/markets")
+            market_response, ticker_response = await safe_gather(
+                client.get("{PEATIO_REST_URL}/public/markets"),
+                client.get("{PEATIO_REST_URL}/public/markets/tickers")
             )
             market_response: aiohttp.ClientResponse = market_response
 
@@ -67,21 +67,45 @@ class PeatioAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 raise IOError(f"Error fetching Peatio markets information. "
                               f"HTTP status is {market_response.status}.")
 
+            if ticker_response.status != 200:
+                raise IOError(f"Error fetching Peatio tickers information. "
+                              f"HTTP status is {ticker_response.status}.")
+
             market_data = await market_response.json()
+            ticker_data = await ticker_response.json()
 
-            exchange_markets: Dict[str, Any] = {item["name"]: {k: item[k] for k in ["base_unit", "quote_unit"]}
-                                             for item in market_data}
-                                             #if item["state"] == "TRADING"}
-                                             #not sure what the states will be and whether they will be
-                                             #relevant
+            exchange_markets: Dict[str, Any] = {item["id"]: {
+                                                              "baseAsset": item["base_unit"],
+                                                              "quoteAsset": item["quote_unit"],
+                                                              "volume": ticker_data[item["id"]]["ticker"]["volume"],
+                                                              "lastPrice": ticker_data[item["id"]]["ticker"]["last"]  
+                                                            }
+                                             for item in market_data
+                                             if item["state"] == "enabled"}
 
-            return exchange_markets
+            all_markets: pd.DataFrame = pd.DataFrame.from_dict(data=exchange_markets, index="symbol")
+            eth_price: float = float(all_markets.loc["ethusd"].lastPrice)
+            trst_price: float = float(all_markets.loc("trstusd").lastPrice)
+            fth_price: float = float(all_markets.loc("fthusd").lastPrice)
+            usd_volume: float = [
+                (
+                    volume * trst_price if trading_pair.endswith("trst") else
+                    volume * eth_price if trading_pair.endswith("eth") else
+                    volume * fth_price if trading_pair.endswith("fth") else
+                    volume
+                )
+                for trading_pair, volume in zip(all_markets.index,
+                                                     all_markets.volume.astype("float"))]
+            all_markets.loc[:, "USDVolume"] = usd_volume
+            all_markets.loc[:, "volume"] = all_markets.volume
+
+            return all_markets.sort_values("USDVolume", ascending=False)
 
     async def get_trading_pairs(self) -> List[str]:
         if not self._trading_pairs:
             try:
-                active_markets: Dict = await self.get_active_exchange_markets()
-                self._trading_pairs = active_markets
+                active_markets: pd.DataFrame = await self.get_active_exchange_markets()
+                self._trading_pairs = active_markets.index.tolist()
             except Exception:
                 self._trading_pairs = []
                 self.logger().network(
@@ -95,11 +119,7 @@ class PeatioAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def get_snapshot(client: aiohttp.ClientSession, trading_pair: str, limit: int = 1000) -> Dict[str, Any]:
         request_url: str = f"{PEATIO_REST_URL}/markets/{trading_pair}/depth"
 
-        params = {
-            "len": self.SNAPSHOT_LIMIT_SIZE
-        }
-
-        async with client.get(request_url, params=params) as response:
+        async with client.get(request_url) as response:
             response: aiohttp.ClientResponse = response
             if response.status != 200:
                 raise IOError(f"Error fetching Peatio market snapshot for {trading_pair}. "
@@ -110,26 +130,8 @@ class PeatioAPIOrderBookDataSource(OrderBookTrackerDataSource):
             # Because otherwise, there'd be no way for the receiver to know which market the
             # snapshot belongs to.
 
-            return self._prepare_snapshot(trading_pair, data["bids"], data["asks"])
-
-    @staticmethod
-    def _prepare_snapshot(pair: str, bids: List, asks: List) -> Dict[str, Any]:
-        """
-        Return structure of three elements:
-            symbol: traded pair symbol
-            bids: List of OrderBookRow for bids
-            asks: List of OrderBookRow for asks
-        """
-
-        format_bids = [OrderBookRow(i[0], i[1]) for i in bids]
-        format_asks = [OrderBookRow(i[0], i[1]) for i in asks]
-
-        return {
-            "symbol": pair,
-            "bids": bids,
-            "asks": asks,
-        }
-
+            return _prepare_snapshot(trading_pair, data["bids"], data["asks"])
+    
     def _parse_raw_update(self, pair: str, raw_response: str) -> OrderBookMessage:
         """
         Parses raw update, if price for a tracked order identified by ID is 0, then order is deleted
@@ -170,7 +172,7 @@ class PeatioAPIOrderBookDataSource(OrderBookTrackerDataSource):
             retval: Dict[str, OrderBookTrackerEntry] = {}
 
             number_of_pairs: int = len(trading_pairs)
-            for index, trading_pair in enumerate(trading_pairs.keys()):
+            for index, trading_pair in enumerate(trading_pairs):
                 try:
                     snapshot: Dict[str, Any] = await self.get_snapshot(client, trading_pair, 1000)
                     snapshot_timestamp: float = time.time()
@@ -217,15 +219,16 @@ class PeatioAPIOrderBookDataSource(OrderBookTrackerDataSource):
         while True:
             try:
                 trading_pairs: List[str] = await self.get_trading_pairs()
-                ws_path: str = "&stream=".join("{trading_pair}.trades") for trading_pair in trading_pairs.keys()])
+                ws_path: str = "&stream=".join([f"{trading_pair}.trades" for trading_pair in trading_pairs])
                 stream_url: str = f"{DIFF_STREAM_URL}/?stream={ws_path}"
 
                 async with websockets.connect(stream_url) as ws:
                     ws: websockets.WebSocketClientProtocol = ws
                     async for raw_msg in self._inner_messages(ws):
                         msg = ujson.loads(raw_msg)
-                        trade_msg: OrderBookMessage = PeatioOrderBook.trade_message_from_exchange(msg)
-                        output.put_nowait(trade_msg)
+                        if (list(msg.keys())[0].endswith("trades")):
+                          trade_msg: OrderBookMessage = PeatioOrderBook.trade_message_from_exchange(msg)
+                          output.put_nowait(trade_msg)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -237,16 +240,25 @@ class PeatioAPIOrderBookDataSource(OrderBookTrackerDataSource):
         while True:
             try:
                 trading_pairs: List[str] = await self.get_trading_pairs()
-                ws_path: str = "&stream=".join("{trading_pair}.update" for trading_pair in trading_pairs.keys()])
+                ws_path: str = "&stream=".join([f"{trading_pair}.ob-inc" for trading_pair in trading_pairs])
                 stream_url: str = f"{DIFF_STREAM_URL}/?stream={ws_path}"
 
                 async with websockets.connect(stream_url) as ws:
                     ws: websockets.WebSocketClientProtocol = ws
                     async for raw_msg in self._inner_messages(ws):
                         msg = ujson.loads(raw_msg)
-                        order_book_message: OrderBookMessage = PeatioOrderBook.diff_message_from_exchange(
-                            msg, time.time())
-                        output.put_nowait(order_book_message)
+                        print(msg)
+                        key = list(msg.keys())[0]
+                        if ('ob-inc' in key):
+                          pair = re.sub(r'\.ob-inc', '', key)
+                          parsed_msg = {
+                            "pair": pair,
+                            "bids": msg[key]["bids"],
+                            "asks": msg[key]["asks"]
+                          }
+                          order_book_message: OrderBookMessage = PeatioOrderBook.diff_message_from_exchange(
+                              parsed_msg, time.time())
+                          output.put_nowait(order_book_message)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -286,3 +298,20 @@ class PeatioAPIOrderBookDataSource(OrderBookTrackerDataSource):
             except Exception:
                 self.logger().error("Unexpected error.", exc_info=True)
                 await asyncio.sleep(5.0)
+
+def _prepare_snapshot(pair: str, bids: List, asks: List) -> Dict[str, Any]:
+        """
+        Return structure of three elements:
+            symbol: traded pair symbol
+            bids: List of OrderBookRow for bids
+            asks: List of OrderBookRow for asks
+        """
+
+        format_bids = [OrderBookRow(i[0], i[1]) for i in bids]
+        format_asks = [OrderBookRow(i[0], i[1]) for i in asks]
+
+        return {
+            "symbol": pair,
+            "bids": bids,
+            "asks": asks,
+        }

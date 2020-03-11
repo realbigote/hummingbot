@@ -50,10 +50,10 @@ cdef class PeatioOrderBook(OrderBook):
         if metadata:
             msg.update(metadata)
         return OrderBookMessage(OrderBookMessageType.DIFF, {
-            "trading_pair": msg["s"],
-            "update_id": msg["u"],
-            "bids": msg["b"],
-            "asks": msg["a"]
+            "trading_pair": msg["pair"],
+            "update_id": timestamp,
+            "bids": msg["bids"],
+            "asks": msg["asks"]
         }, timestamp=timestamp)
 
     @classmethod
@@ -62,8 +62,8 @@ cdef class PeatioOrderBook(OrderBook):
         if metadata:
             msg.update(metadata)
         return OrderBookMessage(OrderBookMessageType.SNAPSHOT, {
-            "trading_pair": msg["trading_pair"],
-            "update_id": msg["lastUpdateId"],
+            "trading_pair": msg["pair"],
+            "update_id": record.timestamp,
             "bids": msg["bids"],
             "asks": msg["asks"]
         }, timestamp=record["timestamp"] * 1e-3)
@@ -74,10 +74,10 @@ cdef class PeatioOrderBook(OrderBook):
         if metadata:
             msg.update(metadata)
         return OrderBookMessage(OrderBookMessageType.DIFF, {
-            "trading_pair": msg["s"],
-            "update_id": msg["u"],
-            "bids": msg["b"],
-            "asks": msg["a"]
+            "trading_pair": msg["pair"],
+            "update_id": record.timestamp,
+            "bids": msg["bids"],
+            "asks": msg["asks"]
         }, timestamp=record["timestamp"] * 1e-3)
 
     @classmethod
@@ -86,8 +86,8 @@ cdef class PeatioOrderBook(OrderBook):
         if metadata:
             msg.update(metadata)
         return OrderBookMessage(OrderBookMessageType.SNAPSHOT, {
-            "trading_pair": msg["trading_pair"],
-            "update_id": msg["lastUpdateId"],
+            "trading_pair": msg["pair"],
+            "update_id": record.timestamp,
             "bids": msg["bids"],
             "asks": msg["asks"]
         }, timestamp=record.timestamp * 1e-3)
@@ -98,10 +98,10 @@ cdef class PeatioOrderBook(OrderBook):
         if metadata:
             msg.update(metadata)
         return OrderBookMessage(OrderBookMessageType.DIFF, {
-            "trading_pair": msg["s"],
-            "update_id": msg["u"],
-            "bids": msg["b"],
-            "asks": msg["a"],
+            "trading_pair": msg["pair"],
+            "update_id": record.timestamp,
+            "bids": msg["bids"],
+            "asks": msg["asks"],
 
         }, timestamp=record.timestamp * 1e-3)
 
@@ -112,13 +112,13 @@ cdef class PeatioOrderBook(OrderBook):
             msg.update(metadata)
         ts = record.timestamp
         return OrderBookMessage(OrderBookMessageType.TRADE, {
-            "trading_pair": msg["s"],
-            "trade_type": float(TradeType.SELL.value) if msg["m"] else float(TradeType.BUY.value),
-            "trade_id": msg["t"],
+            "trading_pair": msg["market"],
+            "trade_type": msg["taker_type"],
+            "trade_id": msg["id"],
             "update_id": ts,
-            "price": msg["p"],
-            "amount": msg["q"]
-        }, timestamp=ts * 1e-3)
+            "price": msg["price"],
+            "amount": msg["amount"]
+        }, timestamp=ts * 1e-3) #not sure about this
 
     @classmethod
     def trade_message_from_exchange(cls, msg: Dict[str, any], metadata: Optional[Dict] = None):
@@ -136,6 +136,6 @@ cdef class PeatioOrderBook(OrderBook):
 
     @classmethod
     def from_snapshot(cls, msg: OrderBookMessage) -> "OrderBook":
-        retval = BinanceOrderBook()
+        retval = PeatioOrderBook()
         retval.apply_snapshot(msg.bids, msg.asks, msg.update_id)
         return retval
