@@ -34,6 +34,7 @@ EXCHANGE_INFO_URL = "https://opendax.tokamaktech.net/api/v2/peatio/public/market
 
 OrderBookRow = namedtuple("Book", ["price", "amount"])
 
+
 class PeatioAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
     MESSAGE_TIMEOUT = 30.0
@@ -74,14 +75,11 @@ class PeatioAPIOrderBookDataSource(OrderBookTrackerDataSource):
             market_data = await market_response.json()
             ticker_data = await ticker_response.json()
 
-            exchange_markets: Dict[str, Any] = {item["id"]: {
-                                                              "baseAsset": item["base_unit"],
-                                                              "quoteAsset": item["quote_unit"],
-                                                              "volume": ticker_data[item["id"]]["ticker"]["volume"],
-                                                              "lastPrice": ticker_data[item["id"]]["ticker"]["last"]  
-                                                            }
-                                             for item in market_data
-                                             if item["state"] == "enabled"}
+            exchange_markets: Dict[str, Any] = {item["id"]: {"baseAsset": item["base_unit"],
+                                                             "quoteAsset": item["quote_unit"],
+                                                             "volume": ticker_data[item["id"]]["ticker"]["volume"],
+                                                             "lastPrice": ticker_data[item["id"]]["ticker"]["last"]}
+                                                for item in market_data if item["state"] == "enabled"}
 
             all_markets: pd.DataFrame = pd.DataFrame.from_dict(data=exchange_markets, index="symbol")
             eth_price: float = float(all_markets.loc["ethusd"].lastPrice)
@@ -94,8 +92,7 @@ class PeatioAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     volume * fth_price if trading_pair.endswith("fth") else
                     volume
                 )
-                for trading_pair, volume in zip(all_markets.index,
-                                                     all_markets.volume.astype("float"))]
+                for trading_pair, volume in zip(all_markets.index, all_markets.volume.astype("float"))]
             all_markets.loc[:, "USDVolume"] = usd_volume
             all_markets.loc[:, "volume"] = all_markets.volume
 
@@ -124,6 +121,7 @@ class PeatioAPIOrderBookDataSource(OrderBookTrackerDataSource):
             if response.status != 200:
                 raise IOError(f"Error fetching Peatio market snapshot for {trading_pair}. "
                               f"HTTP status is {response.status}.")
+
             data: Dict[str, Any] = await response.json()
 
             # Need to add the symbol into the snapshot message for the Kafka message queue.
@@ -131,7 +129,7 @@ class PeatioAPIOrderBookDataSource(OrderBookTrackerDataSource):
             # snapshot belongs to.
 
             return _prepare_snapshot(trading_pair, data["bids"], data["asks"])
-    
+
     def _parse_raw_update(self, pair: str, raw_response: str) -> OrderBookMessage:
         """
         Parses raw update, if price for a tracked order identified by ID is 0, then order is deleted
@@ -227,8 +225,8 @@ class PeatioAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     async for raw_msg in self._inner_messages(ws):
                         msg = ujson.loads(raw_msg)
                         if (list(msg.keys())[0].endswith("trades")):
-                          trade_msg: OrderBookMessage = PeatioOrderBook.trade_message_from_exchange(msg)
-                          output.put_nowait(trade_msg)
+                            trade_msg: OrderBookMessage = PeatioOrderBook.trade_message_from_exchange(msg)
+                            output.put_nowait(trade_msg)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -250,12 +248,10 @@ class PeatioAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         print(msg)
                         key = list(msg.keys())[0]
                         if ('ob-inc' in key):
-                          pair = re.sub(r'\.ob-inc', '', key)
-                          parsed_msg = {
-                            "pair": pair,
-                            "bids": msg[key]["bids"],
-                            "asks": msg[key]["asks"]
-                          }
+                            pair = re.sub(r'\.ob-inc', '', key)
+                            parsed_msg = {"pair": pair,
+                                          "bids": msg[key]["bids"],
+                                          "asks": msg[key]["asks"]}
                           order_book_message: OrderBookMessage = PeatioOrderBook.diff_message_from_exchange(
                               parsed_msg, time.time())
                           output.put_nowait(order_book_message)

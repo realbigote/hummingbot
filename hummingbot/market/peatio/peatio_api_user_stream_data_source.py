@@ -34,8 +34,8 @@ class PeatioAPIUserStreamDataSource(UserStreamTrackerDataSource):
             cls._bausds_logger = logging.getLogger(__name__)
         return cls._bausds_logger
 
-    def __init__(self, peatio_client: PeatioClient):
-        self._peatio_client:PeatioClient = peatio_client
+    def __init__(self):
+        self._peatio_client = PeatioClient()
         self._current_listen_key = None
         self._listen_for_user_stream_task = None
         self._last_recv_time: float = 0
@@ -48,13 +48,12 @@ class PeatioAPIUserStreamDataSource(UserStreamTrackerDataSource):
     async def get_listen_key(self):
         async with aiohttp.ClientSession() as client:
             async with client.post(f"{PEATIO_API_ENDPOINT}{PEATIO_SIGNIN}",
-                                   headers={"email": self._peatio_client.email,
-                                            "password": self._peatio_client.password 
-                                           }) as response:
+                                   params={"email": self._peatio_client.email,
+                                           "password": self._peatio_client.password}) as response:
                 response: aiohttp.ClientResponse = response
                 if response.status != 200:
                     raise IOError(f"Error fetching Peatio user stream listen key. HTTP status is {response.status}.")
-                data: Dict[str, str] = await response.cookies
+                data = client.cookie_jar
                 return data
 
     async def ping_listen_key(self, listen_key: str) -> bool:
@@ -99,11 +98,11 @@ class PeatioAPIUserStreamDataSource(UserStreamTrackerDataSource):
             return
 
     async def get_ws_connection(self) -> websockets.WebSocketClientProtocol:
-        stream_url: str = f"wss://stream.binance.com:9443/ws/{self._current_listen_key}?stream=order&stream=trade"
+        stream_url: str = "wss://opendax.tokamaktech.net/api/v2/ranger/private/?stream=order&stream=trade"
         self.logger().info(f"Reconnecting to {stream_url}.")
 
         # Create the WS connection.
-        return websockets.connect(stream_url)
+        return websockets.connect(stream_url, extra_headers=websockets.http.Headers({"cookie": self._current_listen_key}))
 
     async def listen_for_user_stream(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         while True:
@@ -145,7 +144,8 @@ class PeatioAPIUserStreamDataSource(UserStreamTrackerDataSource):
                 self.logger().error("Unexpected error. Retrying after 5 seconds...", exc_info=True)
                 await asyncio.sleep(5.0)
 
+
 class PeatioClient:
-  def __init__(self):
-    self.email = os.getenv(PEATIO_EXCHANGE_API_KEY, "admin@barong.io")
-    self.password = os.getenv(PEATIO_PW, "0lDHd9ufs9t@")
+    def __init__(self):
+        self.email = os.getenv("PEATIO_EXCHANGE_API_KEY")
+        self.password = os.getenv("PEATIO_PW")
