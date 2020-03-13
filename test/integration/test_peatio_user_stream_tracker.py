@@ -1,7 +1,8 @@
 #!/usr/bin/env python
-
 from os.path import join, realpath
 import sys
+
+sys.path.insert(0, realpath(join(__file__, "../../../")))
 
 from hummingbot.market.peatio.peatio_user_stream_tracker import PeatioUserStreamTracker
 from hummingbot.core.data_type.user_stream_tracker import UserStreamTrackerDataSourceType
@@ -12,8 +13,6 @@ import asyncio
 import logging
 from typing import Optional
 import unittest
-
-sys.path.insert(0, realpath(join(__file__, "../../../")))
 
 logging.basicConfig(level=logging.DEBUG)
 
