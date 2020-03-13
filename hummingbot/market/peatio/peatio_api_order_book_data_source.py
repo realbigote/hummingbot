@@ -245,16 +245,14 @@ class PeatioAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     ws: websockets.WebSocketClientProtocol = ws
                     async for raw_msg in self._inner_messages(ws):
                         msg = ujson.loads(raw_msg)
-                        print(msg)
                         key = list(msg.keys())[0]
                         if ('ob-inc' in key):
                             pair = re.sub(r'\.ob-inc', '', key)
                             parsed_msg = {"pair": pair,
                                           "bids": msg[key]["bids"],
                                           "asks": msg[key]["asks"]}
-                          order_book_message: OrderBookMessage = PeatioOrderBook.diff_message_from_exchange(
-                              parsed_msg, time.time())
-                          output.put_nowait(order_book_message)
+                            order_book_message: OrderBookMessage = PeatioOrderBook.diff_message_from_exchange(parsed_msg, time.time())
+                            output.put_nowait(order_book_message)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -295,19 +293,20 @@ class PeatioAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 self.logger().error("Unexpected error.", exc_info=True)
                 await asyncio.sleep(5.0)
 
+
 def _prepare_snapshot(pair: str, bids: List, asks: List) -> Dict[str, Any]:
-        """
-        Return structure of three elements:
-            symbol: traded pair symbol
-            bids: List of OrderBookRow for bids
-            asks: List of OrderBookRow for asks
-        """
+    """
+    Return structure of three elements:
+        symbol: traded pair symbol
+        bids: List of OrderBookRow for bids
+        asks: List of OrderBookRow for asks
+    """
 
-        format_bids = [OrderBookRow(i[0], i[1]) for i in bids]
-        format_asks = [OrderBookRow(i[0], i[1]) for i in asks]
+    format_bids = [OrderBookRow(i[0], i[1]) for i in bids]
+    format_asks = [OrderBookRow(i[0], i[1]) for i in asks]
 
-        return {
-            "symbol": pair,
-            "bids": bids,
-            "asks": asks,
-        }
+    return {
+        "symbol": pair,
+        "bids": format_bids,
+        "asks": format_asks,
+    }
