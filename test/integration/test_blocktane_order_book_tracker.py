@@ -1,12 +1,11 @@
 #!/usr/bin/env python
 import math
-import time
 from os.path import join, realpath
 import sys; sys.path.insert(0, realpath(join(__file__, "../../../")))
 from hummingbot.core.event.event_logger import EventLogger
 from hummingbot.core.event.events import OrderBookEvent, OrderBookTradeEvent, TradeType
 
-from hummingbot.market.peatio.peatio_order_book_tracker import PeatioOrderBookTracker
+from hummingbot.market.blocktane.blocktane_order_book_tracker import BlocktaneOrderBookTracker
 import asyncio
 import logging
 from typing import (
@@ -26,8 +25,8 @@ from hummingbot.core.utils.async_utils import (
 )
 
 
-class PeatioOrderBookTrackerUnitTest(unittest.TestCase):
-    order_book_tracker: Optional[PeatioOrderBookTracker] = None
+class BlocktaneOrderBookTrackerUnitTest(unittest.TestCase):
+    order_book_tracker: Optional[BlocktaneOrderBookTracker] = None
     events: List[OrderBookEvent] = [
         OrderBookEvent.TradeEvent
     ]
@@ -38,7 +37,7 @@ class PeatioOrderBookTrackerUnitTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.ev_loop: asyncio.BaseEventLoop = asyncio.get_event_loop()
-        cls.order_book_tracker: PeatioOrderBookTracker = PeatioOrderBookTracker(
+        cls.order_book_tracker: BlocktaneOrderBookTracker = BlocktaneOrderBookTracker(
             data_source_type=OrderBookTrackerDataSourceType.EXCHANGE_API,
             trading_pairs=cls.trading_pairs)
         cls.order_book_tracker_task: asyncio.Task = safe_ensure_future(cls.order_book_tracker.start())

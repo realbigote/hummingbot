@@ -4,11 +4,11 @@ import sys
 
 sys.path.insert(0, realpath(join(__file__, "../../../")))
 
-from hummingbot.market.peatio.peatio_user_stream_tracker import PeatioUserStreamTracker
+from hummingbot.market.blocktane.blocktane_user_stream_tracker import BlocktaneUserStreamTracker
 from hummingbot.core.data_type.user_stream_tracker import UserStreamTrackerDataSourceType
 from hummingbot.core.utils.async_utils import safe_ensure_future
 
-from hummingbot.market.peatio.peatio_order_book_tracker import PeatioOrderBookTracker
+from hummingbot.market.blocktane.blocktane_order_book_tracker import BlocktaneOrderBookTracker
 import asyncio
 import logging
 from typing import Optional
@@ -17,12 +17,12 @@ import unittest
 logging.basicConfig(level=logging.DEBUG)
 
 
-class PeatioOrderBookTrackerUnitTest(unittest.TestCase):
-    order_book_tracker: Optional[PeatioOrderBookTracker] = None
+class BlocktaneOrderBookTrackerUnitTest(unittest.TestCase):
+    order_book_tracker: Optional[BlocktaneOrderBookTracker] = None
     @classmethod
     def setUpClass(cls):
         cls.ev_loop: asyncio.BaseEventLoop = asyncio.get_event_loop()
-        cls.user_stream_tracker: PeatioUserStreamTracker = PeatioUserStreamTracker(
+        cls.user_stream_tracker: BlocktaneUserStreamTracker = BlocktaneUserStreamTracker(
             UserStreamTrackerDataSourceType.EXCHANGE_API)
         cls.user_stream_tracker_task: asyncio.Task = safe_ensure_future(cls.user_stream_tracker.start())
 
