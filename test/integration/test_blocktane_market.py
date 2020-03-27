@@ -57,9 +57,6 @@ API_SECRET = "YYY" if API_MOCK_ENABLED else conf.kucoin_secret_key
 API_BASE_URL = "opendax.tokamaktech.net/api/v2/peatio"
 EXCHANGE_ORDER_ID = 20001
 
-def _transform_raw_message_patch(self, msg):
-    return json.loads(msg)
-
 
 class BlocktaneMarketUnitTest(unittest.TestCase):
     events: List[MarketEvent] = [
@@ -96,27 +93,27 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
             cls.web_app.update_response("get", API_BASE_URL, "/public/markets/tickers", FixtureBlocktane.MARKETS_TICKERS)
             cls.web_app.update_response("get", API_BASE_URL, "/account/balances", FixtureBlocktane.BALANCES)
             cls.web_app.update_response("get", API_BASE_URL, "/market/orders?state=wait", FixtureBlocktane.ORDERS_OPEN)
-            # cls._t_nonce_patcher = unittest.mock.patch("hummingbot.market.blocktane.blocktane_market.get_tracking_nonce")
-            # cls._t_nonce_mock = cls._t_nonce_patcher.start()
+            cls._t_nonce_patcher = unittest.mock.patch("hummingbot.market.blocktane.blocktane_market.get_tracking_nonce")
+            cls._t_nonce_mock = cls._t_nonce_patcher.start()
 
-            # cls._us_patcher = unittest.mock.patch("hummingbot.market.blocktane.blocktane_api_user_stream_data_source."
-            #                                       "BlocktaneAPIUserStreamDataSource._transform_raw_message",
-            #                                       autospec=True)
-            # cls._us_mock = cls._us_patcher.start()
-            # cls._us_mock.side_effect = _transform_raw_message_patch
+            cls._us_patcher = unittest.mock.patch("hummingbot.market.blocktane.blocktane_api_user_stream_data_source."
+                                                  "BlocktaneAPIUserStreamDataSource._transform_raw_message",
+                                                  autospec=True)
+            cls._us_mock = cls._us_patcher.start()
+            cls._us_mock.side_effect = _transform_raw_message_patch
 
-            # cls._ob_patcher = unittest.mock.patch("hummingbot.market.blocktane.blocktane_api_order_book_data_source."
-            #                                       "BlocktaneAPIOrderBookDataSource._transform_raw_message",
-            #                                       autospec=True)
-            # cls._ob_mock = cls._ob_patcher.start()
-            # cls._ob_mock.side_effect = _transform_raw_message_patch
+            cls._ob_patcher = unittest.mock.patch("hummingbot.market.blocktane.blocktane_api_order_book_data_source."
+                                                  "BlocktaneAPIOrderBookDataSource._transform_raw_message",
+                                                  autospec=True)
+            cls._ob_mock = cls._ob_patcher.start()
+            cls._ob_mock.side_effect = _transform_raw_message_patch
 
-            # HummingWsServerFactory.url_host_only = True
-            # ws_server = HummingWsServerFactory.start_new_server(WS_BASE_URL)
-            # cls._ws_patcher = unittest.mock.patch("websockets.connect", autospec=True)
-            # cls._ws_mock = cls._ws_patcher.start()
-            # cls._ws_mock.side_effect = HummingWsServerFactory.reroute_ws_connect
-            # ws_server.add_stock_response("queryExchangeState", FixtureBlocktane.WS_ORDER_BOOK_SNAPSHOT.copy())
+            HummingWsServerFactory.url_host_only = True
+            ws_server = HummingWsServerFactory.start_new_server(WS_BASE_URL)
+            cls._ws_patcher = unittest.mock.patch("websockets.connect", autospec=True)
+            cls._ws_mock = cls._ws_patcher.start()
+            cls._ws_mock.side_effect = HummingWsServerFactory.reroute_ws_connect
+            ws_server.add_stock_response("queryExchangeState", FixtureBlocktane.WS_ORDER_BOOK_SNAPSHOT.copy())
         
         cls.clock: Clock = Clock(ClockMode.REALTIME)
         cls.market: BlocktaneMarket = BlocktaneMarket(
