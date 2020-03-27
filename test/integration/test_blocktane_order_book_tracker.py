@@ -1,12 +1,11 @@
 #!/usr/bin/env python
 import math
-import time
 from os.path import join, realpath
 import sys; sys.path.insert(0, realpath(join(__file__, "../../../")))
 from hummingbot.core.event.event_logger import EventLogger
 from hummingbot.core.event.events import OrderBookEvent, OrderBookTradeEvent, TradeType
 
-from hummingbot.market.binance.binance_order_book_tracker import BinanceOrderBookTracker
+from hummingbot.market.blocktane.blocktane_order_book_tracker import BlocktaneOrderBookTracker
 import asyncio
 import logging
 from typing import (
@@ -26,19 +25,19 @@ from hummingbot.core.utils.async_utils import (
 )
 
 
-class BinanceOrderBookTrackerUnitTest(unittest.TestCase):
-    order_book_tracker: Optional[BinanceOrderBookTracker] = None
+class BlocktaneOrderBookTrackerUnitTest(unittest.TestCase):
+    order_book_tracker: Optional[BlocktaneOrderBookTracker] = None
     events: List[OrderBookEvent] = [
         OrderBookEvent.TradeEvent
     ]
     trading_pairs: List[str] = [
-        "BTCUSDT",
-        "XRPUSDT"
+        "cadfth",
+        "ethusd"
     ]
     @classmethod
     def setUpClass(cls):
         cls.ev_loop: asyncio.BaseEventLoop = asyncio.get_event_loop()
-        cls.order_book_tracker: BinanceOrderBookTracker = BinanceOrderBookTracker(
+        cls.order_book_tracker: BlocktaneOrderBookTracker = BlocktaneOrderBookTracker(
             data_source_type=OrderBookTrackerDataSourceType.EXCHANGE_API,
             trading_pairs=cls.trading_pairs)
         cls.order_book_tracker_task: asyncio.Task = safe_ensure_future(cls.order_book_tracker.start())
@@ -88,19 +87,19 @@ class BinanceOrderBookTrackerUnitTest(unittest.TestCase):
         # Wait 5 seconds to process some diffs.
         self.ev_loop.run_until_complete(asyncio.sleep(10.0))
         order_books: Dict[str, OrderBook] = self.order_book_tracker.order_books
-        btcusdt_book: OrderBook = order_books["BTCUSDT"]
-        xrpusdt_book: OrderBook = order_books["XRPUSDT"]
+        cadfth_book: OrderBook = order_books["cadfth"]
+        ethusd_book: OrderBook = order_books["ethusd"]
         # print(btcusdt_book.snapshot)
         # print("xrpusdt")
         # print(xrpusdt_book.snapshot)
-        self.assertGreaterEqual(btcusdt_book.get_price_for_volume(True, 10).result_price,
-                                btcusdt_book.get_price(True))
-        self.assertLessEqual(btcusdt_book.get_price_for_volume(False, 10).result_price,
-                             btcusdt_book.get_price(False))
-        self.assertGreaterEqual(xrpusdt_book.get_price_for_volume(True, 10000).result_price,
-                                xrpusdt_book.get_price(True))
-        self.assertLessEqual(xrpusdt_book.get_price_for_volume(False, 10000).result_price,
-                             xrpusdt_book.get_price(False))
+        self.assertGreaterEqual(ethusd_book.get_price_for_volume(True, 10).result_price,
+                                ethusd_book.get_price(True))
+        self.assertLessEqual(ethusd_book.get_price_for_volume(False, 10).result_price,
+                             ethusd_book.get_price(False))
+        self.assertGreaterEqual(cadfth_book.get_price_for_volume(True, 10000).result_price,
+                                cadfth_book.get_price(True))
+        self.assertLessEqual(cadfth_book.get_price_for_volume(False, 10000).result_price,
+                             cadfth_book.get_price(False))
 
 
 def main():
