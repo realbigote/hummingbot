@@ -2,6 +2,7 @@ from typing import List
 
 from hummingbot.market.bamboo_relay.bamboo_relay_order_book_tracker import BambooRelayOrderBookTracker
 from hummingbot.market.binance.binance_order_book_tracker import BinanceOrderBookTracker
+from hummingbot.market.blocktane.blocktane_order_book_tracker import BlocktaneOrderBookTracker
 from hummingbot.market.coinbase_pro.coinbase_pro_order_book_tracker import CoinbaseProOrderBookTracker
 from hummingbot.market.huobi.huobi_market import HuobiMarket
 from hummingbot.market.huobi.huobi_order_book_tracker import HuobiOrderBookTracker
@@ -14,6 +15,7 @@ from hummingbot.market.dolomite.dolomite_market import DolomiteMarket
 
 from hummingbot.market.bamboo_relay.bamboo_relay_market import BambooRelayMarket
 from hummingbot.market.binance.binance_market import BinanceMarket
+from hummingbot.market.blocktane.blocktane_market import BlocktaneMarket
 from hummingbot.market.coinbase_pro.coinbase_pro_market import CoinbaseProMarket
 
 from hummingbot.market.bittrex.bittrex_market import BittrexOrderBookTracker, BittrexMarket
@@ -23,6 +25,7 @@ from hummingbot.market.kucoin.kucoin_market import KucoinOrderBookTracker, Kucoi
 
 ORDER_BOOK_TRACKER_CLASS = {
     "binance": BinanceOrderBookTracker,
+    "blocktane": BlocktaneOrderBookTracker,
     "coinbase_pro": CoinbaseProOrderBookTracker,
     "bamboo_relay": BambooRelayOrderBookTracker,
     "radar_relay": RadarRelayOrderBookTracker,
@@ -37,6 +40,7 @@ ORDER_BOOK_TRACKER_CLASS = {
 
 MARKET_CLASSES = {
     "binance": BinanceMarket,
+    "blocktane": BlocktaneMarket,
     "coinbase_pro": CoinbaseProMarket,
     "bamboo_relay": BambooRelayMarket,
     "radar_relay": RadarRelayMarket,
