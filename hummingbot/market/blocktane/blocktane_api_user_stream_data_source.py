@@ -24,6 +24,8 @@ from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.market.blocktane.blocktane_auth import BlocktaneAuth
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
 
+WS_BASE_URL = "wss://opendax.tokamaktech.net/api/v2/ranger/private/?stream=order&stream=trade"
+
 class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
     MESSAGE_TIMEOUT = 30.0
@@ -93,11 +95,9 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
             return
 
     async def get_ws_connection(self):
-        stream_url: str = f"wss://opendax.tokamaktech.net/api/v2/ranger/private/?stream=order&stream=trade"
+        stream_url: str = WS_BASE_URL
         self.logger().info(f"Reconnecting to {stream_url}.")
 
-        # nonce = str(int(datetime.timestamp(datetime.now()) * 1000))
-        # signature = hmac.new(self._Blocktane_client.secret_key.encode(),msg=(nonce + self._Blocktane_client.access_key).encode(),digestmod=hashlib.sha256).hexdigest()
         # Create the WS connection.
         ws = websockets.connect(stream_url, extra_headers=self._blocktane_auth.generate_auth_payload())
 
@@ -114,8 +114,3 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
             except Exception:
                 self.logger().error("Unexpected error. Retrying after 5 seconds...", exc_info=True)
                 await asyncio.sleep(5.0)
-
-# class BlocktaneClient:
-#     def __init__(self):
-#         self.access_key = os.getenv("BLOCKTANE_EXCHANGE_API_KEY")
-#         self.secret_key = os.getenv("BLOCKTANE_SECRET_KEY")

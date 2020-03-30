@@ -55,7 +55,9 @@ API_MOCK_ENABLED = conf.mock_api_enabled is not None and conf.mock_api_enabled.l
 API_KEY = "XXX" if API_MOCK_ENABLED else conf.kucoin_api_key
 API_SECRET = "YYY" if API_MOCK_ENABLED else conf.kucoin_secret_key
 API_BASE_URL = "opendax.tokamaktech.net/api/v2/peatio"
-EXCHANGE_ORDER_ID = 20001
+WS_BASE_URL = "wss://opendax.tokamaktech.net/api/v2/ranger/public"
+
+logging.basicConfig(level=METRICS_LOG_LEVEL)
 
 
 class BlocktaneMarketUnitTest(unittest.TestCase):
@@ -93,20 +95,15 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
             cls.web_app.update_response("get", API_BASE_URL, "/public/markets/tickers", FixtureBlocktane.MARKETS_TICKERS)
             cls.web_app.update_response("get", API_BASE_URL, "/account/balances", FixtureBlocktane.BALANCES)
             cls.web_app.update_response("get", API_BASE_URL, "/market/orders?state=wait", FixtureBlocktane.ORDERS_OPEN)
+            cls.web_app.update_response("post", API_BASE_URL, "/market/orders", FixtureBlocktane.ORDERS_OPEN)
             cls._t_nonce_patcher = unittest.mock.patch("hummingbot.market.blocktane.blocktane_market.get_tracking_nonce")
             cls._t_nonce_mock = cls._t_nonce_patcher.start()
 
-            cls._us_patcher = unittest.mock.patch("hummingbot.market.blocktane.blocktane_api_user_stream_data_source."
-                                                  "BlocktaneAPIUserStreamDataSource._transform_raw_message",
-                                                  autospec=True)
-            cls._us_mock = cls._us_patcher.start()
-            cls._us_mock.side_effect = _transform_raw_message_patch
-
-            cls._ob_patcher = unittest.mock.patch("hummingbot.market.blocktane.blocktane_api_order_book_data_source."
-                                                  "BlocktaneAPIOrderBookDataSource._transform_raw_message",
-                                                  autospec=True)
-            cls._ob_mock = cls._ob_patcher.start()
-            cls._ob_mock.side_effect = _transform_raw_message_patch
+            # cls._ob_patcher = unittest.mock.patch("hummingbot.market.blocktane.blocktane_api_order_book_data_source."
+            #                                       "BlocktaneAPIOrderBookDataSource._transform_raw_message",
+            #                                       autospec=True)
+            # cls._ob_mock = cls._ob_patcher.start()
+            # cls._ob_mock.side_effect = _transform_raw_message_patch
 
             HummingWsServerFactory.url_host_only = True
             ws_server = HummingWsServerFactory.start_new_server(WS_BASE_URL)
@@ -119,7 +116,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         cls.market: BlocktaneMarket = BlocktaneMarket(
             blocktane_api_key=API_KEY,
             blocktane_secret_key=API_SECRET,
-            trading_pairs=["ETH-USDT"]
+            trading_pairs=["CAD-FTH"]
         )
 
         print("Initializing Blocktane market... this will take about a minute. ")
@@ -135,10 +132,10 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         if API_MOCK_ENABLED:
             cls.web_app.stop()
             cls._patcher.stop()
-            # cls._t_nonce_patcher.stop()
+            cls._t_nonce_patcher.stop()
             # cls._ob_patcher.stop()
             # cls._us_patcher.stop()
-            # cls._ws_patcher.stop()
+            cls._ws_patcher.stop()
 
     @classmethod
     async def wait_til_ready(cls):
@@ -189,44 +186,36 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
 
     def test_fee_overrides_config(self):
         fee_overrides_config_map["blocktane_taker_fee"].value = None
-        taker_fee: TradeFee = self.market.get_fee("LINK", "ETH", OrderType.MARKET, TradeType.BUY, Decimal(1),
+        taker_fee: TradeFee = self.market.get_fee("LINK", "FTH", OrderType.MARKET, TradeType.BUY, Decimal(1),
                                                   Decimal('0.1'))
         self.assertAlmostEqual(Decimal("0.0025"), taker_fee.percent)
         fee_overrides_config_map["blocktane_taker_fee"].value = Decimal('0.002')
-        taker_fee: TradeFee = self.market.get_fee("LINK", "ETH", OrderType.MARKET, TradeType.BUY, Decimal(1),
+        taker_fee: TradeFee = self.market.get_fee("LINK", "FTH", OrderType.MARKET, TradeType.BUY, Decimal(1),
                                                   Decimal('0.1'))
         self.assertAlmostEqual(Decimal("0.002"), taker_fee.percent)
         fee_overrides_config_map["blocktane_maker_fee"].value = None
-        maker_fee: TradeFee = self.market.get_fee("LINK", "ETH", OrderType.LIMIT, TradeType.BUY, Decimal(1),
+        maker_fee: TradeFee = self.market.get_fee("LINK", "FTH", OrderType.LIMIT, TradeType.BUY, Decimal(1),
                                                   Decimal('0.1'))
         self.assertAlmostEqual(Decimal("0.0025"), maker_fee.percent)
         fee_overrides_config_map["blocktane_maker_fee"].value = Decimal('0.005')
-        maker_fee: TradeFee = self.market.get_fee("LINK", "ETH", OrderType.LIMIT, TradeType.BUY, Decimal(1),
+        maker_fee: TradeFee = self.market.get_fee("LINK", "FTH", OrderType.LIMIT, TradeType.BUY, Decimal(1),
                                                   Decimal('0.1'))
         self.assertAlmostEqual(Decimal("0.005"), maker_fee.percent)
 
-    def place_order(self, is_buy, trading_pair, amount, order_type, price, nonce, post_resp, ws_resp):
-        global EXCHANGE_ORDER_ID
+    def place_order(self, is_buy, trading_pair, amount, order_type, price, nonce, fixture_resp, fixture_ws):
         order_id, exch_order_id = None, None
         if API_MOCK_ENABLED:
-            exch_order_id = f"BITTREX_{EXCHANGE_ORDER_ID}"
-            EXCHANGE_ORDER_ID += 1
             self._t_nonce_mock.return_value = nonce
-            resp = post_resp.copy()
-            resp["id"] = exch_order_id
-            side = 'buy' if is_buy else 'sell'
-            resp["direction"] = side.upper()
-            resp["type"] = order_type.name.upper()
-            if order_type == OrderType.MARKET:
-                del resp["limit"]
-            self.web_app.update_response("post", API_BASE_URL, "/v3/orders", resp)
+            resp = fixture_resp.copy()
+            exch_order_id = resp["id"]
+            self.web_app.update_response("post", API_BASE_URL, "/market/orders", resp)
         if is_buy:
             order_id = self.market.buy(trading_pair, amount, order_type, price)
         else:
             order_id = self.market.sell(trading_pair, amount, order_type, price)
         if API_MOCK_ENABLED:
-            resp = ws_resp.copy()
-            resp["content"]["o"]["OU"] = exch_order_id
+            resp = fixture_ws.copy()
+            # resp["content"]["o"]["OU"] = exch_order_id
             HummingWsServerFactory.send_json_threadsafe(WS_BASE_URL, resp, delay=1.0)
         return order_id, exch_order_id
 
@@ -238,8 +227,8 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.market.cancel(trading_pair, order_id)
 
     def test_limit_buy(self):
-        self.assertGreater(self.market.get_balance("USDT"), 20)
-        trading_pair = "ETH-USDT"
+        self.assertGreater(self.market.get_balance("CAD"), 20)
+        trading_pair = "CAD-FTH"
 
         self.run_parallel(asyncio.sleep(3))
         current_bid_price: Decimal = self.market.get_price(trading_pair, True)
@@ -261,8 +250,8 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.assertTrue([evt.order_type == OrderType.LIMIT for evt in trade_events])
         self.assertEqual(order_id, order_completed_event.order_id)
         self.assertAlmostEqual(quantized_amount, order_completed_event.base_asset_amount)
-        self.assertEqual("ETH", order_completed_event.base_asset)
-        self.assertEqual("USDT", order_completed_event.quote_asset)
+        self.assertEqual("FTH", order_completed_event.base_asset)
+        self.assertEqual("CAD", order_completed_event.quote_asset)
         self.assertAlmostEqual(base_amount_traded, order_completed_event.base_asset_amount)
         self.assertAlmostEqual(quote_amount_traded, order_completed_event.quote_asset_amount)
         self.assertTrue(any([isinstance(event, BuyOrderCreatedEvent) and event.order_id == order_id
@@ -271,7 +260,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.market_logger.clear()
 
     def test_limit_sell(self):
-        trading_pair = "ETH-USDT"
+        trading_pair = "CAD-FTH"
 
         current_ask_price: Decimal = self.market.get_price(trading_pair, False)
         ask_price: Decimal = current_ask_price - Decimal('0.005') * current_ask_price
@@ -292,8 +281,8 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.assertTrue([evt.order_type == OrderType.LIMIT for evt in trade_events])
         self.assertEqual(order_id, order_completed_event.order_id)
         self.assertAlmostEqual(quantized_amount, order_completed_event.base_asset_amount)
-        self.assertEqual("ETH", order_completed_event.base_asset)
-        self.assertEqual("USDT", order_completed_event.quote_asset)
+        self.assertEqual("FTH", order_completed_event.base_asset)
+        self.assertEqual("CAD", order_completed_event.quote_asset)
         self.assertAlmostEqual(base_amount_traded, order_completed_event.base_asset_amount)
         self.assertAlmostEqual(quote_amount_traded, order_completed_event.quote_asset_amount)
         self.assertTrue(any([isinstance(event, SellOrderCreatedEvent) and event.order_id == order_id
@@ -302,8 +291,8 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.market_logger.clear()
 
     def test_market_buy(self):
-        self.assertGreater(self.market.get_balance("USDT"), 20)
-        trading_pair = "ETH-USDT"
+        self.assertGreater(self.market.get_balance("CAD"), 20)
+        trading_pair = "CAD-FTH"
 
         amount: Decimal = Decimal("0.02")
         quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair, amount)
@@ -320,8 +309,8 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.assertTrue([evt.order_type == OrderType.MARKET for evt in trade_events])
         self.assertEqual(order_id, order_completed_event.order_id)
         self.assertAlmostEqual(quantized_amount, order_completed_event.base_asset_amount)
-        self.assertEqual("ETH", order_completed_event.base_asset)
-        self.assertEqual("USDT", order_completed_event.quote_asset)
+        self.assertEqual("FTH", order_completed_event.base_asset)
+        self.assertEqual("CAD", order_completed_event.quote_asset)
         self.assertAlmostEqual(base_amount_traded, order_completed_event.base_asset_amount)
         self.assertAlmostEqual(quote_amount_traded, order_completed_event.quote_asset_amount)
         self.assertTrue(any([isinstance(event, BuyOrderCreatedEvent) and event.order_id == order_id
@@ -330,8 +319,8 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.market_logger.clear()
 
     def test_market_sell(self):
-        trading_pair = "ETH-USDT"
-        self.assertGreater(self.market.get_balance("ETH"), 0.02)
+        trading_pair = "CAD-FTH"
+        self.assertGreater(self.market.get_balance("FTH"), 0.02)
 
         amount: Decimal = Decimal("0.02")
         quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair, amount)
@@ -347,8 +336,8 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.assertTrue([evt.order_type == OrderType.MARKET for evt in trade_events])
         self.assertEqual(order_id, order_completed_event.order_id)
         self.assertAlmostEqual(quantized_amount, order_completed_event.base_asset_amount)
-        self.assertEqual("ETH", order_completed_event.base_asset)
-        self.assertEqual("USDT", order_completed_event.quote_asset)
+        self.assertEqual("FTH", order_completed_event.base_asset)
+        self.assertEqual("CAD", order_completed_event.quote_asset)
         self.assertAlmostEqual(base_amount_traded, order_completed_event.base_asset_amount)
         self.assertAlmostEqual(quote_amount_traded, order_completed_event.quote_asset_amount)
         self.assertTrue(any([isinstance(event, SellOrderCreatedEvent) and event.order_id == order_id
@@ -357,7 +346,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.market_logger.clear()
 
     def test_cancel_order(self):
-        trading_pair = "ETH-USDT"
+        trading_pair = "CAD-FTH"
 
         current_bid_price: Decimal = self.market.get_price(trading_pair, True) * Decimal('0.80')
         quantize_bid_price: Decimal = self.market.quantize_order_price(trading_pair, current_bid_price)
@@ -375,8 +364,8 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.assertEqual(order_cancelled_event.order_id, order_id)
 
     def test_cancel_all(self):
-        self.assertGreater(self.market.get_balance("USDT"), 20)
-        trading_pair = "ETH-USDT"
+        self.assertGreater(self.market.get_balance("CAD"), 20)
+        trading_pair = "CAD-FTH"
 
         current_bid_price: Decimal = self.market.get_price(trading_pair, True) * Decimal('0.80')
         quantize_bid_price: Decimal = self.market.quantize_order_price(trading_pair, current_bid_price)
@@ -408,8 +397,8 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
 
     @unittest.skipUnless(any("test_list_orders" in arg for arg in sys.argv), "List order test requires manual action.")
     def test_list_orders(self):
-        self.assertGreater(self.market.get_balance("USDT"), 20)
-        trading_pair = "ETH-USDT"
+        self.assertGreater(self.market.get_balance("CAD"), 20)
+        trading_pair = "CAD-FTH"
 
         current_bid_price: Decimal = self.market.get_price(trading_pair, True) * Decimal('0.80')
         quantize_bid_price: Decimal = self.market.quantize_order_price(trading_pair, current_bid_price)
@@ -429,7 +418,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
     def test_orders_saving_and_restoration(self):
         config_path: str = "test_config"
         strategy_name: str = "test_strategy"
-        trading_pair: str = "ETH-USDT"
+        trading_pair: str = "CAD-FTH"
         sql: SQLConnectionManager = SQLConnectionManager(SQLConnectionType.TRADE_FILLS, db_path=self.db_path)
         order_id: Optional[str] = None
         recorder: MarketsRecorder = MarketsRecorder(sql, [self.market], config_path, strategy_name)
@@ -505,7 +494,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
     def test_order_fill_record(self):
         config_path: str = "test_config"
         strategy_name: str = "test_strategy"
-        trading_pair: str = "ETH-USDT"
+        trading_pair: str = "CAD-FTH"
         sql: SQLConnectionManager = SQLConnectionManager(SQLConnectionType.TRADE_FILLS, db_path=self.db_path)
         order_id: Optional[str] = None
         recorder: MarketsRecorder = MarketsRecorder(sql, [self.market], config_path, strategy_name)

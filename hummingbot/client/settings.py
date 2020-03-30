@@ -55,7 +55,7 @@ EXAMPLE_PAIRS = {
     "binance": "ZRX-ETH",
     "bitcoin_com": "ETH-BCH",
     "bittrex": "ZRX-ETH",
-    "blocktane": "CAD-FTH",
+    "blocktane": "cad-fth",
     "kucoin": "ETH-USDT",
     "coinbase_pro": "ETH-USDC",
     "dolomite": "WETH-DAI",

@@ -12,20 +12,23 @@ class FixtureBlocktane:
          "notice": ""}
     ]
 
-    MARKETS_TICKERS = [
-        {"symbol": "ETH-BTC", "lastTradeRate": "0.02739396", "bidRate": "0.02740726", "askRate": "0.02741416"},
-        {"symbol": "ETH-USDT", "lastTradeRate": "267.26100000", "bidRate": "266.96646649", "askRate": "267.22586512"},
-        {"symbol": "BTC-USDT", "lastTradeRate": "9758.81200003", "bidRate": "9760.51000000",
-         "askRate": "9765.82533436"},
-        {"symbol": "BTC-USD", "lastTradeRate": "9770.73200000", "bidRate": "9767.64400000",
-         "askRate": "9770.73200000"}
-    ]
+    MARKETS_TICKERS = {"cadfth":{"at":1585338346,"ticker":{"buy":"0.0","sell":"1.0","low":"1.0","high":"1.0","open":1.0,"last":"1.0","volume":"3.0","avg_price":"1.0","price_change_percent":"+0.00%","vol":"3.0"}},"fthtrst":{"at":1585338346,"ticker":{"buy":"0.0","sell":"1.0","low":"0.0","high":"0.0","open":"0.0","last":"0.0","volume":"0.0","avg_price":"0.0","price_change_percent":"+0.00%","vol":"0.0"}},"trstusd":{"at":1585338346,"ticker":{"buy":"1.0","sell":"0.0","low":"0.0","high":"0.0","open":"0.0","last":"0.0","volume":"0.0","avg_price":"0.0","price_change_percent":"+0.00%","vol":"0.0"}},"trxxrp":{"at":1585338346,"ticker":{"buy":"0.0","sell":"0.0","low":"0.0","high":"0.0","open":"0.0","last":"0.0","volume":"0.0","avg_price":"0.0","price_change_percent":"+0.00%","vol":"0.0"}},"usdcad":{"at":1585338346,"ticker":{"buy":"3.0","sell":"0.0","low":"0.0","high":"0.0","open":1.4,"last":"1.4","volume":"0.0","avg_price":"0.0","price_change_percent":"+0.00%","vol":"0.0"}},"fthusd":{"at":1585338346,"ticker":{"buy":"39.99","sell":"40.0","low":"0.0","high":"0.0","open":39.99,"last":"39.99","volume":"0.0","avg_price":"0.0","price_change_percent":"+0.00%","vol":"0.0"}},"ethusd":{"at":1585338346,"ticker":{"buy":"120.0","sell":"0.0","low":"0.0","high":"0.0","open":"0.0","last":"0.0","volume":"0.0","avg_price":"0.0","price_change_percent":"+0.00%","vol":"0.0"}}}
 
-    ORDER_PLACE_FILLED = {"id": "d7850281-0440-4478-879f-248499b2134d", "marketSymbol": "ETH-USDT", "direction": "BUY",
-                          "type": "LIMIT", "quantity": "0.02000000", "limit": "268.09208274",
-                          "timeInForce": "GOOD_TIL_CANCELLED", "fillQuantity": "0.02000000", "commission": "0.01333791",
-                          "proceeds": "5.33516582", "status": "CLOSED", "createdAt": "2020-02-24T09:38:13.1Z",
-                          "updatedAt": "2020-02-24T09:38:13.1Z", "closedAt": "2020-02-24T09:38:13.1Z"}
+    ORDER_PLACE_FILLED = {
+        "avg_price": "0.0",
+        "created_at": "2020-03-12T17:01:56+01:00",
+        "executed_volume": "0.0",
+        "id": 10440269,
+        "market": "ethusd",
+        "ord_type": "limit",
+        "origin_volume": "31.0",
+        "price": "160.82",
+        "remaining_volume": "31.0",
+        "side": "buy",
+        "state": "pending",
+        "trades_count": 0,
+        "updated_at": "2020-03-12T17:01:56+01:00"
+    }
 
     ORDER_PLACE_OPEN = {"id": "615aa7de-3ff9-486d-98d7-2d37aca212c9", "marketSymbol": "ETH-USDT", "direction": "BUY",
                         "type": "LIMIT", "quantity": "0.02000000", "limit": "205.64319999",
