@@ -59,8 +59,8 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
         async with aiohttp.ClientSession() as client:
 
             market_response, ticker_response = await safe_gather(
-                client.get("{BLOCKTANE_REST_URL}/public/markets"),
-                client.get("{BLOCKTANE_REST_URL}/public/markets/tickers")
+                client.get(f"{BLOCKTANE_REST_URL}/markets"),
+                client.get(f"{BLOCKTANE_REST_URL}/markets/tickers")
             )
             market_response: aiohttp.ClientResponse = market_response
 
@@ -80,11 +80,13 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
                                                              "volume": ticker_data[item["id"]]["ticker"]["volume"],
                                                              "lastPrice": ticker_data[item["id"]]["ticker"]["last"]}
                                                 for item in market_data if item["state"] == "enabled"}
-
-            all_markets: pd.DataFrame = pd.DataFrame.from_dict(data=exchange_markets, index="symbol")
+            columns = [item["id"] for item in market_data if item["state"] == "enabled"]
+            
+            all_markets: pd.DataFrame = pd.DataFrame(exchange_markets, columns = columns)
+            all_markets = all_markets.swapaxes("index", "columns")
             eth_price: float = float(all_markets.loc["ethusd"].lastPrice)
-            trst_price: float = float(all_markets.loc("trstusd").lastPrice)
-            fth_price: float = float(all_markets.loc("fthusd").lastPrice)
+            trst_price: float = float(all_markets.loc["trstusd"].lastPrice)
+            fth_price: float = float(all_markets.loc["fthusd"].lastPrice)
             usd_volume: float = [
                 (
                     volume * trst_price if trading_pair.endswith("trst") else
