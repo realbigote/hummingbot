@@ -94,40 +94,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         cdef:
             list lines = []
             list warning_lines = []
-        for market_pair in self._market_pairs:
-            warning_lines.extend(self.network_warning([market_pair.first, market_pair.second]))
 
-            markets_df = self.market_status_data_frame([market_pair.first, market_pair.second])
-            lines.extend(["", "  Markets:"] +
-                         ["    " + line for line in str(markets_df).split("\n")])
-
-            assets_df = self.wallet_balance_data_frame([market_pair.first, market_pair.second])
-            lines.extend(["", "  Assets:"] +
-                         ["    " + line for line in str(assets_df).split("\n")])
-
-            profitability_buy_2_sell_1, profitability_buy_1_sell_2 = \
-                self.c_calculate_arbitrage_top_order_profitability(market_pair)
-
-            lines.extend(
-                ["", "  Profitability:"] +
-                [f"    take bid on {market_pair.first.market.name}, "
-                 f"take ask on {market_pair.second.market.name}: {round(profitability_buy_2_sell_1 * 100, 4)} %"] +
-                [f"    take ask on {market_pair.first.market.name}, "
-                 f"take bid on {market_pair.second.market.name}: {round(profitability_buy_1_sell_2 * 100, 4)} %"])
-
-            # See if there're any pending market orders.
-            tracked_orders_df = self.tracked_taker_orders_data_frame
-            if len(tracked_orders_df) > 0:
-                df_lines = str(tracked_orders_df).split("\n")
-                lines.extend(["", "  Pending market orders:"] +
-                             ["    " + line for line in df_lines])
-            else:
-                lines.extend(["", "  No pending market orders."])
-
-            warning_lines.extend(self.balance_warning([market_pair.first, market_pair.second]))
-
-        if len(warning_lines) > 0:
-            lines.extend(["", "  *** WARNINGS ***"] + warning_lines)
+        lines.extend(["", "HEY STATUS!"])
 
         return "\n".join(lines)
 
