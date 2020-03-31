@@ -1,8 +1,9 @@
 import asyncio
 import logging
+import re
 import time
 from decimal import Decimal
-from typing import Optional, List, Dict, Any, AsyncIterable
+from typing import Optional, List, Dict, Any, AsyncIterable, Tuple
 
 import aiohttp
 import pandas as pd
@@ -39,6 +40,7 @@ from hummingbot.client.config.fee_overrides_config_map import fee_overrides_conf
 
 bm_logger = None
 s_decimal_0 = Decimal(0)
+TRADING_PAIR_SPLITTER = re.compile(r"^(\w+)(fth|eth|trst|cad|usd|trx|xrp)$")
 
 cdef class BlocktaneMarketTransactionTracker(TransactionTracker):
     cdef:
@@ -110,6 +112,15 @@ cdef class BlocktaneMarket(MarketBase):
         self._user_stream_tracker = BlocktaneUserStreamTracker(blocktane_auth=self._blocktane_auth, trading_pairs=trading_pairs)
         self._user_stream_tracker_task = None
         self._check_network_interval = 60.0
+
+    @staticmethod
+    def split_trading_pair(trading_pair: str) -> Optional[Tuple[str, str]]:
+        try:
+            m = TRADING_PAIR_SPLITTER.match(trading_pair)
+            return m.group(1), m.group(2)
+        # Exceptions are now logged as warnings in trading pair fetcher
+        except Exception as e:
+            return None
 
     @property
     def name(self) -> str:
