@@ -10,8 +10,7 @@ template_version: 2
 # Exchange and token parameters
 primary_market: null
 mirrored_market: null
-primary_market_trading_pair: null
-secondary_market_trading_pair: null
+market_trading_pair_to_mirror: null
 
 # For more detailed information, see:
 # https://docs.hummingbot.io/strategies/arbitrage/#configuration-parameters
