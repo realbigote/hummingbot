@@ -47,6 +47,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
     def __init__(self,
                  primary_market_pairs: List[MarketTradingPairTuple],
                  mirrored_market_pairs: List[MarketTradingPairTuple],
+                 two_sided_mirroring: bool,
                  logging_options: int = OPTION_LOG_ORDER_COMPLETED,
                  status_report_interval: float = 60.0,
                  next_trade_delay_interval: float = 15.0,
@@ -70,7 +71,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self._last_trade_timestamps = {}
         self._failed_order_tolerance = failed_order_tolerance
         self._cool_off_logged = False
-
+        self.two_sided_mirroring = two_sided_mirroring
         self._failed_market_order_count = 0
         self._last_failed_market_order_timestamp = 0
                                                                 
@@ -103,7 +104,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         """
         Clock tick entry point.
 
-        For arbitrage strategy, this function simply checks for the readiness and connection status of markets, and
+        For liquidity mirroring strategy, this function simply checks for the readiness and connection status of markets, and
         then delegates the processing of each market pair to c_process_market_pair().
 
         :param timestamp: current tick timestamp
@@ -121,7 +122,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 if not self._all_markets_ready:
                     # Markets not ready yet. Don't do anything.
                     if should_report_warnings:
-                        self.logger().warning(f"Markets are not ready. No arbitrage trading is permitted.")
+                        self.logger().warning(f"Markets are not ready. No trading is permitted.")
                     return
                 else:
                     if self.OPTION_LOG_STATUS_REPORT:
@@ -129,7 +130,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
             if not all([market.network_status is NetworkStatus.CONNECTED for market in self._sb_markets]):
                 if should_report_warnings:
-                    self.logger().warning(f"Markets are not all online. No arbitrage trading is permitted.")
+                    self.logger().warning(f"Markets are not all online. No trading is permitted.")
                 return
 
             for market_pair in self.mirrored_market_pairs:
@@ -147,6 +148,13 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             str order_id = buy_order_completed_event.order_id
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
+            if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
+                if buy_order_completed_event.base_asset_amount > self.two_sided_mirroring:
+                    for pair in self.mirrored_market_pairs:
+                        if (pair.base_asset, pair.quote_asset) == (market_trading_pair_tuple.base_asset, market_trading_pair_tuple.quote_asset):
+                            mirrored_market_pair = pair
+                    if self.c_ready_for_new_orders([mirrored_market_pair]):
+                        self.c_sell_with_specific_market(mirrored_market_pair,buy_order_completed_event.base_asset_amount,OrderType.LIMIT,buy_order_completed_event.quote_asset_amount)
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Market order completed on {market_trading_pair_tuple[0].name}: {order_id}")
@@ -161,6 +169,13 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             str order_id = sell_order_completed_event.order_id
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
+            if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
+                if sell_order_completed_event.quote_asset_amount > self.two_sided_mirroring:
+                    for pair in self.mirrored_market_pairs:
+                        if (pair.base_asset, pair.quote_asset) == (market_trading_pair_tuple.base_asset, market_trading_pair_tuple.quote_asset):
+                            mirrored_market_pair = pair
+                    if self.c_ready_for_new_orders([mirrored_market_pair]):
+                        self.c_buy_with_specific_market(mirrored_market_pair,sell_order_completed_event.base_asset_amount,OrderType.LIMIT,sell_order_completed_event.quote_asset_amount)
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Market order completed on {market_trading_pair_tuple[0].name}: {order_id}")
@@ -205,7 +220,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
     cdef bint c_ready_for_new_orders(self, list market_trading_pair_tuples):
         """
-        Check whether we are ready for making new arbitrage orders or not. Conditions where we should not make further
+        Check whether we are ready for making new mirroring orders or not. Conditions where we should not make further
         new orders include:
 
          1. There's an in-flight market order that's still being resolved.
@@ -214,7 +229,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         If none of the above conditions are matched, then we're ready for new orders.
 
-        :param market_trading_pair_tuples: list of arbitrage market pairs
+        :param market_trading_pair_tuples: list of mirroring market pairs
         :return: True if ready, False if not
         """
         cdef:
@@ -258,7 +273,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if self._cool_off_logged:
             self.log_with_clock(
                 logging.INFO,
-                f"Cool off completed. Arbitrage strategy is now ready for new orders."
+                f"Cool off completed. Liquidity Mirroring strategy is now ready for new orders."
             )
             # reset cool off log tag when strategy is ready for new orders
             self._cool_off_logged = False
@@ -266,13 +281,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         return True
 
     cdef c_process_market_pair(self, object market_pair):
-        """
-        Checks which direction is more profitable (buy/sell on exchange 2/1 or 1/2) and sends the more profitable
-        direction for execution.
-
-        :param market_pair: arbitrage market pair
-        """
-
         primary_market_pair = None
 
         for pair in self.primary_market_pairs:

@@ -9,6 +9,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
     cdef:
         list mirrored_market_pairs
         list primary_market_pairs
+        float two_sided_mirroring
         bint _all_markets_ready
         dict _order_id_to_market
         double _status_report_interval

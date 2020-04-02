@@ -13,6 +13,7 @@ def start(self):
     primary_market = liquidity_mirroring_config_map.get("primary_market").value.lower()
     mirrored_market = liquidity_mirroring_config_map.get("mirrored_market").value.lower()
     mirrored_trading_pair = liquidity_mirroring_config_map.get("market_trading_pair_to_mirror").value
+    two_sided_mirroring = liquidity_mirroring_config_map.get("two_sided_mirroring").value
     try:
         primary_market_trading_pair: str = self._convert_to_exchange_trading_pair(primary_market, [mirrored_trading_pair])[0]
         mirrored_market_trading_pair: str = self._convert_to_exchange_trading_pair(mirrored_market, [mirrored_trading_pair])[0]
@@ -33,4 +34,5 @@ def start(self):
     self.mirrored_market_trading_pair_tuples = [MarketTradingPairTuple(self.markets[mirrored_market], mirrored_market_trading_pair, secondary_assets[0][0], secondary_assets[0][1])]
     self.strategy = LiquidityMirroringStrategy(primary_market_pairs=self.primary_market_trading_pair_tuples,
                                                mirrored_market_pairs=self.mirrored_market_trading_pair_tuples,
+                                               two_sided_mirroring=two_sided_mirroring,
                                                logging_options=LiquidityMirroringStrategy.OPTION_LOG_ALL)
