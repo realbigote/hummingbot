@@ -50,7 +50,7 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
     def __init__(self, trading_pairs: Optional[List[str]] = None):
         super().__init__()
-        self._trading_pairs: Optional[Dict[str, Any]] = trading_pairs
+        self._trading_pairs: Optional[List[str]] = trading_pairs
         self._order_book_create_function = lambda: OrderBook()
 
     @classmethod
@@ -116,7 +116,6 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
     @staticmethod
     async def get_snapshot(client: aiohttp.ClientSession, trading_pair: str, limit: int = 1000) -> Dict[str, Any]:
-        trading_pair = trading_pair.replace("-","").lower()
         request_url: str = f"{BLOCKTANE_REST_URL}/markets/{trading_pair}/depth"
         BlocktaneAPIOrderBookDataSource.logger().info(request_url)
 

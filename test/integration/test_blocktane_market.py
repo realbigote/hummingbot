@@ -1,27 +1,23 @@
 #!/usr/bin/env python
+import os
+import json 
+import time
 import logging
+import asyncio
+import unittest
+import contextlib
+from unittest import mock
+from decimal import Decimal
+from typing import List, Optional
 from os.path import join, realpath
 import sys; sys.path.insert(0, realpath(join(__file__, "../../../")))
-
-from hummingbot.logger.struct_logger import METRICS_LOG_LEVEL
-
-import asyncio
-import contextlib
-from decimal import Decimal
-import os
-import time
-from typing import (
-    List,
-    Optional
-)
-import unittest
 
 import conf
 from hummingbot.core.clock import (
     Clock,
     ClockMode
 )
-from hummingbot.core.event.event_logger import EventLogger
+from hummingbot.model.order import Order
 from hummingbot.core.event.events import (
     MarketEvent,
     BuyOrderCompletedEvent,
@@ -33,22 +29,21 @@ from hummingbot.core.event.events import (
     TradeFee,
     TradeType,
 )
-from hummingbot.market.blocktane.blocktane_market import BlocktaneMarket
+from hummingbot.model.trade_fill import TradeFill
 from hummingbot.market.market_base import OrderType
-from hummingbot.market.markets_recorder import MarketsRecorder
 from hummingbot.model.market_state import MarketState
-from hummingbot.model.order import Order
 from hummingbot.model.sql_connection_manager import (
     SQLConnectionManager,
     SQLConnectionType
 )
-from hummingbot.model.trade_fill import TradeFill
-from hummingbot.client.config.fee_overrides_config_map import fee_overrides_config_map
+from hummingbot.core.event.event_logger import EventLogger
 from test.integration.humming_web_app import HummingWebApp
+from hummingbot.logger.struct_logger import METRICS_LOG_LEVEL
+from hummingbot.market.markets_recorder import MarketsRecorder
 from test.integration.humming_ws_server import HummingWsServerFactory
+from hummingbot.market.blocktane.blocktane_market import BlocktaneMarket
 from test.integration.assets.mock_data.fixture_blocktane import FixtureBlocktane
-from unittest import mock
-import json
+from hummingbot.client.config.fee_overrides_config_map import fee_overrides_config_map
 
 logging.basicConfig(level=METRICS_LOG_LEVEL)
 API_MOCK_ENABLED = conf.mock_api_enabled is not None and conf.mock_api_enabled.lower() in ['true', 'yes', '1']
@@ -56,9 +51,7 @@ API_KEY = "XXX" if API_MOCK_ENABLED else conf.kucoin_api_key
 API_SECRET = "YYY" if API_MOCK_ENABLED else conf.kucoin_secret_key
 API_BASE_URL = "opendax.tokamaktech.net/api/v2/peatio"
 WS_BASE_URL = "wss://opendax.tokamaktech.net/api/v2/ranger/public"
-
 logging.basicConfig(level=METRICS_LOG_LEVEL)
-
 
 class BlocktaneMarketUnitTest(unittest.TestCase):
     events: List[MarketEvent] = [
@@ -116,10 +109,11 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         cls.market: BlocktaneMarket = BlocktaneMarket(
             blocktane_api_key=API_KEY,
             blocktane_secret_key=API_SECRET,
-            trading_pairs=["CAD-FTH"]
+            trading_pairs=["cadfth"]
         )
 
         print("Initializing Blocktane market... this will take about a minute. ")
+        cls.ev_loop: asyncio.BaseEventLoop = asyncio.get_event_loop()
         cls.clock.add_iterator(cls.market)
         cls.stack = contextlib.ExitStack()
         cls._clock = cls.stack.enter_context(cls.clock)
@@ -457,10 +451,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
             self.clock.remove_iterator(self.market)
             for event_tag in self.events:
                 self.market.remove_listener(event_tag, self.market_logger)
-            self.market: BlocktaneMarket = BlocktaneMarket(
-                blocktane_api_key=API_KEY,
-                blocktane_secret_key=API_SECRET,
-                trading_pairs=["XRP-BTC"]
+            self.market: BlocktaneMarket = BlocktaneMarket( blocktane_api_key=API_KEY, blocktane_secret_key=API_SECRET, trading_pairs=["XRP-BTC"]
             )
             for event_tag in self.events:
                 self.market.add_listener(event_tag, self.market_logger)
@@ -536,4 +527,5 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    logging.getLogger("hummingbot.core.event.event_reporter").setLevel(logging.WARNING)
     unittest.main()
