@@ -95,8 +95,30 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         cdef:
             list lines = []
             list warning_lines = []
+        for market_pair in (self.primary_market_pairs + self.mirrored_market_pairs):
+            warning_lines.extend(self.network_warning([market_pair]))
+            self.logger().warning(f"{market_pair}")
+            markets_df = self.market_status_data_frame([market_pair])
+            lines.extend(["", "  Markets:"] +
+                         ["    " + line for line in str(markets_df).split("\n")])
 
-        lines.extend(["", "HEY STATUS!"])
+            assets_df = self.wallet_balance_data_frame([market_pair])
+            lines.extend(["", "  Assets:"] +
+                         ["    " + line for line in str(assets_df).split("\n")])
+
+            # See if there're any pending market orders.
+            tracked_orders_df = self.tracked_taker_orders_data_frame
+            if len(tracked_orders_df) > 0:
+                df_lines = str(tracked_orders_df).split("\n")
+                lines.extend(["", "  Pending market orders:"] +
+                             ["    " + line for line in df_lines])
+            else:
+                lines.extend(["", "  No pending market orders."])
+
+            warning_lines.extend(self.balance_warning([market_pair]))
+
+        if len(warning_lines) > 0:
+            lines.extend(["", "  *** WARNINGS ***"] + warning_lines)
 
         return "\n".join(lines)
 
@@ -157,7 +179,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.c_sell_with_specific_market(mirrored_market_pair,buy_order_completed_event.base_asset_amount,OrderType.LIMIT,buy_order_completed_event.quote_asset_amount)
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
-                                    f"Market order completed on {market_trading_pair_tuple[0].name}: {order_id}")
+                                    f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id}")
 
     cdef c_did_complete_sell_order(self, object sell_order_completed_event):
         """
@@ -178,7 +200,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.c_buy_with_specific_market(mirrored_market_pair,sell_order_completed_event.base_asset_amount,OrderType.LIMIT,sell_order_completed_event.quote_asset_amount)
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
-                                    f"Market order completed on {market_trading_pair_tuple[0].name}: {order_id}")
+                                    f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id}")
 
     cdef c_did_fail_order(self, object fail_event):
         """
@@ -306,4 +328,3 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 best_ask_price = ask.price
 
         self.c_sell_with_specific_market(primary_market_pair,best_ask.amount,OrderType.LIMIT,best_ask.price)
-
