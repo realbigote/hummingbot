@@ -103,7 +103,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             list warning_lines = []
         for market_pair in (self.primary_market_pairs + self.mirrored_market_pairs):
             warning_lines.extend(self.network_warning([market_pair]))
-            self.logger().warning(f"{market_pair}")
             markets_df = self.market_status_data_frame([market_pair])
             lines.extend(["", "  Markets:"] +
                          ["    " + line for line in str(markets_df).split("\n")])
@@ -332,16 +331,18 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 best_ask_price = ask.price
 
         self.adjust_primary_orderbook(primary_market_pair, best_bid, best_ask)
+        self.adjust_mirrored_orderbook(market_pair, best_bid, best_ask)
 
     def adjust_primary_orderbook(self, primary_market_pair, best_bid, best_ask):
-        bid_price_diff = abs(self.primary_best_bid - float(best_bid.price))
-        ask_price_diff = abs(self.primary_best_ask - float(best_ask.price))
+        bid_price_diff = abs(1 - (self.primary_best_bid/float(best_bid.price)))
+        ask_price_diff = abs(1 - (self.primary_best_ask/float(best_ask.price)))
+        active_orders = self._sb_order_tracker.market_pair_to_active_orders
 
         if (bid_price_diff > 0.01):
             self.primary_best_bid = float(best_bid.price)
             bid_inc = self.primary_best_bid * 0.01
-            if primary_market_pair in self._sb_order_tracker.market_pair_to_active_orders:
-                for order in self._sb_order_tracker.market_pair_to_active_orders[primary_market_pair]:
+            if primary_market_pair in active_orders:
+                for order in active_orders[primary_market_pair]:
                     if order.is_buy:
                         self.c_cancel_order(primary_market_pair,order.client_order_id)
             self.c_buy_with_specific_market(primary_market_pair,best_bid.amount,OrderType.LIMIT,best_bid.price)
@@ -354,8 +355,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if (ask_price_diff > 0.01):
             self.primary_best_ask = float(best_ask.price)
             ask_inc = self.primary_best_ask * 0.01
-            if primary_market_pair in self._sb_order_tracker.market_pair_to_active_orders:
-                for order in self._sb_order_tracker.market_pair_to_active_orders[primary_market_pair]:
+            if primary_market_pair in active_orders:
+                for order in active_orders[primary_market_pair]:
                     if not order.is_buy:
                         self.c_cancel_order(primary_market_pair,order.client_order_id)
             self.c_sell_with_specific_market(primary_market_pair,best_ask.amount,OrderType.LIMIT,best_ask.price)
@@ -365,4 +366,22 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 price += ask_inc 
                 self.c_sell_with_specific_market(primary_market_pair,best_ask.amount,OrderType.LIMIT,Decimal(price))
 
+    def adjust_mirrored_orderbook(self,mirrored_market_pair,best_bid,best_ask):
+        bid_price_diff = abs(1 - (self.mirrored_best_bid/float(best_bid.price)))
+        ask_price_diff = abs(1 - (self.mirrored_best_ask/float(best_ask.price)))
+        active_orders = self._sb_order_tracker.market_pair_to_active_orders
+        
+        cumulative_bid_volume = 0
+        cumulative_ask_volume = 0
+        if mirrored_market_pair in active_orders:
+            for order in active_orders[mirrored_market_pair]:
+                if order.is_buy:
+                    cumulative_ask_volume += order.quantity
+                else:
+                    cumulative_bid_volume += order.quantity
 
+
+        if (bid_price_diff > 0.01):
+            self.mirrored_best_bid = best_bid.price
+        if (ask_price_diff > 0.01):
+            self.mirrored_best_ask = best_ask.price
