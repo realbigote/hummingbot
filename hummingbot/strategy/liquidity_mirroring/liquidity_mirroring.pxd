@@ -10,8 +10,13 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         list mirrored_market_pairs
         list primary_market_pairs
         float two_sided_mirroring
+        float primary_best_bid
+        float primary_best_ask
+        float mirrored_best_bid
+        float mirrored_best_ask
         bint _all_markets_ready
         dict _order_id_to_market
+        dict market_orderbook_heaps
         double _status_report_interval
         double _last_timestamp
         dict _last_trade_timestamps
