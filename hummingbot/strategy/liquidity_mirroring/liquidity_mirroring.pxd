@@ -14,6 +14,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         float primary_best_ask
         float mirrored_best_bid
         float mirrored_best_ask
+        float spread_percent
         bint _all_markets_ready
         dict _order_id_to_market
         dict market_orderbook_heaps

@@ -43,6 +43,12 @@ liquidity_mirroring_config_map = {
         prompt="Two-Sided Mirroring Threshold (inf for one-sided) >>> ",
         default=float("inf"),
         type_str="float" 
+    ),
+    "spread_percent": ConfigVar(
+        key="spread_percent",
+        prompt="Enter your desired spread percentage >>> ",
+        default=0.001,
+        type_str="float"
     )
 }
 

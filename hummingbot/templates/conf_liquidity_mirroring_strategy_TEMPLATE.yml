@@ -12,6 +12,7 @@ primary_market: null
 mirrored_market: null
 market_trading_pair_to_mirror: null
 two_sided_mirroring: null
+spread_percent: null
 
 # For more detailed information, see:
 # https://docs.hummingbot.io/strategies/arbitrage/#configuration-parameters
