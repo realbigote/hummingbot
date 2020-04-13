@@ -15,6 +15,8 @@ def start(self):
     mirrored_trading_pair = liquidity_mirroring_config_map.get("market_trading_pair_to_mirror").value
     two_sided_mirroring = liquidity_mirroring_config_map.get("two_sided_mirroring").value
     spread_percent = liquidity_mirroring_config_map.get("spread_percent").value
+    max_exposure_base = liquidity_mirroring_config_map.get("max_exposure_base").value
+    max_exposure_quote = liquidity_mirroring_config_map.get("max_exposure_quote").value
     try:
         primary_market_trading_pair: str = self._convert_to_exchange_trading_pair(primary_market, [mirrored_trading_pair])[0]
         mirrored_market_trading_pair: str = self._convert_to_exchange_trading_pair(mirrored_market, [mirrored_trading_pair])[0]
@@ -37,4 +39,6 @@ def start(self):
                                                mirrored_market_pairs=self.mirrored_market_trading_pair_tuples,
                                                two_sided_mirroring=two_sided_mirroring,
                                                spread_percent=spread_percent,
+                                               max_exposure_base=max_exposure_base,
+                                               max_exposure_quote=max_exposure_quote,
                                                logging_options=LiquidityMirroringStrategy.OPTION_LOG_ALL)

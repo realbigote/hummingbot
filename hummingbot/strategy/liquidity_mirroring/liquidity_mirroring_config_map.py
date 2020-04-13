@@ -49,6 +49,16 @@ liquidity_mirroring_config_map = {
         prompt="Enter your desired spread percentage >>> ",
         default=0.001,
         type_str="float"
-    )
+    ),
+    "max_exposure_base": ConfigVar(
+        key="max_exposure_base",
+        prompt="Enter the max desired exposure for the base asset >>> ",
+        type_str="float"
+    ),
+    "max_exposure_quote": ConfigVar(
+        key="max_exposure_quote",
+        prompt="Enter the max desired exposure for the quote asset >>> ",
+        type_str="float"
+    ),
 }
 

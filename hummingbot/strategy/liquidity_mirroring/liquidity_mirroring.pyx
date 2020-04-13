@@ -49,6 +49,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                  mirrored_market_pairs: List[MarketTradingPairTuple],
                  two_sided_mirroring: bool,
                  spread_percent: float,
+                 max_exposure_base: float,
+                 max_exposure_quote: float,
                  logging_options: int = OPTION_LOG_ORDER_COMPLETED,
                  status_report_interval: float = 60.0,
                  next_trade_delay_interval: float = 15.0,
@@ -91,6 +93,18 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.mirrored_best_ask = float("inf")
 
         self.spread_percent = spread_percent
+        self.max_exposure_base = max_exposure_base
+        self.max_exposure_quote = max_exposure_quote
+
+        bid_amount_percents = [0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1]
+        ask_amount_percents = [0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1]
+
+        self.bid_amounts = []
+        self.ask_amounts = []
+        for amount in bid_amount_percents:
+            self.bid_amounts.append(amount * self.max_exposure_quote)
+        for amount in ask_amount_percents:
+            self.ask_amounts.append(amount * self.max_exposure_base)
 
     @property
     def tracked_taker_orders(self) -> List[Tuple[MarketBase, MarketOrder]]:
@@ -317,26 +331,16 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             if (pair.base_asset, pair.quote_asset) == (market_pair.base_asset, market_pair.quote_asset):
                 primary_market_pair = pair
 
-        bids = market_pair.order_book_bid_entries()
-        best_bid = None
-        best_bid_price = 0
-        for bid in bids:
-            if bid.price > best_bid_price:
-                best_bid = bid
-                best_bid_price = bid.price
+        bids = list(market_pair.order_book_bid_entries())
+        best_bid = bids[0]
 
-        asks = market_pair.order_book_ask_entries()
-        best_ask = None
-        best_ask_price = float('inf')
-        for ask in asks:
-            if ask.price < best_ask_price:
-                best_ask = ask
-                best_ask_price = ask.price
+        asks = list(market_pair.order_book_ask_entries())
+        best_ask = asks[0]
 
-        self.adjust_primary_orderbook(primary_market_pair, best_bid, best_ask)
+        self.adjust_primary_orderbook(primary_market_pair, best_bid, best_ask, bids, asks)
         self.adjust_mirrored_orderbook(market_pair, best_bid, best_ask)
 
-    def adjust_primary_orderbook(self, primary_market_pair, best_bid, best_ask):
+    def adjust_primary_orderbook(self, primary_market_pair, best_bid, best_ask, bids, asks):
         spread = float(best_ask.price - best_bid.price)
         spread_factor = (spread)/float(best_ask.price)
         if spread_factor < self.spread_percent:
@@ -352,33 +356,39 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         active_orders = self._sb_order_tracker.market_pair_to_active_orders
 
-        if (bid_price_diff > 0.001):
+        if (bid_price_diff > 0.0001):
             self.primary_best_bid = adjusted_bid
             bid_inc = self.primary_best_bid * 0.001
             if primary_market_pair in active_orders:
                 for order in active_orders[primary_market_pair]:
                     if order.is_buy:
                         self.c_cancel_order(primary_market_pair,order.client_order_id)
-            self.c_buy_with_specific_market(primary_market_pair,best_bid.amount,OrderType.LIMIT,Decimal(adjusted_bid))
+            amount = min(best_bid.amount, (self.bid_amounts[0]/adjusted_bid))
+            self.c_buy_with_specific_market(primary_market_pair,Decimal(amount),OrderType.LIMIT,Decimal(adjusted_bid))
             
             price = self.primary_best_bid
             for i in range(0,8):
-                price -= bid_inc 
-                self.c_buy_with_specific_market(primary_market_pair,best_bid.amount,OrderType.LIMIT,Decimal(price))
+                price -= bid_inc
+                min_price = min(price, bids[i+1].price)
+                amount = min(bids[i+1].amount, (self.bid_amounts[i+1]/adjusted_bid)) 
+                self.c_buy_with_specific_market(primary_market_pair,Decimal(amount),OrderType.LIMIT,Decimal(min_price))
         
-        if (ask_price_diff > 0.001):
+        if (ask_price_diff > 0.0001):
             self.primary_best_ask = adjusted_ask
             ask_inc = self.primary_best_ask * 0.001
             if primary_market_pair in active_orders:
                 for order in active_orders[primary_market_pair]:
                     if not order.is_buy:
                         self.c_cancel_order(primary_market_pair,order.client_order_id)
-            self.c_sell_with_specific_market(primary_market_pair,best_ask.amount,OrderType.LIMIT,Decimal(adjusted_ask))
+            amount = min(best_ask.amount, self.ask_amounts[0])
+            self.c_sell_with_specific_market(primary_market_pair,Decimal(amount),OrderType.LIMIT,Decimal(adjusted_ask))
 
             price = self.primary_best_ask
             for i in range(0,8):
-                price += ask_inc 
-                self.c_sell_with_specific_market(primary_market_pair,best_ask.amount,OrderType.LIMIT,Decimal(price))
+                price += ask_inc
+                max_price = max(price, asks[i+1].price)
+                amount = min(asks[i+1].amount, self.ask_amounts[i+1]) 
+                self.c_sell_with_specific_market(primary_market_pair,Decimal(amount),OrderType.LIMIT,Decimal(price))
 
     def adjust_mirrored_orderbook(self,mirrored_market_pair,best_bid,best_ask):
         bid_price_diff = abs(1 - (self.mirrored_best_bid/float(best_bid.price)))
