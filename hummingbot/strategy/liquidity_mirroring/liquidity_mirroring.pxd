@@ -19,7 +19,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         float spread_percent
         float max_exposure_base
         float max_exposure_quote
+        float max_loss
         bint _all_markets_ready
+        dict outstanding_offsets
         dict _order_id_to_market
         dict market_orderbook_heaps
         double _status_report_interval

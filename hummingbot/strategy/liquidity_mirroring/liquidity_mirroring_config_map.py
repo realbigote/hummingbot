@@ -60,5 +60,10 @@ liquidity_mirroring_config_map = {
         prompt="Enter the max desired exposure for the quote asset >>> ",
         type_str="float"
     ),
+    "max_offset_loss": ConfigVar(
+        key="max_offset_loss",
+        prompt="Enter your maximum tolerated offset loss >>> ",
+        type_str="float"
+    )
 }
 

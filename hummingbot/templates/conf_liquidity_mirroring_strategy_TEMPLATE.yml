@@ -15,6 +15,7 @@ two_sided_mirroring: null
 spread_percent: null
 max_exposure_base: null
 max_exposure_quote: null
+max_offset_loss: null
 
 # For more detailed information, see:
 # https://docs.hummingbot.io/strategies/arbitrage/#configuration-parameters
