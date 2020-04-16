@@ -1,3 +1,4 @@
+import logging
 from decimal import Decimal
 from typing import (
     Any,
@@ -90,6 +91,7 @@ cdef class BlocktaneInFlightOrder(InFlightOrderBase):
 
     def update_with_trade_update(self, trade_update: Dict[str, Any]):
         trade_id = trade_update["id"]
+        logging.error("In Flight Order Tracking: " + str(trade_update))
         # trade_update["orderId"] is type int
         if str(trade_update["orderId"]) != self.exchange_order_id or trade_id in self.trade_id_set:
             # trade already recorded

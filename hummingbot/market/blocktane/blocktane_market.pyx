@@ -75,7 +75,7 @@ cdef class BlocktaneMarket(MarketBase):
     UPDATE_ORDERS_INTERVAL = 10.0
     ORDER_NOT_EXIST_CONFIRMATION_COUNT = 3
 
-    BLOCKTANE_API_ENDPOINT = "https://opendax.tokamaktech.net/api/v2/peatio"
+    BLOCKTANE_API_ENDPOINT = "https://bolsa.tokamaktech.net/api/v2/peatio"
 
     @classmethod
     def logger(cls) -> HummingbotLogger:
@@ -208,7 +208,7 @@ cdef class BlocktaneMarket(MarketBase):
                           object order_side,
                           object amount,
                           object price):
-        # Fee info from https://opendax.tokamaktech.net/api/v2/peatio/public/trading_fees
+        # Fee info from https://bolsa.tokamaktech.net/api/v2/peatio/public/trading_fees
         cdef:
             object maker_fee = Decimal(0.002)
             object taker_fee = Decimal(0.002)
@@ -248,13 +248,14 @@ cdef class BlocktaneMarket(MarketBase):
         cdef:
             list trading_rules = []
 
-        for info in market_dict:
+        for pair, info in market_dict.items():
             try:
                 trading_rules.append(
                     TradingRule(trading_pair=info["id"],
                                 min_order_size=Decimal(info["min_amount"]),
                                 min_price_increment=Decimal(f"1e-{info['price_precision']}"),
-                                min_quote_amount_increment=Decimal(f"1e-{info['amount_precision']}")
+                                min_quote_amount_increment=Decimal(f"1e-{info['amount_precision']}"),
+                                min_base_amount_increment=Decimal(f"1e-{info['amount_precision']}")
                     )
                 )
             except Exception:
@@ -350,122 +351,124 @@ cdef class BlocktaneMarket(MarketBase):
             int64_t last_tick = <int64_t>(self._last_poll_timestamp / self.UPDATE_ORDERS_INTERVAL)
             int64_t current_tick = <int64_t>(self._current_timestamp / self.UPDATE_ORDERS_INTERVAL)
 
-        if current_tick > last_tick and len(self._in_flight_orders) > 0:
+        try:
+            if current_tick > last_tick and len(self._in_flight_orders) > 0:
 
-            tracked_orders = list(self._in_flight_orders.values())
-            open_orders = await self.list_orders()
-            open_orders = dict((entry["id"], entry) for entry in open_orders)
+                tracked_orders = list(self._in_flight_orders.values())
+                open_orders = await self.list_orders()
+                open_orders = dict((entry["id"], entry) for entry in open_orders)
 
-            for tracked_order in tracked_orders:
-                exchange_order_id = await tracked_order.get_exchange_order_id()
-                client_order_id = tracked_order.client_order_id
-                order = open_orders.get(exchange_order_id)
+                for tracked_order in tracked_orders:
+                    exchange_order_id = await tracked_order.get_exchange_order_id()
+                    client_order_id = tracked_order.client_order_id
+                    order = open_orders.get(exchange_order_id)
 
-                # Do nothing, if the order has already been cancelled or has failed
-                if client_order_id not in self._in_flight_orders:
-                    continue
-
-                if order is None:  # Handles order that are currently tracked but no longer open in exchange
-                    self._order_not_found_records[client_order_id] = \
-                        self._order_not_found_records.get(client_order_id, 0) + 1
-
-                    if self._order_not_found_records[client_order_id] < self.ORDER_NOT_EXIST_CONFIRMATION_COUNT:
-                        # Wait until the order not found error have repeated for a few times before actually treating
-                        # it as a fail. See: https://github.com/CoinAlpha/hummingbot/issues/601
+                    # Do nothing, if the order has already been cancelled or has failed
+                    if client_order_id not in self._in_flight_orders:
                         continue
-                    tracked_order.last_state = "CLOSED"
-                    self.c_trigger_event(
-                        self.MARKET_ORDER_FAILURE_EVENT_TAG,
-                        MarketOrderFailureEvent(self._current_timestamp,
-                                                client_order_id,
-                                                tracked_order.order_type)
-                    )
-                    self.c_stop_tracking_order(client_order_id)
-                    self.logger().network(
-                        f"Error fetching status update for the order {client_order_id}: "
-                        f"{tracked_order}",
-                        app_warning_msg=f"Could not fetch updates for the order {client_order_id}. "
-                                        f"Check API key and network connection."
-                    )
-                    continue
 
-                order_state = order["status"]
-                order_type = "LIMIT" if tracked_order.order_type is OrderType.LIMIT else "MARKET"
-                trade_type = "BUY" if tracked_order.trade_type is TradeType.BUY else "SELL"
-                order_type_description = tracked_order.order_type_description
+                    if order is None:  # Handles order that are currently tracked but no longer open in exchange
+                        self._order_not_found_records[client_order_id] = \
+                            self._order_not_found_records.get(client_order_id, 0) + 1
 
-                executed_price = Decimal(order["limit"])
-                executed_amount_diff = s_decimal_0
+                        if self._order_not_found_records[client_order_id] < self.ORDER_NOT_EXIST_CONFIRMATION_COUNT:
+                            # Wait until the order not found error have repeated for a few times before actually treating
+                            # it as a fail. See: https://github.com/CoinAlpha/hummingbot/issues/601
+                            continue
+                        tracked_order.last_state = "done"
+                        self.c_trigger_event(
+                            self.MARKET_ORDER_FAILURE_EVENT_TAG,
+                            MarketOrderFailureEvent(self._current_timestamp,
+                                                    client_order_id,
+                                                    tracked_order.order_type)
+                        )
+                        self.c_stop_tracking_order(client_order_id)
+                        self.logger().network(
+                            f"Error fetching status update for the order {client_order_id}: "
+                            f"{tracked_order}",
+                            app_warning_msg=f"Could not fetch updates for the order {client_order_id}. "
+                                            f"Check API key and network connection."
+                        )
+                        continue
 
-                remaining_size = Decimal(order["quantity"]) - Decimal(order["fillQuantity"])
-                new_confirmed_amount = tracked_order.amount - remaining_size
-                executed_amount_diff = new_confirmed_amount - tracked_order.executed_amount_base
-                tracked_order.executed_amount_base = new_confirmed_amount
-                tracked_order.executed_amount_quote += executed_amount_diff * executed_price
+                    order_state = order["state"]
+                    order_type = "LIMIT" if tracked_order.order_type is OrderType.LIMIT else "MARKET"
+                    trade_type = "BUY" if tracked_order.trade_type is TradeType.BUY else "SELL"
+                    order_type_description = tracked_order.order_type_description
 
-                if executed_amount_diff > s_decimal_0:
-                    self.logger().info(f"Filled {executed_amount_diff} out of {tracked_order.amount} of the "
-                                       f"{order_type_description} order {tracked_order.client_order_id}.")
-                    self.c_trigger_event(self.MARKET_ORDER_FILLED_EVENT_TAG,
-                                         OrderFilledEvent(
-                                             self._current_timestamp,
-                                             tracked_order.client_order_id,
-                                             tracked_order.trading_pair,
-                                             tracked_order.trade_type,
-                                             tracked_order.order_type,
-                                             executed_price,
-                                             executed_amount_diff,
-                                             self.c_get_fee(
-                                                 tracked_order.base_asset,
-                                                 tracked_order.quote_asset,
-                                                 tracked_order.order_type,
-                                                 tracked_order.trade_type,
-                                                 executed_price,
-                                                 executed_amount_diff
-                                             )
-                                         ))
+                    executed_price = Decimal(order["avg_price"])
+                    executed_amount_diff = s_decimal_0
 
-                if order_state == "CLOSED":
-                    if order["quantity"] == order["fillQuantity"]:  # Order COMPLETED
-                        tracked_order.last_state = "CLOSED"
+                    new_confirmed_amount = Decimal(order["executed_volume"])
+                    executed_amount_diff = new_confirmed_amount - tracked_order.executed_amount_quote
+                    tracked_order.executed_amount_base = new_confirmed_amount
+                    tracked_order.executed_amount_quote = new_confirmed_amount * executed_price
+
+                    if executed_amount_diff > s_decimal_0:
+                        self.logger().info(f"Filled {executed_amount_diff} out of {tracked_order.amount} of the "
+                                        f"{order_type_description} order {tracked_order.client_order_id}.")
+                        self.c_trigger_event(self.MARKET_ORDER_FILLED_EVENT_TAG,
+                                            OrderFilledEvent(
+                                                self._current_timestamp,
+                                                tracked_order.client_order_id,
+                                                tracked_order.trading_pair,
+                                                tracked_order.trade_type,
+                                                tracked_order.order_type,
+                                                executed_price,
+                                                executed_amount_diff,
+                                                self.c_get_fee(
+                                                    tracked_order.base_asset,
+                                                    tracked_order.quote_asset,
+                                                    tracked_order.order_type,
+                                                    tracked_order.trade_type,
+                                                    executed_price,
+                                                    executed_amount_diff
+                                                )
+                                            ))
+
+                    if order_state == "done":
+                        tracked_order.last_state = "done"
                         self.logger().info(f"The {order_type}-{trade_type} "
-                                           f"{client_order_id} has completed according to Blocktane order status API.")
+                                        f"{client_order_id} has completed according to Blocktane order status API.")
 
                         if tracked_order.trade_type is TradeType.BUY:
                             self.c_trigger_event(self.MARKET_BUY_ORDER_COMPLETED_EVENT_TAG,
-                                                 BuyOrderCompletedEvent(
-                                                     self._current_timestamp,
-                                                     tracked_order.client_order_id,
-                                                     tracked_order.base_asset,
-                                                     tracked_order.quote_asset,
-                                                     tracked_order.fee_asset or tracked_order.base_asset,
-                                                     tracked_order.executed_amount_base,
-                                                     tracked_order.executed_amount_quote,
-                                                     tracked_order.fee_paid,
-                                                     tracked_order.order_type))
+                                                BuyOrderCompletedEvent(
+                                                    self._current_timestamp,
+                                                    tracked_order.client_order_id,
+                                                    tracked_order.base_asset,
+                                                    tracked_order.quote_asset,
+                                                    tracked_order.fee_asset or tracked_order.base_asset,
+                                                    tracked_order.executed_amount_base,
+                                                    tracked_order.executed_amount_quote,
+                                                    tracked_order.fee_paid,
+                                                    tracked_order.order_type))
                         elif tracked_order.trade_type is TradeType.SELL:
                             self.c_trigger_event(self.MARKET_SELL_ORDER_COMPLETED_EVENT_TAG,
-                                                 SellOrderCompletedEvent(
-                                                     self._current_timestamp,
-                                                     tracked_order.client_order_id,
-                                                     tracked_order.base_asset,
-                                                     tracked_order.quote_asset,
-                                                     tracked_order.fee_asset or tracked_order.base_asset,
-                                                     tracked_order.executed_amount_base,
-                                                     tracked_order.executed_amount_quote,
-                                                     tracked_order.fee_paid,
-                                                     tracked_order.order_type))
-                    else:  # Order PARTIAL-CANCEL or CANCEL
-                        tracked_order.last_state = "CANCELLED"
-                        self.logger().info(f"The {tracked_order.order_type}-{tracked_order.trade_type} "
-                                           f"{client_order_id} has been cancelled according to Blocktane order status API.")
-                        self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
-                                             OrderCancelledEvent(
-                                                 self._current_timestamp,
-                                                 client_order_id
-                                             ))
+                                                SellOrderCompletedEvent(
+                                                    self._current_timestamp,
+                                                    tracked_order.client_order_id,
+                                                    tracked_order.base_asset,
+                                                    tracked_order.quote_asset,
+                                                    tracked_order.fee_asset or tracked_order.base_asset,
+                                                    tracked_order.executed_amount_base,
+                                                    tracked_order.executed_amount_quote,
+                                                    tracked_order.fee_paid,
+                                                    tracked_order.order_type))
 
-                    self.c_stop_tracking_order(client_order_id)
+                    if order_state == "cancel":
+                        tracked_order.last_state = "cancel"
+                        self.logger().info(f"The {tracked_order.order_type}-{tracked_order.trade_type} "
+                                        f"{client_order_id} has been cancelled according to Blocktane order status API.")
+                        self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
+                                                OrderCancelledEvent(
+                                                    self._current_timestamp,
+                                                    client_order_id
+                                                ))
+
+                        self.c_stop_tracking_order(client_order_id)
+        except Exception as e:
+            self.logger().error("Update Order Status Error: " + str(e) + " " + str(e.__cause__))
 
     async def _iter_user_stream_queue(self) -> AsyncIterable[Dict[str, Any]]:
         while True:
@@ -480,108 +483,94 @@ cdef class BlocktaneMarket(MarketBase):
     async def _user_stream_event_listener(self):
         async for stream_message in self._iter_user_stream_queue():
             try:
-                content = stream_message.content.get("content")
-                event_type = stream_message.content.get("event_type")
+                if stream_message.get('order'): # Updates tracked orders
+                    order = stream_message.get('order')
+                    order_status = order["state"]
+                    order_id = order["id"]
 
-                if event_type == "uB":  # Updates total balance and available balance of specified currency
-                    balance_delta = content["d"]
-                    asset_name = balance_delta["c"]
-                    total_balance = Decimal(balance_delta["b"])
-                    available_balance = Decimal(balance_delta["a"])
-                    self._account_available_balances[asset_name] = available_balance
-                    self._account_balances[asset_name] = total_balance
-                elif event_type == "uO":  # Updates track order status
-                    order = content["o"]
-                    order_status = content["TY"]
-                    order_id = order["OU"]
+                tracked_order = None
+                for o in self._in_flight_orders.values():
+                    if o.exchange_order_id == order_id:
+                        tracked_order = o
+                        break
 
-                    tracked_order = None
-                    for o in self._in_flight_orders.values():
-                        if o.exchange_order_id == order_id:
-                            tracked_order = o
-                            break
+                if tracked_order is None:
+                    continue
 
-                    if tracked_order is None:
-                        continue
+                order_type_description = tracked_order.order_type_description
+                execute_price = Decimal(order["avg_price"])
+                execute_amount_diff = s_decimal_0
 
-                    order_type_description = tracked_order.order_type_description
-                    execute_price = Decimal(order["PU"])
-                    execute_amount_diff = s_decimal_0
-                    tracked_order.fee_paid = Decimal(order["n"])
+                new_confirmed_amount = Decimal(order["executed_volume"])
+                executed_amount_diff = new_confirmed_amount - tracked_order.executed_amount_quote
+                tracked_order.executed_amount_base = Decimal(new_confirmed_amount)
+                tracked_order.executed_amount_quote = Decimal(new_confirmed_amount) * Decimal(execute_price)
 
-                    precision = str(self.c_get_order_size_quantum(tracked_order.trading_pair, Decimal(order['q'])))[-1]
+                if execute_amount_diff > s_decimal_0:
+                    tracked_order.last_state = order_status
+                    self.logger().info(f"Filled {execute_amount_diff} out of {tracked_order.amount} of the "
+                                        f"{order_type_description} order {tracked_order.client_order_id}.")
+                    self.c_trigger_event(self.MARKET_ORDER_FILLED_EVENT_TAG,
+                                            OrderFilledEvent(
+                                                self._current_timestamp,
+                                                tracked_order.client_order_id,
+                                                tracked_order.trading_pair,
+                                                tracked_order.trade_type,
+                                                tracked_order.order_type,
+                                                execute_price,
+                                                execute_amount_diff,
+                                                self.c_get_fee(
+                                                    tracked_order.base_asset,
+                                                    tracked_order.quote_asset,
+                                                    tracked_order.order_type,
+                                                    tracked_order.trade_type,
+                                                    execute_price,
+                                                    execute_amount_diff
+                                                )
+                                            ))
 
-                    remaining_size = Decimal(str(round(order["q"], int(precision))))
+                if order_status == "done":  # FILL(COMPLETE)
+                    # trade_type = TradeType.BUY if content["OT"] == "LIMIT_BUY" else TradeType.SELL
+                    tracked_order.last_state = "done"
+                    if tracked_order.trade_type is TradeType.BUY:
+                        self.logger().info(f"The LIMIT_BUY order {tracked_order.client_order_id} has completed "
+                                            f"according to Blocktane websocket API.")
+                        self.c_trigger_event(self.MARKET_BUY_ORDER_COMPLETED_EVENT_TAG,
+                                                BuyOrderCompletedEvent(
+                                                    self._current_timestamp,
+                                                    tracked_order.client_order_id,
+                                                    tracked_order.base_asset,
+                                                    tracked_order.quote_asset,
+                                                    tracked_order.fee_asset or tracked_order.quote_asset,
+                                                    tracked_order.executed_amount_base,
+                                                    tracked_order.executed_amount_quote,
+                                                    tracked_order.fee_paid,
+                                                    tracked_order.order_type
+                                                ))
+                    elif tracked_order.trade_type is TradeType.SELL:
+                        self.logger().info(f"The LIMIT_SELL order {tracked_order.client_order_id} has completed "
+                                            f"according to Blocktane WebSocket API.")
+                        self.c_trigger_event(self.MARKET_SELL_ORDER_COMPLETED_EVENT_TAG,
+                                                SellOrderCompletedEvent(
+                                                    self._current_timestamp,
+                                                    tracked_order.client_order_id,
+                                                    tracked_order.base_asset,
+                                                    tracked_order.quote_asset,
+                                                    tracked_order.fee_asset or tracked_order.quote_asset,
+                                                    tracked_order.executed_amount_base,
+                                                    tracked_order.executed_amount_quote,
+                                                    tracked_order.fee_paid,
+                                                    tracked_order.order_type
+                                                ))
+                    self.c_stop_tracking_order(tracked_order.client_order_id)
+                    continue
 
-                    new_confirmed_amount = Decimal(tracked_order.amount - remaining_size)
-                    execute_amount_diff = Decimal(new_confirmed_amount - tracked_order.executed_amount_base)
-                    tracked_order.executed_amount_base = new_confirmed_amount
-                    tracked_order.executed_amount_quote += Decimal(execute_amount_diff * execute_price)
-
-                    if execute_amount_diff > s_decimal_0:
-                        self.logger().info(f"Filled {execute_amount_diff} out of {tracked_order.amount} of the "
-                                           f"{order_type_description} order {tracked_order.client_order_id}.")
-                        self.c_trigger_event(self.MARKET_ORDER_FILLED_EVENT_TAG,
-                                             OrderFilledEvent(
-                                                 self._current_timestamp,
-                                                 tracked_order.client_order_id,
-                                                 tracked_order.trading_pair,
-                                                 tracked_order.trade_type,
-                                                 tracked_order.order_type,
-                                                 execute_price,
-                                                 execute_amount_diff,
-                                                 self.c_get_fee(
-                                                     tracked_order.base_asset,
-                                                     tracked_order.quote_asset,
-                                                     tracked_order.order_type,
-                                                     tracked_order.trade_type,
-                                                     execute_price,
-                                                     execute_amount_diff
-                                                 )
-                                             ))
-
-                    if order_status == 2:  # FILL(COMPLETE)
-                        # trade_type = TradeType.BUY if content["OT"] == "LIMIT_BUY" else TradeType.SELL
-                        tracked_order.last_state = "done"
-                        if tracked_order.trade_type is TradeType.BUY:
-                            self.logger().info(f"The LIMIT_BUY order {tracked_order.client_order_id} has completed "
-                                               f"according to order delta websocket API.")
-                            self.c_trigger_event(self.MARKET_BUY_ORDER_COMPLETED_EVENT_TAG,
-                                                 BuyOrderCompletedEvent(
-                                                     self._current_timestamp,
-                                                     tracked_order.client_order_id,
-                                                     tracked_order.base_asset,
-                                                     tracked_order.quote_asset,
-                                                     tracked_order.fee_asset or tracked_order.quote_asset,
-                                                     tracked_order.executed_amount_base,
-                                                     tracked_order.executed_amount_quote,
-                                                     tracked_order.fee_paid,
-                                                     tracked_order.order_type
-                                                 ))
-                        elif tracked_order.trade_type is TradeType.SELL:
-                            self.logger().info(f"The LIMIT_SELL order {tracked_order.client_order_id} has completed "
-                                               f"according to Order Delta WebSocket API.")
-                            self.c_trigger_event(self.MARKET_SELL_ORDER_COMPLETED_EVENT_TAG,
-                                                 SellOrderCompletedEvent(
-                                                     self._current_timestamp,
-                                                     tracked_order.client_order_id,
-                                                     tracked_order.base_asset,
-                                                     tracked_order.quote_asset,
-                                                     tracked_order.fee_asset or tracked_order.quote_asset,
-                                                     tracked_order.executed_amount_base,
-                                                     tracked_order.executed_amount_quote,
-                                                     tracked_order.fee_paid,
-                                                     tracked_order.order_type
-                                                 ))
-                        self.c_stop_tracking_order(tracked_order.client_order_id)
-                        continue
-
-                    if order_status == 3:  # CANCEL
-                        tracked_order.last_state = "cancelled"
-                        self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
-                                             OrderCancelledEvent(self._current_timestamp,
-                                                                 tracked_order.client_order_id))
-                        self.c_stop_tracking_order(tracked_order.client_order_id)
+                if order_status == "cancel":  # CANCEL
+                    tracked_order.last_state = "cancel"
+                    self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
+                                            OrderCancelledEvent(self._current_timestamp,
+                                                                tracked_order.client_order_id))
+                    self.c_stop_tracking_order(tracked_order.client_order_id)
                 else:
                     # Ignores all other user stream message types
                     continue
@@ -728,9 +717,9 @@ cdef class BlocktaneMarket(MarketBase):
 
         path_url = "/market/orders"
 
-        body = {}
+        params = {}
         if order_type is OrderType.LIMIT:  # Blocktane supports CEILING_LIMIT
-            body = {
+            params = {
                 "market": str(trading_pair),
                 "side": "buy" if is_buy else "sell",
                 "volume": f"{amount:f}",
@@ -738,14 +727,14 @@ cdef class BlocktaneMarket(MarketBase):
                 "price": f"{price:f}"
             }
         elif order_type is OrderType.MARKET:
-            body = {
+            params = {
                 "market": str(trading_pair),
                 "side": "buy" if is_buy else "sell",
                 "volume": str(amount),
                 "ord_type": "market"
             }
 
-        api_response = await self._api_request("POST", path_url=path_url, body=body)
+        api_response = await self._api_request("POST", path_url=path_url, params=params)
 
         return api_response
 
@@ -803,7 +792,7 @@ cdef class BlocktaneMarket(MarketBase):
             else:
                 raise ValueError(f"Invalid OrderType {order_type}. Aborting.")
 
-            exchange_order_id = order_result["id"]
+            exchange_order_id = str(order_result["id"])
 
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None and exchange_order_id:
@@ -908,7 +897,8 @@ cdef class BlocktaneMarket(MarketBase):
             else:
                 raise ValueError(f"Invalid OrderType {order_type}. Aborting.")
 
-            exchange_order_id = order_result["id"]
+            exchange_order_id = str(order_result["id"])
+            
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None and exchange_order_id:
                 tracked_order.update_exchange_order_id(exchange_order_id)
@@ -963,14 +953,13 @@ cdef class BlocktaneMarket(MarketBase):
                 raise ValueError
             path_url = f"/market/orders/{tracked_order.exchange_order_id}/cancel"
 
-            cancel_result = await self._api_request("GET", path_url=path_url)
-            if cancel_result["status"] == "CLOSED":
-                self.logger().info(f"Successfully cancelled order {order_id}.")
-                tracked_order.last_state = "CANCELLED"
-                self.c_stop_tracking_order(order_id)
-                self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
-                                     OrderCancelledEvent(self._current_timestamp, order_id))
-                return order_id
+            cancel_result = await self._api_request("POST", path_url=path_url)
+            
+            self.logger().info(f"Successfully cancelled order {order_id}.")
+            tracked_order.last_state = "cancel"
+            self.c_stop_tracking_order(order_id)
+            self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG, OrderCancelledEvent(self._current_timestamp, order_id))
+            return order_id
         except asyncio.CancelledError:
             raise
         except Exception as err:
@@ -1035,6 +1024,7 @@ cdef class BlocktaneMarket(MarketBase):
         headers = self.blocktane_auth.generate_auth_dict()
 
         client = await self._http_client()
+        # self.logger().error('Params: ' + str(params) + " Headers: " + str(headers))
         async with client.request(http_method,
                                   url=url,
                                   headers=headers,

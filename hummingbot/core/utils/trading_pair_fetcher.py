@@ -14,7 +14,7 @@ from .async_utils import safe_ensure_future
 from .ssl_client_request import SSLClientRequest
 
 BINANCE_ENDPOINT = "https://api.binance.com/api/v1/exchangeInfo"
-BLOCKTANE_ENDPOINT = "https://opendax.tokamaktech.net/api/v2/peatio/public/markets"
+BLOCKTANE_ENDPOINT = "https://bolsa.tokamaktech.net/api/v2/peatio/public/markets"
 RADAR_RELAY_ENDPOINT = "https://api.radarrelay.com/v2/markets"
 BAMBOO_RELAY_ENDPOINT = "https://rest.bamboorelay.com/main/0x/markets"
 COINBASE_PRO_ENDPOINT = "https://api.pro.coinbase.com/products/"

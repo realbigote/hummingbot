@@ -122,17 +122,27 @@ cdef class BlocktaneOrderBook(OrderBook):
 
     @classmethod
     def trade_message_from_exchange(cls, msg: Dict[str, any], metadata: Optional[Dict] = None):
+    # {'fthusd.trades': {'trades': [{'tid': 9, 'taker_type': 'sell', 'date': 1586958619, 'price': '51.0', 'amount': '0.02'}]}}
         if metadata:
             msg.update(metadata)
-        ts = msg["created_at"]
+
+        # cls.logger().error("Message from exchange: " + str(msg))
+        
+        msg = msg.popitem()
+        # cls.logger().error(str(msg))
+
+        market = msg[0].split('.')[0]
+        trade = msg[1]["trades"][0]
+        ts = trade['date']
+        # cls.logger().error(str(market) + " " + str(trade) + " " + str(ts))
         return OrderBookMessage(OrderBookMessageType.TRADE, {
-            "trading_pair": msg["market"],
-            "trade_type": msg["taker_type"],
-            "trade_id": msg["id"],
+            "trading_pair": market,
+            "trade_type": trade['taker_type'],
+            "trade_id": trade["tid"],
             "update_id": ts,
-            "price": msg["price"],
-            "amount": msg["amount"]
-        }, timestamp=ts * 1e-3)
+            "price": trade["price"],
+            "amount": trade["amount"]
+        }, timestamp=ts)
 
     @classmethod
     def from_snapshot(cls, msg: OrderBookMessage) -> "OrderBook":

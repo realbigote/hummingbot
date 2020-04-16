@@ -24,7 +24,7 @@ from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.market.blocktane.blocktane_auth import BlocktaneAuth
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
 
-WS_BASE_URL = "wss://opendax.tokamaktech.net/api/v2/ranger/private/?stream=order&stream=trade"
+WS_BASE_URL = "wss://bolsa.tokamaktech.net/api/v2/ranger/private/?stream=order&stream=trade"
 
 class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
@@ -95,11 +95,11 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
             return
 
     async def get_ws_connection(self):
-        stream_url: str = WS_BASE_URL
-        self.logger().info(f"Reconnecting to {stream_url}.")
+        # stream_url: str = WS_BASE_URL
+        # self.logger().info(f"Reconnecting to {stream_url}.")
 
         # Create the WS connection.
-        ws = websockets.connect(stream_url, extra_headers=self._blocktane_auth.generate_auth_payload())
+        ws = websockets.connect(WS_BASE_URL, extra_headers=self._blocktane_auth.generate_auth_dict())
 
         return ws
 

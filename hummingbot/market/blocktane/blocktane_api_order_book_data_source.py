@@ -27,10 +27,10 @@ from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.logger import HummingbotLogger
 from hummingbot.market.blocktane.blocktane_order_book import BlocktaneOrderBook
 
-BLOCKTANE_REST_URL = "https://opendax.tokamaktech.net/api/v2/peatio/public"
-DIFF_STREAM_URL = "wss://opendax.tokamaktech.net/api/v2/ranger/public"
-TICKER_PRICE_CHANGE_URL = "https://opendax.tokamaktech.net/api/v2/peatio/public/markets/tickers"
-EXCHANGE_INFO_URL = "https://opendax.tokamaktech.net/api/v2/peatio/public/markets"
+BLOCKTANE_REST_URL = "https://bolsa.tokamaktech.net/api/v2/peatio/public"
+DIFF_STREAM_URL = "wss://bolsa.tokamaktech.net/api/v2/ranger/public"
+TICKER_PRICE_CHANGE_URL = "https://bolsa.tokamaktech.net/api/v2/peatio/public/markets/tickers"
+EXCHANGE_INFO_URL = "https://bolsa.tokamaktech.net/api/v2/peatio/public/markets"
 
 OrderBookRow = namedtuple("Book", ["price", "amount"])
 
@@ -117,7 +117,6 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
     @staticmethod
     async def get_snapshot(client: aiohttp.ClientSession, trading_pair: str, limit: int = 1000) -> Dict[str, Any]:
         request_url: str = f"{BLOCKTANE_REST_URL}/markets/{trading_pair}/depth"
-        BlocktaneAPIOrderBookDataSource.logger().info(request_url)
 
         async with client.get(request_url) as response:
             response: aiohttp.ClientResponse = response

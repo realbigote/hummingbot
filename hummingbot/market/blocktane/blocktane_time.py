@@ -15,7 +15,7 @@ class BlocktaneTime:
     """
     Used to monkey patch Blocktane client's time module to adjust request timestamp when needed
     """
-    BLOCKTANE_TIME_API = "https://opendax.tokamaktech.net/"
+    BLOCKTANE_TIME_API = "https://bolsa.tokamaktech.net/"
     NaN = float("nan")
     _bt_logger = None
     _bt_shared_instance = None

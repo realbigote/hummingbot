@@ -47,10 +47,10 @@ from hummingbot.client.config.fee_overrides_config_map import fee_overrides_conf
 
 logging.basicConfig(level=METRICS_LOG_LEVEL)
 API_MOCK_ENABLED = conf.mock_api_enabled is not None and conf.mock_api_enabled.lower() in ['true', 'yes', '1']
-API_KEY = "XXX" if API_MOCK_ENABLED else conf.kucoin_api_key
-API_SECRET = "YYY" if API_MOCK_ENABLED else conf.kucoin_secret_key
-API_BASE_URL = "opendax.tokamaktech.net/api/v2/peatio"
-WS_BASE_URL = "wss://opendax.tokamaktech.net/api/v2/ranger/public"
+API_KEY = "XXX" if API_MOCK_ENABLED else conf.blocktane_api_key
+API_SECRET = "YYY" if API_MOCK_ENABLED else conf.blocktane_api_secret
+API_BASE_URL = "bolsa.tokamaktech.net/api/v2/peatio"
+WS_BASE_URL = "wss://bolsa.tokamaktech.net/api/v2/ranger/public"
 logging.basicConfig(level=METRICS_LOG_LEVEL)
 
 class BlocktaneMarketUnitTest(unittest.TestCase):
@@ -109,7 +109,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         cls.market: BlocktaneMarket = BlocktaneMarket(
             blocktane_api_key=API_KEY,
             blocktane_secret_key=API_SECRET,
-            trading_pairs=["cadfth"]
+            trading_pairs=["fthusd"]
         )
 
         print("Initializing Blocktane market... this will take about a minute. ")
@@ -170,29 +170,29 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         return self.ev_loop.run_until_complete(self.run_parallel_async(*tasks))
 
     def test_get_fee(self):
-        limit_fee: TradeFee = self.market.get_fee("FTH", "CAD", OrderType.LIMIT, TradeType.BUY, Decimal(1), Decimal(4000))
+        limit_fee: TradeFee = self.market.get_fee("fth", "usd", OrderType.LIMIT, TradeType.BUY, Decimal(1), Decimal(4000))
         self.assertGreater(limit_fee.percent, 0)
         self.assertEqual(len(limit_fee.flat_fees), 0)
 
-        market_fee: TradeFee = self.market.get_fee("FTH", "CAD", OrderType.MARKET, TradeType.BUY, Decimal(1))
+        market_fee: TradeFee = self.market.get_fee("fth", "usd", OrderType.MARKET, TradeType.BUY, Decimal(1))
         self.assertGreater(market_fee.percent, 0)
         self.assertEqual(len(market_fee.flat_fees), 0)
 
     def test_fee_overrides_config(self):
         fee_overrides_config_map["blocktane_taker_fee"].value = None
-        taker_fee: TradeFee = self.market.get_fee("LINK", "FTH", OrderType.MARKET, TradeType.BUY, Decimal(1),
+        taker_fee: TradeFee = self.market.get_fee("LINK", "fth", OrderType.MARKET, TradeType.BUY, Decimal(1),
                                                   Decimal('0.1'))
         self.assertAlmostEqual(Decimal("0.0025"), taker_fee.percent)
         fee_overrides_config_map["blocktane_taker_fee"].value = Decimal('0.002')
-        taker_fee: TradeFee = self.market.get_fee("LINK", "FTH", OrderType.MARKET, TradeType.BUY, Decimal(1),
+        taker_fee: TradeFee = self.market.get_fee("LINK", "fth", OrderType.MARKET, TradeType.BUY, Decimal(1),
                                                   Decimal('0.1'))
         self.assertAlmostEqual(Decimal("0.002"), taker_fee.percent)
         fee_overrides_config_map["blocktane_maker_fee"].value = None
-        maker_fee: TradeFee = self.market.get_fee("LINK", "FTH", OrderType.LIMIT, TradeType.BUY, Decimal(1),
+        maker_fee: TradeFee = self.market.get_fee("LINK", "fth", OrderType.LIMIT, TradeType.BUY, Decimal(1),
                                                   Decimal('0.1'))
         self.assertAlmostEqual(Decimal("0.0025"), maker_fee.percent)
         fee_overrides_config_map["blocktane_maker_fee"].value = Decimal('0.005')
-        maker_fee: TradeFee = self.market.get_fee("LINK", "FTH", OrderType.LIMIT, TradeType.BUY, Decimal(1),
+        maker_fee: TradeFee = self.market.get_fee("LINK", "fth", OrderType.LIMIT, TradeType.BUY, Decimal(1),
                                                   Decimal('0.1'))
         self.assertAlmostEqual(Decimal("0.005"), maker_fee.percent)
 
@@ -221,13 +221,14 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.market.cancel(trading_pair, order_id)
 
     def test_limit_buy(self):
-        self.assertGreater(self.market.get_balance("CAD"), 20)
-        trading_pair = "CAD-FTH"
+        self.assertGreater(self.market.get_balance("usd"), 20)
+        trading_pair = "fthusd"
 
         self.run_parallel(asyncio.sleep(3))
         current_bid_price: Decimal = self.market.get_price(trading_pair, True)
-        bid_price: Decimal = current_bid_price * Decimal('1.005')
+        bid_price: Decimal = current_bid_price - Decimal('0.05') * current_bid_price
         quantize_bid_price: Decimal = self.market.quantize_order_price(trading_pair, bid_price)
+        logging.error("Testing bidprice & quantize_bid_price & current_bid_price: " + str(bid_price) + " " + str(quantize_bid_price) + " " + str(current_bid_price))
 
         amount: Decimal = Decimal("0.02")
         quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair, amount)
@@ -244,8 +245,8 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.assertTrue([evt.order_type == OrderType.LIMIT for evt in trade_events])
         self.assertEqual(order_id, order_completed_event.order_id)
         self.assertAlmostEqual(quantized_amount, order_completed_event.base_asset_amount)
-        self.assertEqual("FTH", order_completed_event.base_asset)
-        self.assertEqual("CAD", order_completed_event.quote_asset)
+        self.assertEqual("fth", order_completed_event.base_asset)
+        self.assertEqual("usd", order_completed_event.quote_asset)
         self.assertAlmostEqual(base_amount_traded, order_completed_event.base_asset_amount)
         self.assertAlmostEqual(quote_amount_traded, order_completed_event.quote_asset_amount)
         self.assertTrue(any([isinstance(event, BuyOrderCreatedEvent) and event.order_id == order_id
@@ -254,11 +255,12 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.market_logger.clear()
 
     def test_limit_sell(self):
-        trading_pair = "CAD-FTH"
+        trading_pair = "fthusd"
 
         current_ask_price: Decimal = self.market.get_price(trading_pair, False)
-        ask_price: Decimal = current_ask_price - Decimal('0.005') * current_ask_price
+        ask_price: Decimal = current_ask_price + Decimal('0.05') * current_ask_price
         quantize_ask_price: Decimal = self.market.quantize_order_price(trading_pair, ask_price)
+        logging.error("Testing askprice & quantize_ask_price & current_ask_price: " + str(ask_price) + " " + str(quantize_ask_price) + " " + str(current_ask_price))
 
         amount: Decimal = Decimal("0.02")
         quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair, amount)
@@ -275,8 +277,8 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.assertTrue([evt.order_type == OrderType.LIMIT for evt in trade_events])
         self.assertEqual(order_id, order_completed_event.order_id)
         self.assertAlmostEqual(quantized_amount, order_completed_event.base_asset_amount)
-        self.assertEqual("FTH", order_completed_event.base_asset)
-        self.assertEqual("CAD", order_completed_event.quote_asset)
+        self.assertEqual("fth", order_completed_event.base_asset)
+        self.assertEqual("usd", order_completed_event.quote_asset)
         self.assertAlmostEqual(base_amount_traded, order_completed_event.base_asset_amount)
         self.assertAlmostEqual(quote_amount_traded, order_completed_event.quote_asset_amount)
         self.assertTrue(any([isinstance(event, SellOrderCreatedEvent) and event.order_id == order_id
@@ -285,10 +287,10 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.market_logger.clear()
 
     def test_market_buy(self):
-        self.assertGreater(self.market.get_balance("CAD"), 20)
-        trading_pair = "CAD-FTH"
+        self.assertGreater(self.market.get_balance("usd"), 20)
+        trading_pair = "fthusd"
 
-        amount: Decimal = Decimal("0.02")
+        amount: Decimal = Decimal("0.2")
         quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair, amount)
 
         order_id, _ = self.place_order(True, trading_pair, quantized_amount, OrderType.MARKET, 0, 10001,
@@ -303,8 +305,8 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.assertTrue([evt.order_type == OrderType.MARKET for evt in trade_events])
         self.assertEqual(order_id, order_completed_event.order_id)
         self.assertAlmostEqual(quantized_amount, order_completed_event.base_asset_amount)
-        self.assertEqual("FTH", order_completed_event.base_asset)
-        self.assertEqual("CAD", order_completed_event.quote_asset)
+        self.assertEqual("fth", order_completed_event.base_asset)
+        self.assertEqual("usd", order_completed_event.quote_asset)
         self.assertAlmostEqual(base_amount_traded, order_completed_event.base_asset_amount)
         self.assertAlmostEqual(quote_amount_traded, order_completed_event.quote_asset_amount)
         self.assertTrue(any([isinstance(event, BuyOrderCreatedEvent) and event.order_id == order_id
@@ -313,10 +315,10 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.market_logger.clear()
 
     def test_market_sell(self):
-        trading_pair = "CAD-FTH"
-        self.assertGreater(self.market.get_balance("FTH"), 0.02)
+        trading_pair = "fthusd"
+        self.assertGreater(self.market.get_balance("fth"), 0.02)
 
-        amount: Decimal = Decimal("0.02")
+        amount: Decimal = Decimal("0.2")
         quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair, amount)
 
         order_id, _ = self.place_order(False, trading_pair, quantized_amount, OrderType.MARKET, 0, 10001,
@@ -330,8 +332,8 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.assertTrue([evt.order_type == OrderType.MARKET for evt in trade_events])
         self.assertEqual(order_id, order_completed_event.order_id)
         self.assertAlmostEqual(quantized_amount, order_completed_event.base_asset_amount)
-        self.assertEqual("FTH", order_completed_event.base_asset)
-        self.assertEqual("CAD", order_completed_event.quote_asset)
+        self.assertEqual("fth", order_completed_event.base_asset)
+        self.assertEqual("usd", order_completed_event.quote_asset)
         self.assertAlmostEqual(base_amount_traded, order_completed_event.base_asset_amount)
         self.assertAlmostEqual(quote_amount_traded, order_completed_event.quote_asset_amount)
         self.assertTrue(any([isinstance(event, SellOrderCreatedEvent) and event.order_id == order_id
@@ -340,7 +342,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.market_logger.clear()
 
     def test_cancel_order(self):
-        trading_pair = "CAD-FTH"
+        trading_pair = "fthusd"
 
         current_bid_price: Decimal = self.market.get_price(trading_pair, True) * Decimal('0.80')
         quantize_bid_price: Decimal = self.market.quantize_order_price(trading_pair, current_bid_price)
@@ -358,10 +360,11 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.assertEqual(order_cancelled_event.order_id, order_id)
 
     def test_cancel_all(self):
-        self.assertGreater(self.market.get_balance("CAD"), 20)
-        trading_pair = "CAD-FTH"
+        self.assertGreater(self.market.get_balance("usd"), 20)
+        trading_pair = "fthusd"
 
         current_bid_price: Decimal = self.market.get_price(trading_pair, True) * Decimal('0.80')
+        
         quantize_bid_price: Decimal = self.market.quantize_order_price(trading_pair, current_bid_price)
         bid_amount: Decimal = Decimal('0.02')
         quantized_bid_amount: Decimal = self.market.quantize_order_amount(trading_pair, bid_amount)
@@ -391,8 +394,8 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
 
     @unittest.skipUnless(any("test_list_orders" in arg for arg in sys.argv), "List order test requires manual action.")
     def test_list_orders(self):
-        self.assertGreater(self.market.get_balance("CAD"), 20)
-        trading_pair = "CAD-FTH"
+        self.assertGreater(self.market.get_balance("usd"), 20)
+        trading_pair = "fthusd"
 
         current_bid_price: Decimal = self.market.get_price(trading_pair, True) * Decimal('0.80')
         quantize_bid_price: Decimal = self.market.quantize_order_price(trading_pair, current_bid_price)
@@ -412,7 +415,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
     def test_orders_saving_and_restoration(self):
         config_path: str = "test_config"
         strategy_name: str = "test_strategy"
-        trading_pair: str = "CAD-FTH"
+        trading_pair: str = "fthusd"
         sql: SQLConnectionManager = SQLConnectionManager(SQLConnectionType.TRADE_FILLS, db_path=self.db_path)
         order_id: Optional[str] = None
         recorder: MarketsRecorder = MarketsRecorder(sql, [self.market], config_path, strategy_name)
@@ -485,7 +488,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
     def test_order_fill_record(self):
         config_path: str = "test_config"
         strategy_name: str = "test_strategy"
-        trading_pair: str = "CAD-FTH"
+        trading_pair: str = "fthusd"
         sql: SQLConnectionManager = SQLConnectionManager(SQLConnectionType.TRADE_FILLS, db_path=self.db_path)
         order_id: Optional[str] = None
         recorder: MarketsRecorder = MarketsRecorder(sql, [self.market], config_path, strategy_name)
