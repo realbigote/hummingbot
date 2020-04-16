@@ -122,6 +122,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         cdef:
             list lines = []
             list warning_lines = []
+        total_balance = 0
         for market_pair in (self.primary_market_pairs + self.mirrored_market_pairs):
             warning_lines.extend(self.network_warning([market_pair]))
             markets_df = self.market_status_data_frame([market_pair])
@@ -131,7 +132,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             assets_df = self.wallet_balance_data_frame([market_pair])
             lines.extend(["", "  Assets:"] +
                          ["    " + line for line in str(assets_df).split("\n")])
-
+            total_balance += assets_df['Total Balance']
+            #total_balance += assets_df.total_balance
             # See if there're any pending market orders.
             tracked_orders_df = self.tracked_taker_orders_data_frame
             if len(tracked_orders_df) > 0:
@@ -142,6 +144,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 lines.extend(["", "  No pending market orders."])
 
             warning_lines.extend(self.balance_warning([market_pair]))
+        
+        lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].base_asset}): {total_balance[0]}"])
+        lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].quote_asset}): {total_balance[1]}"])
 
         if len(warning_lines) > 0:
             lines.extend(["", "  *** WARNINGS ***"] + warning_lines)
@@ -202,7 +207,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         if (pair.base_asset, pair.quote_asset) == (market_trading_pair_tuple.base_asset, market_trading_pair_tuple.quote_asset):
                             mirrored_market_pair = pair
                     if self.c_ready_for_new_orders([mirrored_market_pair]):
-                        price = Decimal(0.99)*(buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount)
+                        price = Decimal(1 - (self.spread_percent/8)) * (buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount)
                         new_order = self.c_sell_with_specific_market(mirrored_market_pair,buy_order_completed_event.base_asset_amount,OrderType.LIMIT,price)
                         self.outstanding_offsets[new_order] = (buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount)
             else:
@@ -227,7 +232,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         if (pair.base_asset, pair.quote_asset) == (market_trading_pair_tuple.base_asset, market_trading_pair_tuple.quote_asset):
                             mirrored_market_pair = pair
                     if self.c_ready_for_new_orders([mirrored_market_pair]):
-                        price = Decimal(1.01)*(sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount)
+                        price = Decimal(1 + (self.spread_percent/8))*(sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount)
                         new_order = self.c_buy_with_specific_market(mirrored_market_pair,sell_order_completed_event.base_asset_amount,OrderType.LIMIT,price)
                         self.outstanding_offsets[new_order] = (sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount)
                 else:
@@ -368,7 +373,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         active_orders = self._sb_order_tracker.market_pair_to_active_orders
 
-        if (bid_price_diff > 0.0001):
+        if (bid_price_diff > self.spread_percent):
             self.primary_best_bid = adjusted_bid
             bid_inc = self.primary_best_bid * 0.001
             if primary_market_pair in active_orders:
@@ -385,7 +390,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 amount = min(bids[i+1].amount, (self.bid_amounts[i+1]/adjusted_bid)) 
                 self.c_buy_with_specific_market(primary_market_pair,Decimal(amount),OrderType.LIMIT,Decimal(min_price))
         
-        if (ask_price_diff > 0.0001):
+        if (ask_price_diff > self.spread_percent):
             self.primary_best_ask = adjusted_ask
             ask_inc = self.primary_best_ask * 0.001
             if primary_market_pair in active_orders:
@@ -400,14 +405,14 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 price += ask_inc
                 max_price = max(price, asks[i+1].price)
                 amount = min(asks[i+1].amount, self.ask_amounts[i+1]) 
-                self.c_sell_with_specific_market(primary_market_pair,Decimal(amount),OrderType.LIMIT,Decimal(price))
+                self.c_sell_with_specific_market(primary_market_pair,Decimal(amount),OrderType.LIMIT,Decimal(max_price))
 
     def adjust_mirrored_orderbook(self,mirrored_market_pair,best_bid,best_ask):
         active_orders = self._sb_order_tracker.market_pair_to_active_orders
         if mirrored_market_pair in active_orders:
             for order in active_orders[mirrored_market_pair]:
                 if order.is_buy:
-                    new_price = Decimal(1.01)*best_bid.price
+                    new_price = Decimal(1 + (self.spread_percent/8))*best_bid.price
                     diff = new_price - self.outstanding_offsets[order.client_order_id]
                     loss = diff * order.quantity
                     if loss < self.max_loss:
@@ -418,7 +423,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                     del self.outstanding_offsets[order.client_order_id]
                 else:
-                    new_price = Decimal(0.99)*best_ask.price
+                    new_price = Decimal(1 - (self.spread_percent/8))*best_ask.price
                     diff = self.outstanding_offsets[order.client_order_id] - new_price
                     loss = diff * order.quantity
                     if loss < self.max_loss:
