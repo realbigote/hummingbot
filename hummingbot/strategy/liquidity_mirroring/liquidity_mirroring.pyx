@@ -235,8 +235,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         price = Decimal(1 + (self.spread_percent/8))*(sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount)
                         new_order = self.c_buy_with_specific_market(mirrored_market_pair,sell_order_completed_event.base_asset_amount,OrderType.LIMIT,price)
                         self.outstanding_offsets[new_order] = (sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount)
-                else:
-                    del self.outstanding_offsets[order_id]
+            else:
+                del self.outstanding_offsets[order_id]
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id}")
@@ -247,7 +247,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         :param fail_event: Order failure event
         """
-        if fail_event.order_type is OrderType.MARKET:
+        if fail_event.order_type is OrderType.LIMIT:
             self._failed_market_order_count += 1
             self._last_failed_market_order_timestamp = fail_event.timestamp
 
@@ -265,6 +265,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if market_trading_pair_tuple is not None:
             self.log_with_clock(logging.INFO,
                                 f"Market order failed on {market_trading_pair_tuple[0].name}: {order_id}")
+            if (market_trading_pair_tuple in self.mirrored_market_pairs):
+                del self.outstanding_offsets[order_id]
 
     cdef c_did_cancel_order(self, object cancel_event):
         """
@@ -278,6 +280,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if market_trading_pair_tuple is not None:
             self.log_with_clock(logging.INFO,
                                 f"Market order canceled on {market_trading_pair_tuple[0].name}: {order_id}")
+            if market_trading_pair_tuple in self.mirrored_market_pairs:
+                del self.outstanding_offsets[order_id]
 
     cdef bint c_ready_for_new_orders(self, list market_trading_pair_tuples):
         """
@@ -410,7 +414,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
     def adjust_mirrored_orderbook(self,mirrored_market_pair,best_bid,best_ask):
         active_orders = self._sb_order_tracker.market_pair_to_active_orders
         if mirrored_market_pair in active_orders:
-            for order in active_orders[mirrored_market_pair]:
+            current_orders = active_orders[mirrored_market_pair].copy()
+            for order in current_orders:
                 if order.is_buy:
                     new_price = Decimal(1 + (self.spread_percent/8))*best_bid.price
                     diff = new_price - self.outstanding_offsets[order.client_order_id]
@@ -421,7 +426,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     else:
                         self.logger().warning("TOO LOSSY!")
                     self.c_cancel_order(mirrored_market_pair,order.client_order_id)
-                    del self.outstanding_offsets[order.client_order_id]
                 else:
                     new_price = Decimal(1 - (self.spread_percent/8))*best_ask.price
                     diff = self.outstanding_offsets[order.client_order_id] - new_price
@@ -432,4 +436,3 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     else:
                         self.logger().warning("TOO LOSSY!")
                     self.c_cancel_order(mirrored_market_pair,order.client_order_id)
-                    del self.outstanding_offsets[order.client_order_id]
