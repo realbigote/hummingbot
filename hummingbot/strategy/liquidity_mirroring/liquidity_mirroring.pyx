@@ -97,8 +97,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.max_exposure_base = max_exposure_base
         self.max_exposure_quote = max_exposure_quote
 
-        bid_amount_percents = [0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1]
-        ask_amount_percents = [0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1]
+        bid_amount_percents = [float(1/55),float(2/55),float(3/55),float(4/55),float(5/55),float(6/55),
+                               float(7/55),float(8/55),float(9/55),float(10/55)]
+        ask_amount_percents = [float(1/55),float(2/55),float(3/55),float(4/55),float(5/55),float(6/55),
+                               float(7/55),float(8/55),float(9/55),float(10/55)]
 
         self.bid_amounts = []
         self.ask_amounts = []

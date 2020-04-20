@@ -40,7 +40,7 @@ liquidity_mirroring_config_map = {
     ),
     "two_sided_mirroring": ConfigVar(
         key="two_sided_mirroring",
-        prompt="Two-Sided Mirroring Threshold (inf for one-sided) >>> ",
+        prompt="Two-Sided Mirroring Threshold in base currency (inf for one-sided) >>> ",
         default=float("inf"),
         type_str="float" 
     ),
