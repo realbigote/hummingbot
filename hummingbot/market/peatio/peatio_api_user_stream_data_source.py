@@ -11,7 +11,7 @@ from hummingbot.core.data_type.user_stream_tracker_data_source import UserStream
 from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.logger import HummingbotLogger
 
-PEATIO_API_ENDPOINT = "https://opendax.tokamaktech.net/api/v2/"
+PEATIO_API_ENDPOINT = "https://bolsa.tokamaktech.net/api/v2/"
 PEATIO_SIGNIN = "barong/identity/sessions"
 PEATIO_USER_STREAM_BALANCES = "peatio/account/balances"
 PEATIO_USER_STREAM_DEPOSITS = "peatio/account/deposits"

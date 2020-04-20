@@ -27,10 +27,10 @@ from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.logger import HummingbotLogger
 from hummingbot.market.peatio.peatio_order_book import PeatioOrderBook
 
-PEATIO_REST_URL = "https://opendax.tokamaktech.net/api/v2/peatio/public/"
-DIFF_STREAM_URL = "wss://opendax.tokamaktech.net/api/v2/ranger/public/"
-TICKER_PRICE_CHANGE_URL = "https://opendax.tokamaktech.net/api/v2/peatio/public/markets/tickers"
-EXCHANGE_INFO_URL = "https://opendax.tokamaktech.net/api/v2/peatio/public/markets"
+PEATIO_REST_URL = "https://bolsa.tokamaktech.net/api/v2/peatio/public/"
+DIFF_STREAM_URL = "wss://bolsa.tokamaktech.net/api/v2/ranger/public/"
+TICKER_PRICE_CHANGE_URL = "https://bolsa.tokamaktech.net/api/v2/peatio/public/markets/tickers"
+EXCHANGE_INFO_URL = "https://bolsa.tokamaktech.net/api/v2/peatio/public/markets"
 
 OrderBookRow = namedtuple("Book", ["price", "amount"])
 
