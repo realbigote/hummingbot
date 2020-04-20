@@ -536,10 +536,11 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
             [sell_order_completed_event] = self.run_parallel(self.market_logger.wait_for(SellOrderCompletedEvent))
 
             # Query the persisted trade logs
-            trade_fills: List[TradeFill] = recorder.get_trades_for_config(config_path)
+            # trade_fills: List[TradeFill] = [recorder.get_trades_for_config(config_path)]
+            trade_fills: List[TradeFill] = [x for x in recorder.market_event_tag_map.values() if x in (MarketEvent.BuyOrderCompleted, MarketEvent.SellOrderCompleted)]
             self.assertEqual(2, len(trade_fills))
-            buy_fills: List[TradeFill] = [t for t in trade_fills if t.trade_type == "BUY"]
-            sell_fills: List[TradeFill] = [t for t in trade_fills if t.trade_type == "SELL"]
+            buy_fills: List[TradeFill] = [t for t in trade_fills if t == MarketEvent.BuyOrderCompleted]
+            sell_fills: List[TradeFill] = [t for t in trade_fills if t == MarketEvent.SellOrderCompleted]
             self.assertEqual(1, len(buy_fills))
             self.assertEqual(1, len(sell_fills))
 
