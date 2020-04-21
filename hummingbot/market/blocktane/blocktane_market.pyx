@@ -318,25 +318,6 @@ cdef class BlocktaneMarket(MarketBase):
 
     async def get_order(self, uuid: str) -> Dict[str, Any]:
         # Used to retrieve a single order by uuid
-        """
-        Result:
-        {
-            id: 160,
-            side: "sell",
-            ord_type: "limit",
-            price: "1.0",
-            avg_price: "0.0",
-            state: "wait",
-            market: "cadfth",
-            created_at: "2020-03-16T17:56:13+01:00",
-            updated_at: "2020-03-16T17:56:13+01:00",
-            origin_volume: "11.0",
-            remaining_volume: "11.0",
-            executed_volume: "0.0",
-            trades_count: 0,
-            trades: [ ]
-        }
-        """
         path_url = f"/market/orders/{uuid}"
 
         result = await self._api_request("GET", path_url=path_url)
@@ -394,8 +375,8 @@ cdef class BlocktaneMarket(MarketBase):
                     order_state = order["state"]
                     order_type = "LIMIT" if tracked_order.order_type is OrderType.LIMIT else "MARKET"
                     trade_type = "BUY" if tracked_order.trade_type is TradeType.BUY else "SELL"
-                    order_type_description = tracked_order.order_type
 
+                    order_type_description = tracked_order.order_type
                     executed_price = Decimal(order["avg_price"])
                     executed_amount_diff = s_decimal_0
 
@@ -985,21 +966,6 @@ cdef class BlocktaneMarket(MarketBase):
         return order_id
 
     async def cancel_all(self, timeout_seconds: float) -> List[CancellationResult]:
-        # {
-        # "avg_price": "0.0",
-        # "created_at": "2020-03-12T17:01:56+01:00",
-        # "executed_volume": "0.0",
-        # "id": 10440269,
-        # "market": "ethusd",
-        # "ord_type": "limit",
-        # "origin_volume": "31.0",
-        # "price": "160.82",
-        # "remaining_volume": "31.0",
-        # "side": "buy",
-        # "state": "pending",
-        # "trades_count": 0,
-        # "updated_at": "2020-03-12T17:01:56+01:00"
-        # }
         incomplete_orders = [order for order in self._in_flight_orders.values() if not order.is_done]
         tasks = [self.execute_cancel(o.trading_pair, o.client_order_id) for o in incomplete_orders]
         order_id_set = set([o.client_order_id for o in incomplete_orders])
