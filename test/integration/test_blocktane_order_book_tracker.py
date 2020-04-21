@@ -31,7 +31,7 @@ class BlocktaneOrderBookTrackerUnitTest(unittest.TestCase):
         OrderBookEvent.TradeEvent
     ]
     trading_pairs: List[str] = [
-        "cadfth",
+        "fthusd",
         "ethusd"
     ]
     @classmethod
@@ -87,7 +87,7 @@ class BlocktaneOrderBookTrackerUnitTest(unittest.TestCase):
         # Wait 5 seconds to process some diffs.
         self.ev_loop.run_until_complete(asyncio.sleep(10.0))
         order_books: Dict[str, OrderBook] = self.order_book_tracker.order_books
-        cadfth_book: OrderBook = order_books["cadfth"]
+        fthusd_book: OrderBook = order_books["fthusd"]
         ethusd_book: OrderBook = order_books["ethusd"]
         # print(btcusdt_book.snapshot)
         # print("xrpusdt")
@@ -96,10 +96,10 @@ class BlocktaneOrderBookTrackerUnitTest(unittest.TestCase):
                                 ethusd_book.get_price(True))
         self.assertLessEqual(ethusd_book.get_price_for_volume(False, 10).result_price,
                              ethusd_book.get_price(False))
-        self.assertGreaterEqual(cadfth_book.get_price_for_volume(True, 10000).result_price,
-                                cadfth_book.get_price(True))
-        self.assertLessEqual(cadfth_book.get_price_for_volume(False, 10000).result_price,
-                             cadfth_book.get_price(False))
+        self.assertGreaterEqual(fthusd_book.get_price_for_volume(True, 10000).result_price,
+                                fthusd_book.get_price(True))
+        self.assertLessEqual(fthusd_book.get_price_for_volume(False, 10000).result_price,
+                             fthusd_book.get_price(False))
 
 
 def main():
