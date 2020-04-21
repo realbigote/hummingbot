@@ -122,7 +122,7 @@ cdef class BlocktaneMarket(MarketBase):
         self._check_network_interval = 60.0
 
     @staticmethod
-    def split_exchange_trading_pair(trading_pair: str) -> Optional[Tuple[str, str]]:
+    def split_trading_pair(trading_pair: str) -> Optional[Tuple[str, str]]:
         try:
             m = TRADING_PAIR_SPLITTER.match(trading_pair)
             return m.group(1), m.group(2)
@@ -132,10 +132,10 @@ cdef class BlocktaneMarket(MarketBase):
 
     @staticmethod
     def convert_from_exchange_trading_pair(exchange_trading_pair: str) -> Optional[str]:
-        if BlocktaneMarket.split_exchange_trading_pair(exchange_trading_pair) is None:
+        if BlocktaneMarket.split_trading_pair(exchange_trading_pair) is None:
             return None
         # Blocktane does not split BASEQUOTE (fthusd)
-        base_asset, quote_asset = BlocktaneMarket.split_exchange_trading_pair(exchange_trading_pair)
+        base_asset, quote_asset = BlocktaneMarket.split_trading_pair(exchange_trading_pair)
         return f"{base_asset}-{quote_asset}".upper()
     
     @staticmethod
