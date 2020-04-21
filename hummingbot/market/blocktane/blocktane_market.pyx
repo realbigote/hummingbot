@@ -1009,10 +1009,8 @@ cdef class BlocktaneMarket(MarketBase):
             async with timeout(timeout_seconds):
                 api_responses = await safe_gather(*tasks, return_exceptions=True)
                 for res in api_responses:
-                    order_id = res.get('id')
-                    if order_id:
-                        order_id_set.remove(order_id)
-                        successful_cancellation.append(CancellationResult(order_id, True))
+                    order_id_set.remove(res)
+                    successful_cancellation.append(CancellationResult(res, True))
         except Exception:
             self.logger().network(
                 f"Unexpected error cancelling orders.",
