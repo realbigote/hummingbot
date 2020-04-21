@@ -243,10 +243,10 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
                                        10001, FixtureBlocktane.ORDER_PLACE_FILLED, FixtureBlocktane.WS_ORDER_FILLED)
         [order_completed_event] = self.run_parallel(self.market_logger.wait_for(BuyOrderCompletedEvent))
         order_completed_event: BuyOrderCompletedEvent = order_completed_event
-        trade_events: List[OrderFilledEvent] = [t for t in self.market_logger.event_log
-                                                if isinstance(t, OrderFilledEvent)]
-        base_amount_traded: Decimal = sum(t.amount for t in trade_events)
-        quote_amount_traded: Decimal = sum(t.amount * t.price for t in trade_events)
+        trade_events = [t for t in self.market_logger.event_log
+                                                if isinstance(t, BuyOrderCompletedEvent)]
+        base_amount_traded: Decimal = sum(t.base_asset_amount for t in trade_events)
+        quote_amount_traded: Decimal = sum(t.quote_asset_amount for t in trade_events)
 
         self.assertTrue([evt.order_type == OrderType.LIMIT for evt in trade_events])
         self.assertEqual(order_id, order_completed_event.order_id)
@@ -277,9 +277,9 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
 
         [order_completed_event] = self.run_parallel(self.market_logger.wait_for(SellOrderCompletedEvent))
         order_completed_event: SellOrderCompletedEvent = order_completed_event
-        trade_events = [t for t in self.market_logger.event_log if isinstance(t, OrderFilledEvent)]
-        base_amount_traded = sum(t.amount for t in trade_events)
-        quote_amount_traded = sum(t.amount * t.price for t in trade_events)
+        trade_events = [t for t in self.market_logger.event_log if isinstance(t, SellOrderCompletedEvent)]
+        base_amount_traded = sum(t.base_asset_amount for t in trade_events)
+        quote_amount_traded = sum(t.quote_asset_amount for t in trade_events)
 
         self.assertTrue([evt.order_type == OrderType.LIMIT for evt in trade_events])
         self.assertEqual(order_id, order_completed_event.order_id)
@@ -407,7 +407,8 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
             resp = FixtureBlocktane.ORDER_CANCEL.copy()
             resp["id"] = exch_order_id_2
             self.web_app.update_response("delete", API_BASE_URL, f"/v3/orders/{exch_order_id_2}", resp)
-        cancellation_results = self.run_parallel(self.market.cancel_all(5))
+        
+        [cancellation_results] = self.run_parallel(self.market.cancel_all(5))
         for cr in cancellation_results:
             self.assertEqual(cr.success, True)
 
@@ -498,7 +499,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
             order_id = None
             self.assertEqual(0, len(self.market.limit_orders))
             self.assertEqual(0, len(self.market.tracking_states))
-            saved_market_states = recorder.get_market_states(config_path, self.market)
+            # saved_market_states = recorder.get_market_states(config_path, self.market)
             self.assertEqual(0, len(saved_market_states.saved_state))
         finally:
             if order_id is not None:
