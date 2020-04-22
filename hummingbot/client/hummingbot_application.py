@@ -13,6 +13,7 @@ from hummingbot.core.data_type.order_book_tracker import OrderBookTrackerDataSou
 from hummingbot.core.data_type.user_stream_tracker import UserStreamTrackerDataSourceType
 from hummingbot.logger import HummingbotLogger
 from hummingbot.logger.application_warning import ApplicationWarning
+from hummingbot.market.blocktane.blocktane_market import BlocktaneMarket
 from hummingbot.market.binance.binance_market import BinanceMarket
 from hummingbot.market.bittrex.bittrex_market import BittrexMarket
 from hummingbot.market.kucoin.kucoin_market import KucoinMarket
@@ -52,6 +53,7 @@ s_logger = None
 
 MARKET_CLASSES = {
     "bamboo_relay": BambooRelayMarket,
+    "blocktane": BlocktaneMarket,
     "binance": BinanceMarket,
     "coinbase_pro": CoinbaseProMarket,
     "huobi": HuobiMarket,
@@ -229,6 +231,17 @@ class HummingbotApplication(*commands):
                 paper_trade_account_balance = global_config_map.get("paper_trade_account_balance").value
                 for asset, balance in paper_trade_account_balance:
                     market.set_balance(asset, balance)
+
+            elif market_name == "blocktane":
+                blocktane_api_key = global_config_map.get("blocktane_api_key").value
+                blocktane_api_secret = global_config_map.get("blocktane_api_secret").value
+                market = BlocktaneMarket(
+                    blocktane_api_key,
+                    blocktane_api_secret,
+                    order_book_tracker_data_source_type=OrderBookTrackerDataSourceType.EXCHANGE_API,
+                    trading_pairs=trading_pairs,
+                    trading_required=self._trading_required,
+                )
 
             elif market_name == "binance":
                 binance_api_key = global_config_map.get("binance_api_key").value

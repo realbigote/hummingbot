@@ -14,6 +14,7 @@ from .async_utils import safe_ensure_future
 from .ssl_client_request import SSLClientRequest
 
 BINANCE_ENDPOINT = "https://api.binance.com/api/v1/exchangeInfo"
+BLOCKTANE_ENDPOINT = "https://bolsa.tokamaktech.net/api/v2/peatio/public/markets"
 RADAR_RELAY_ENDPOINT = "https://api.radarrelay.com/v2/markets"
 BAMBOO_RELAY_ENDPOINT = "https://rest.bamboorelay.com/main/0x/markets"
 COINBASE_PRO_ENDPOINT = "https://api.pro.coinbase.com/products/"
@@ -77,6 +78,30 @@ class TradingPairFetcher:
 
         except Exception:
             # Do nothing if the request fails -- there will be no autocomplete for binance trading pairs
+            pass
+
+        return []
+
+    async def fetch_blocktane_trading_pairs(self) -> List[str]:
+        try:
+            from hummingbot.market.blocktane.blocktane_market import BlocktaneMarket
+            client: aiohttp.ClientSession = self.http_client()
+            async with client.get(BLOCKTANE_ENDPOINT, timeout=API_CALL_TIMEOUT) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    raw_trading_pairs = [d["id"] for d in data if d["state"] == "enabled"]
+                    trading_pair_list: List[str] = []
+                    for raw_trading_pair in raw_trading_pairs:
+                        converted_trading_pair: Optional[str] = \
+                            BlocktaneMarket.convert_from_exchange_trading_pair(raw_trading_pair)
+                        if converted_trading_pair is not None:
+                            trading_pair_list.append(converted_trading_pair)
+                        else:
+                            self.logger().debug(f"Could not parse the trading pair {raw_trading_pair}, skipping it...")
+                    return trading_pair_list
+
+        except Exception:
+            # Do nothing if the request fails -- there will be no autocomplete for blocktane trading pairs
             pass
 
         return []
@@ -309,7 +334,8 @@ class TradingPairFetcher:
                  self.fetch_liquid_trading_pairs(),
                  self.fetch_bittrex_trading_pairs(),
                  self.fetch_kucoin_trading_pairs(),
-                 self.fetch_bitcoin_com_trading_pairs()]
+                 self.fetch_bitcoin_com_trading_pairs(),
+                 self.fetch_blocktane_trading_pairs()]
 
         # Radar Relay has not yet been migrated to a new version
         # Endpoint needs to be updated after migration
@@ -325,6 +351,7 @@ class TradingPairFetcher:
             "liquid": results[5],
             "bittrex": results[6],
             "kucoin": results[7],
-            "bitcoin_com": results[8]
+            "bitcoin_com": results[8],
+            "blocktane": results[9]
         }
         self.ready = True
