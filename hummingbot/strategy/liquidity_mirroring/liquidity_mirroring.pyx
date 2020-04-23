@@ -52,6 +52,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                  max_exposure_base: float,
                  max_exposure_quote: float,
                  max_loss: float,
+                 equivalent_tokens: list,
                  logging_options: int = OPTION_LOG_ORDER_COMPLETED,
                  status_report_interval: float = 60.0,
                  next_trade_delay_interval: float = 15.0,
@@ -111,6 +112,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         self.outstanding_offsets = {}
         self.max_loss = max_loss
+        self.equivalent_tokens = equivalent_tokens
 
     @property
     def tracked_taker_orders(self) -> List[Tuple[MarketBase, MarketOrder]]:
@@ -205,9 +207,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if market_trading_pair_tuple is not None:
             if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
                 if buy_order_completed_event.base_asset_amount > self.two_sided_mirroring:
-                    for pair in self.mirrored_market_pairs:
-                        if (pair.base_asset, pair.quote_asset) == (market_trading_pair_tuple.base_asset, market_trading_pair_tuple.quote_asset):
-                            mirrored_market_pair = pair
+                    #for pair in self.mirrored_market_pairs:
+                    #    if (pair.base_asset, pair.quote_asset) == (market_trading_pair_tuple.base_asset, market_trading_pair_tuple.quote_asset):
+                    #        mirrored_market_pair = pair
+                    mirrored_market_pair = self.mirrored_market_pairs[0]
                     if self.c_ready_for_new_orders([mirrored_market_pair]):
                         price = Decimal(1 - (self.spread_percent/8)) * (buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount)
                         new_order = self.c_sell_with_specific_market(mirrored_market_pair,buy_order_completed_event.base_asset_amount,OrderType.LIMIT,price)
@@ -230,9 +233,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if market_trading_pair_tuple is not None:
             if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
                 if sell_order_completed_event.quote_asset_amount > self.two_sided_mirroring:
-                    for pair in self.mirrored_market_pairs:
-                        if (pair.base_asset, pair.quote_asset) == (market_trading_pair_tuple.base_asset, market_trading_pair_tuple.quote_asset):
-                            mirrored_market_pair = pair
+                    #for pair in self.mirrored_market_pairs:
+                    #    if (pair.base_asset, pair.quote_asset) == (market_trading_pair_tuple.base_asset, market_trading_pair_tuple.quote_asset):
+                    #        mirrored_market_pair = pair
+                    mirrored_market_pair = self.mirrored_market_pairs[0]
                     if self.c_ready_for_new_orders([mirrored_market_pair]):
                         price = Decimal(1 + (self.spread_percent/8))*(sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount)
                         new_order = self.c_buy_with_specific_market(mirrored_market_pair,sell_order_completed_event.base_asset_amount,OrderType.LIMIT,price)
@@ -348,11 +352,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         return True
 
     cdef c_process_market_pair(self, object market_pair):
-        primary_market_pair = None
-
-        for pair in self.primary_market_pairs:
-            if (pair.base_asset, pair.quote_asset) == (market_pair.base_asset, market_pair.quote_asset):
-                primary_market_pair = pair
+        primary_market_pair = self.primary_market_pairs[0]
+        #self.logger().warning(f"{self.equivalent_tokens}")
+        #for pair in self.primary_market_pairs:
+        #    if (pair.base_asset, pair.quote_asset) == (market_pair.base_asset, market_pair.quote_asset):
+        #        primary_market_pair = pair
 
         bids = list(market_pair.order_book_bid_entries())
         best_bid = bids[0]

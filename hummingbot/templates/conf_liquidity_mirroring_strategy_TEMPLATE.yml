@@ -11,11 +11,13 @@ template_version: 2
 primary_market: null
 mirrored_market: null
 market_trading_pair_to_mirror: null
+primary_market_trading_pair: null
 two_sided_mirroring: null
 spread_percent: null
 max_exposure_base: null
 max_exposure_quote: null
 max_offset_loss: null
+equivalent_tokens: null
 
 # For more detailed information, see:
 # https://docs.hummingbot.io/strategies/arbitrage/#configuration-parameters
