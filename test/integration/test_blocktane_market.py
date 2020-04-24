@@ -4,6 +4,7 @@ import json
 import time
 import logging
 import asyncio
+import requests
 import unittest
 import contextlib
 from unittest import mock
@@ -70,41 +71,50 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
     market: BlocktaneMarket
     market_logger: EventLogger
     stack: contextlib.ExitStack
+    base_api_url = "bolsa.tokamaktech.net"
 
     @classmethod
     def setUpClass(cls):
-        print("Starting tests")
         cls.ev_loop: asyncio.BaseEventLoop = asyncio.get_event_loop()
+
         if API_MOCK_ENABLED:
             cls.web_app = HummingWebApp.get_instance()
-            cls.web_app.add_host_to_mock(API_BASE_URL, [])
+            cls.web_app.add_host_to_mock(cls.base_api_url, [])
             cls.web_app.start()
+
             cls.ev_loop.run_until_complete(cls.web_app.wait_til_started())
             cls._patcher = mock.patch("aiohttp.client.URL")
             cls._url_mock = cls._patcher.start()
+
             cls._url_mock.side_effect = cls.web_app.reroute_local
-            cls.web_app.update_response("get", API_BASE_URL, "/public/health/alive", FixtureBlocktane.PING)
-            cls.web_app.update_response("get", API_BASE_URL, "/public/markets", FixtureBlocktane.MARKETS)
-            cls.web_app.update_response("get", API_BASE_URL, "/public/markets/tickers", FixtureBlocktane.MARKETS_TICKERS)
-            cls.web_app.update_response("get", API_BASE_URL, "/account/balances", FixtureBlocktane.BALANCES)
-            cls.web_app.update_response("get", API_BASE_URL, "/market/orders?state=wait", FixtureBlocktane.ORDERS_OPEN)
-            cls.web_app.update_response("post", API_BASE_URL, "/market/orders", FixtureBlocktane.ORDERS_OPEN)
-            cls._t_nonce_patcher = unittest.mock.patch("hummingbot.market.blocktane.blocktane_market.get_tracking_nonce")
-            cls._t_nonce_mock = cls._t_nonce_patcher.start()
 
-            # cls._ob_patcher = unittest.mock.patch("hummingbot.market.blocktane.blocktane_api_order_book_data_source."
-            #                                       "BlocktaneAPIOrderBookDataSource._transform_raw_message",
-            #                                       autospec=True)
-            # cls._ob_mock = cls._ob_patcher.start()
-            # cls._ob_mock.side_effect = _transform_raw_message_patch
+            cls._req_patcher = unittest.mock.patch.object(requests.Session, "request", autospec=True)
+            cls._req_url_mock = cls._req_patcher.start()
+            cls._req_url_mock.side_effect = HummingWebApp.reroute_request
 
+            cls.web_app.update_response("get", cls.base_api_url, "/api/v2/peatio/public/health/alive", FixtureBlocktane.PING)
+            cls.web_app.update_response("get", cls.base_api_url, "/api/v2/peatio/public/markets", FixtureBlocktane.MARKETS)
+            cls.web_app.update_response("get", cls.base_api_url, "/api/v2/peatio/public/markets/tickers", FixtureBlocktane.MARKETS_TICKERS)
+            cls.web_app.update_response("get", cls.base_api_url, "/api/v2/peatio/account/balances", FixtureBlocktane.BALANCES)
+            cls.web_app.update_response("get", cls.base_api_url, "/api/v2/peatio/market/orders?state=wait", FixtureBlocktane.ORDERS_OPEN_BUY)
+            cls.web_app.update_response("post", cls.base_api_url, "/api/v2/peatio/market/orders/10001/cancel", FixtureBlocktane.ORDER_CANCEL)
+            # cls.web_app.update_response("post", cls.base_api_url, "/api/v2/peatio/market/orders/10000/cancel", FixtureBlocktane.ORDER_CANCEL_1)
+            cls.web_app.update_response("post", cls.base_api_url, "/api/v2/peatio/market/orders", FixtureBlocktane.ORDER_MARKET_OPEN_BUY)
+            cls.web_app.update_response("post", cls.base_api_url, "/api/v2/peatio/market/orders", FixtureBlocktane.ORDER_MARKET_OPEN_BUY)
+            cls.web_app.update_response("get", cls.base_api_url, "/api/v2/peatio/public/markets/fthusd/depth", FixtureBlocktane.MARKETS_DEPTH)
+
+            ws_base_url = "wss://bolsa.tokamaktech.net/api/v2/ranger/public"
+            cls._ws_user_url = f"{ws_base_url}/?stream=order&stream=trade"
             HummingWsServerFactory.url_host_only = True
-            ws_server = HummingWsServerFactory.start_new_server(WS_BASE_URL)
+            HummingWsServerFactory.start_new_server(cls._ws_user_url)
+            HummingWsServerFactory.start_new_server(f"{ws_base_url}/linketh@depth/zrxeth@depth")
             cls._ws_patcher = unittest.mock.patch("websockets.connect", autospec=True)
             cls._ws_mock = cls._ws_patcher.start()
             cls._ws_mock.side_effect = HummingWsServerFactory.reroute_ws_connect
-            ws_server.add_stock_response("queryExchangeState", FixtureBlocktane.WS_ORDER_BOOK_SNAPSHOT.copy())
-        
+
+            cls._t_nonce_patcher = unittest.mock.patch("hummingbot.market.blocktane.blocktane_market.get_tracking_nonce")
+            cls._t_nonce_mock = cls._t_nonce_patcher.start()
+
         cls.clock: Clock = Clock(ClockMode.REALTIME)
         cls.market: BlocktaneMarket = BlocktaneMarket(
             blocktane_api_key=API_KEY,
@@ -127,8 +137,6 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
             cls.web_app.stop()
             cls._patcher.stop()
             cls._t_nonce_patcher.stop()
-            # cls._ob_patcher.stop()
-            # cls._us_patcher.stop()
             cls._ws_patcher.stop()
 
     @classmethod
@@ -179,28 +187,19 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.assertGreater(market_fee.percent, 0)
         self.assertEqual(len(market_fee.flat_fees), 0)
 
-
-
     def test_fee_overrides_config(self):
         fee_overrides_config_map["blocktane_taker_fee"].value = None
         taker_fee: TradeFee = self.market.get_fee("fth", "usd", OrderType.MARKET, TradeType.BUY, Decimal(1), Decimal('0.1'))
         self.assertAlmostEqual(Decimal("0.002"), taker_fee.percent)
-
         fee_overrides_config_map["blocktane_taker_fee"].value = Decimal('0.002')
         taker_fee: TradeFee = self.market.get_fee("fth", "usd", OrderType.MARKET, TradeType.BUY, Decimal(1), Decimal('0.1'))
         self.assertAlmostEqual(Decimal("0.002"), taker_fee.percent)
-
         fee_overrides_config_map["blocktane_maker_fee"].value = None
         maker_fee: TradeFee = self.market.get_fee("fth", "usd", OrderType.LIMIT, TradeType.BUY, Decimal(1), Decimal('0.1'))
         self.assertAlmostEqual(Decimal("0.002"), maker_fee.percent)
-
         fee_overrides_config_map["blocktane_maker_fee"].value = Decimal('0.002')
         maker_fee: TradeFee = self.market.get_fee("fth", "usd", OrderType.LIMIT, TradeType.BUY, Decimal(1), Decimal('0.1'))
         self.assertAlmostEqual(Decimal("0.002"), maker_fee.percent)
-
-
-
-
 
     def place_order(self, is_buy, trading_pair, amount, order_type, price, nonce, fixture_resp, fixture_ws):
         order_id, exch_order_id = None, None
@@ -209,7 +208,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
 
             resp = fixture_resp.copy()
             exch_order_id = resp["id"]
-            self.web_app.update_response("post", API_BASE_URL, "/market/orders", resp)
+            self.web_app.update_response("post", self.base_api_url, "/api/v2/peatio/market/orders", resp)
         if is_buy:
             order_id = self.market.buy(trading_pair, amount, order_type, price)
         else:
@@ -224,7 +223,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         if API_MOCK_ENABLED:
             resp = FixtureBlocktane.ORDER_CANCEL.copy()
             resp["id"] = exch_order_id
-            self.web_app.update_response("delete", API_BASE_URL, f"/v3/orders/{exch_order_id}", resp)
+            self.web_app.update_response("delete", self.base_api_url, f"/api/v2/peatio/market/orders/{exch_order_id}/cancel", resp)
         self.market.cancel(trading_pair, order_id)
 
     def test_limit_buy(self):
@@ -240,7 +239,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair, amount)
 
         order_id, _ = self.place_order(True, trading_pair, quantized_amount, OrderType.LIMIT, quantize_bid_price,
-                                       10001, FixtureBlocktane.ORDER_PLACE_FILLED, FixtureBlocktane.WS_ORDER_FILLED)
+                                       10001, FixtureBlocktane.ORDER_MARKET_OPEN_BUY, FixtureBlocktane.WS_ORDER_FILLED_BUY_LIMIT)
         [order_completed_event] = self.run_parallel(self.market_logger.wait_for(BuyOrderCompletedEvent))
         order_completed_event: BuyOrderCompletedEvent = order_completed_event
         trade_events = [t for t in self.market_logger.event_log
@@ -258,13 +257,10 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.assertTrue(any([isinstance(event, BuyOrderCreatedEvent) and event.order_id == order_id
                              for event in self.market_logger.event_log]))
         # Reset the logs
-
         self.market_logger.clear()
 
     def test_limit_sell(self):
-
         trading_pair = "fthusd"
-
         current_ask_price: Decimal = self.market.get_price(trading_pair, False)
         ask_price: Decimal = current_ask_price - Decimal('0.01') * current_ask_price
         quantize_ask_price: Decimal = self.market.quantize_order_price(trading_pair, ask_price)
@@ -273,7 +269,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair, amount)
 
         order_id, _ = self.place_order(False, trading_pair, quantized_amount, OrderType.LIMIT, quantize_ask_price,
-                                       10001, FixtureBlocktane.ORDER_PLACE_FILLED, FixtureBlocktane.WS_ORDER_FILLED)
+                                       10001, FixtureBlocktane.ORDER_MARKET_OPEN_SELL, FixtureBlocktane.WS_ORDER_FILLED_SELL_LIMIT)
 
         [order_completed_event] = self.run_parallel(self.market_logger.wait_for(SellOrderCompletedEvent))
         order_completed_event: SellOrderCompletedEvent = order_completed_event
@@ -291,20 +287,17 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.assertTrue(any([isinstance(event, SellOrderCreatedEvent) and event.order_id == order_id
                              for event in self.market_logger.event_log]))
         # Reset the logs
-
         self.market_logger.clear()
 
     def test_market_buy(self):
-
-
         self.assertGreater(self.market.get_balance("usd"), 20)
         trading_pair = "fthusd"
 
-        amount: Decimal = Decimal("0.2")
+        amount: Decimal = Decimal("0.02")
         quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair, amount)
 
         order_id, _ = self.place_order(True, trading_pair, quantized_amount, OrderType.MARKET, 0, 10001,
-                                       FixtureBlocktane.ORDER_PLACE_FILLED, FixtureBlocktane.WS_ORDER_FILLED)
+                                       FixtureBlocktane.ORDER_MARKET_OPEN_BUY, FixtureBlocktane.WS_ORDER_MARKET_BUY_FILLED)
 
         [order_completed_event] = self.run_parallel(self.market_logger.wait_for(BuyOrderCompletedEvent))
 
@@ -325,19 +318,17 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.assertTrue(any([isinstance(event, BuyOrderCreatedEvent) and event.order_id == order_id
                              for event in self.market_logger.event_log]))
         # Reset the logs
-
         self.market_logger.clear()
 
     def test_market_sell(self):
-
         trading_pair = "fthusd"
         self.assertGreater(self.market.get_balance("fth"), 0.02)
 
-        amount: Decimal = Decimal("0.2")
+        amount: Decimal = Decimal("0.02")
         quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair, amount)
 
         order_id, _ = self.place_order(False, trading_pair, quantized_amount, OrderType.MARKET, 0, 10001,
-                                       FixtureBlocktane.ORDER_PLACE_FILLED, FixtureBlocktane.WS_ORDER_FILLED)
+                                       FixtureBlocktane.ORDER_MARKET_OPEN_SELL, FixtureBlocktane.WS_ORDER_MARKET_SELL_FILLED)
         [order_completed_event] = self.run_parallel(self.market_logger.wait_for(SellOrderCompletedEvent))
         order_completed_event: SellOrderCompletedEvent = order_completed_event
         trade_events = [t for t in self.market_logger.event_log if isinstance(t, SellOrderCompletedEvent)]
@@ -354,11 +345,9 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         self.assertTrue(any([isinstance(event, SellOrderCreatedEvent) and event.order_id == order_id
                              for event in self.market_logger.event_log]))
         # Reset the logs
-
         self.market_logger.clear()
 
     def test_cancel_order(self):
-
         trading_pair = "fthusd"
 
         current_bid_price: Decimal = self.market.get_price(trading_pair, True) * Decimal('0.80')
@@ -368,17 +357,15 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair, amount)
 
         order_id, exch_order_id = self.place_order(True, trading_pair, quantized_amount, OrderType.LIMIT,
-                                                   quantize_bid_price, 10001, FixtureBlocktane.ORDER_PLACE_OPEN,
-                                                   FixtureBlocktane.WS_ORDER_OPEN)
+                                                   quantize_bid_price, 10001, FixtureBlocktane.ORDER_CANCEL,
+                                                   FixtureBlocktane.WS_ORDER_CANCEL_BUY_LIMIT)
         self.run_parallel(self.market_logger.wait_for(BuyOrderCreatedEvent))
         self.cancel_order(trading_pair, order_id, exch_order_id)
         [order_cancelled_event] = self.run_parallel(self.market_logger.wait_for(OrderCancelledEvent))
         order_cancelled_event: OrderCancelledEvent = order_cancelled_event
         self.assertEqual(order_cancelled_event.order_id, order_id)
 
-
     def test_cancel_all(self):
-
         self.assertGreater(self.market.get_balance("usd"), 20)
         trading_pair = "fthusd"
 
@@ -395,23 +382,22 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
 
         _, exch_order_id_1 = self.place_order(True, trading_pair, quantized_bid_amount, OrderType.LIMIT,
                                               quantize_bid_price, 10001,
-                                              FixtureBlocktane.ORDER_PLACE_OPEN, FixtureBlocktane.WS_ORDER_OPEN)
+                                              FixtureBlocktane.ORDER_PLACE_OPEN, FixtureBlocktane.WS_ORDER_MARKET_BUY_FILLED)
         _, exch_order_id_2 = self.place_order(False, trading_pair, quantized_ask_amount, OrderType.LIMIT,
                                               quantize_ask_price, 10002,
-                                              FixtureBlocktane.ORDER_PLACE_OPEN, FixtureBlocktane.WS_ORDER_OPEN)
+                                              FixtureBlocktane.ORDER_PLACE_OPEN, FixtureBlocktane.WS_ORDER_MARKET_BUY_FILLED)
         self.run_parallel(asyncio.sleep(1))
         if API_MOCK_ENABLED:
             resp = FixtureBlocktane.ORDER_CANCEL.copy()
             resp["id"] = exch_order_id_1
-            self.web_app.update_response("delete", API_BASE_URL, f"/v3/orders/{exch_order_id_1}", resp)
+            self.web_app.update_response("delete", self.base_api_url, f"/api/v2/peatio/orders/{exch_order_id_1}", resp)
             resp = FixtureBlocktane.ORDER_CANCEL.copy()
             resp["id"] = exch_order_id_2
-            self.web_app.update_response("delete", API_BASE_URL, f"/v3/orders/{exch_order_id_2}", resp)
+            self.web_app.update_response("delete", self.base_api_url, f"/api/v2/peatio/orders/{exch_order_id_2}", resp)
         
         [cancellation_results] = self.run_parallel(self.market.cancel_all(5))
         for cr in cancellation_results:
             self.assertEqual(cr.success, True)
-
 
     @unittest.skipUnless(any("test_list_orders" in arg for arg in sys.argv), "List order test requires manual action.")
     def test_list_orders(self):
@@ -434,9 +420,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         for cr in cancellation_results:
             self.assertEqual(cr.success, True)
 
-
     def test_orders_saving_and_restoration(self):
-
         config_path: str = "test_config"
         strategy_name: str = "test_strategy"
         trading_pair: str = "fthusd"
@@ -454,7 +438,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
 
             order_id, exch_order_id = self.place_order(True, trading_pair, quantized_bid_amount, OrderType.LIMIT,
                                                        quantize_bid_price, 10001,
-                                                       FixtureBlocktane.ORDER_PLACE_OPEN, FixtureBlocktane.WS_ORDER_OPEN)
+                                                       FixtureBlocktane.ORDER_PLACE_OPEN, FixtureBlocktane.WS_ORDER_MARKET_BUY_FILLED)
             [order_created_event] = self.run_parallel(self.market_logger.wait_for(BuyOrderCreatedEvent))
             order_created_event: BuyOrderCreatedEvent = order_created_event
             self.assertEqual(order_id, order_created_event.order_id)
@@ -509,9 +493,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
             recorder.stop()
             os.unlink(self.db_path)
 
-
     def test_order_fill_record(self):
-
         config_path: str = "test_config"
         strategy_name: str = "test_strategy"
         trading_pair: str = "fthusd"
@@ -521,11 +503,10 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         recorder.start()
 
         try:
-
             amount: Decimal = Decimal("0.02")
             quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair, amount)
             order_id, _ = self.place_order(True, trading_pair, quantized_amount, OrderType.MARKET, 0, 10001,
-                                           FixtureBlocktane.ORDER_PLACE_FILLED, FixtureBlocktane.WS_ORDER_FILLED)
+                                           FixtureBlocktane.ORDER_MARKET_OPEN_BUY, FixtureBlocktane.WS_ORDER_FILLED_BUY_LIMIT)
             [buy_order_completed_event] = self.run_parallel(self.market_logger.wait_for(BuyOrderCompletedEvent))
 
             # Reset the logs
@@ -533,7 +514,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
 
             amount = Decimal(buy_order_completed_event.base_asset_amount)
             order_id, _ = self.place_order(False, trading_pair, amount, OrderType.MARKET, 0, 10001,
-                                           FixtureBlocktane.ORDER_PLACE_FILLED, FixtureBlocktane.WS_ORDER_FILLED)
+                                           FixtureBlocktane.ORDER_MARKET_OPEN_SELL, FixtureBlocktane.WS_ORDER_FILLED_SELL_LIMIT)
             [sell_order_completed_event] = self.run_parallel(self.market_logger.wait_for(SellOrderCompletedEvent))
 
             # Query the persisted trade logs
@@ -546,7 +527,6 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
             self.assertEqual(1, len(sell_fills))
 
             order_id = None
-
         finally:
             if order_id is not None:
                 self.market.cancel(trading_pair, order_id)
@@ -554,8 +534,6 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
 
             recorder.stop()
             os.unlink(self.db_path)
-
-
 
 if __name__ == "__main__":
     logging.getLogger("hummingbot.core.event.event_reporter").setLevel(logging.WARNING)
