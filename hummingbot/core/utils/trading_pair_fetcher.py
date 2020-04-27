@@ -359,7 +359,7 @@ class TradingPairFetcher:
                  self.fetch_kucoin_trading_pairs(),
                  self.fetch_bitcoin_com_trading_pairs(),
                  self.fetch_kraken_trading_pairs(),
-                 self.fetch_blocktane_trading_pairs()]
+                 self.fetch_blocktane_trading_pairs(),
                  self.fetch_radar_relay_trading_pairs()]
 
         # Radar Relay has not yet been migrated to a new version
@@ -378,7 +378,7 @@ class TradingPairFetcher:
             "kucoin": results[7],
             "bitcoin_com": results[8],
             "kraken": results[9],
-            "blocktane": results[9]
+            "blocktane": results[9],
             "radar_relay": results[10]
         }
         self.ready = True
