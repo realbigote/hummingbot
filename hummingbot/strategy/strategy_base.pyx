@@ -157,24 +157,20 @@ cdef class StrategyBase(TimeIterator):
             str quote_asset
             object bid_price
             object ask_price
-            object bid_price_adjusted
-            object ask_price_adjusted
             list markets_data = []
-            list markets_columns = ["Market", "Trading Pair", "Bid Price", "Ask Price", "Adjusted Bid", "Adjusted Ask"]
+            list markets_columns = ["Exchange", "Market", "Best Bid Price", "Best Ask Price", "Mid Price"]
         try:
             for market_trading_pair_tuple in market_trading_pair_tuples:
                 market, trading_pair, base_asset, quote_asset = market_trading_pair_tuple
                 bid_price = market.get_price(trading_pair, False)
                 ask_price = market.get_price(trading_pair, True)
-                bid_price_adjusted = ExchangeRateConversion.get_instance().adjust_token_rate(quote_asset, bid_price)
-                ask_price_adjusted = ExchangeRateConversion.get_instance().adjust_token_rate(quote_asset, ask_price)
+                mid_price = (bid_price + ask_price)/2
                 markets_data.append([
                     market.display_name,
                     trading_pair,
                     float(bid_price),
                     float(ask_price),
-                    float(bid_price_adjusted),
-                    float(ask_price_adjusted)
+                    float(mid_price)
                 ])
             return pd.DataFrame(data=markets_data, columns=markets_columns)
 
@@ -191,7 +187,7 @@ cdef class StrategyBase(TimeIterator):
             double base_asset_conversion_rate
             double quote_asset_conversion_rate
             list assets_data = []
-            list assets_columns = ["Market", "Asset", "Total Balance", "Available Balance", "Conversion Rate"]
+            list assets_columns = ["Exchange", "Asset", "Total Balance", "Available Balance", "Conversion Rate"]
         try:
             for market_trading_pair_tuple in market_trading_pair_tuples:
                 market, trading_pair, base_asset, quote_asset = market_trading_pair_tuple
