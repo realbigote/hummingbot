@@ -73,7 +73,17 @@ from hummingbot.client.config.fee_overrides_config_map import fee_overrides_conf
 
 s_logger = None
 s_decimal_0 = Decimal(0)
-TRADING_PAIR_SPLITTER = re.compile(r"^(\w+)(BTC|ETH|BNB|XRP|USDT|USDC|USDS|TUSD|PAX|TRX|BUSD|NGN|RUB|TRY|EUR)$")
+TRADING_PAIR_SPLITTER = re.compile(r"^(\w+)(BTC|ETH|BNB|XRP|USDT|USDC|USDS|TUSD|PAX|TRX|BUSD|NGN|RUB|TRY|EUR|IDRT)$")
+BROKER_ID = "x-XEKWYICX"
+
+
+cdef str get_client_order_id(str order_side, object trading_pair):
+    cdef:
+        int64_t nonce = <int64_t> get_tracking_nonce()
+        object symbols = trading_pair.split("-")
+        str base = symbols[0].upper()
+        str quote = symbols[1].upper()
+    return f"{BROKER_ID}-{order_side.upper()[0]}{base[0]}{base[-1]}{quote[0]}{quote[-1]}{nonce}"
 
 
 cdef class BinanceMarketTransactionTracker(TransactionTracker):
@@ -186,9 +196,7 @@ cdef class BinanceMarket(MarketBase):
         self._last_update_trade_fees_timestamp = 0
         self._data_source_type = order_book_tracker_data_source_type
         self._status_polling_task = None
-        self._user_stream_tracker_task = None
         self._user_stream_event_listener_task = None
-        self._order_tracker_task = None
         self._trading_rules_polling_task = None
         self._async_scheduler = AsyncCallScheduler(call_interval=0.5)
         self._last_poll_timestamp = 0
@@ -368,9 +376,9 @@ cdef class BinanceMarket(MarketBase):
             str trading_pair = base_currency + quote_currency
 
         if order_type is OrderType.LIMIT and fee_overrides_config_map["binance_maker_fee"].value is not None:
-            return TradeFee(percent=fee_overrides_config_map["binance_maker_fee"].value)
+            return TradeFee(percent=fee_overrides_config_map["binance_maker_fee"].value / Decimal("100"))
         if order_type is OrderType.MARKET and fee_overrides_config_map["binance_taker_fee"].value is not None:
-            return TradeFee(percent=fee_overrides_config_map["binance_taker_fee"].value)
+            return TradeFee(percent=fee_overrides_config_map["binance_taker_fee"].value / Decimal("100"))
 
         if trading_pair not in self._trade_fees:
             # https://www.binance.com/en/fee/schedule
@@ -875,9 +883,7 @@ cdef class BinanceMarket(MarketBase):
         self._async_scheduler.stop()
 
     async def start_network(self):
-        if self._order_tracker_task is not None:
-            self._stop_network()
-        self._order_tracker_task = safe_ensure_future(self._order_book_tracker.start())
+        self._order_book_tracker.start()
         self._trading_rules_polling_task = safe_ensure_future(self._trading_rules_polling_loop())
         if self._trading_required:
             self._status_polling_task = safe_ensure_future(self._status_polling_loop())
@@ -885,8 +891,7 @@ cdef class BinanceMarket(MarketBase):
             self._user_stream_event_listener_task = safe_ensure_future(self._user_stream_event_listener())
 
     def _stop_network(self):
-        if self._order_tracker_task is not None:
-            self._order_tracker_task.cancel()
+        self._order_book_tracker.stop()
         if self._status_polling_task is not None:
             self._status_polling_task.cancel()
         if self._user_stream_tracker_task is not None:
@@ -895,7 +900,7 @@ cdef class BinanceMarket(MarketBase):
             self._user_stream_event_listener_task.cancel()
         if self._trading_rules_polling_task is not None:
             self._trading_rules_polling_task.cancel()
-        self._order_tracker_task = self._status_polling_task = self._user_stream_tracker_task = \
+        self._status_polling_task = self._user_stream_tracker_task = \
             self._user_stream_event_listener_task = None
 
     async def stop_network(self):
@@ -1018,8 +1023,8 @@ cdef class BinanceMarket(MarketBase):
     cdef str c_buy(self, str trading_pair, object amount, object order_type=OrderType.MARKET, object price=s_decimal_NaN,
                    dict kwargs={}):
         cdef:
-            int64_t tracking_nonce = <int64_t> get_tracking_nonce()
-            str order_id = str(f"buy-{trading_pair}-{tracking_nonce}")
+            str t_pair = BinanceMarket.convert_from_exchange_trading_pair(trading_pair)
+            str order_id = get_client_order_id("buy", t_pair)
         safe_ensure_future(self.execute_buy(order_id, trading_pair, amount, order_type, price))
         return order_id
 
@@ -1110,8 +1115,8 @@ cdef class BinanceMarket(MarketBase):
     cdef str c_sell(self, str trading_pair, object amount, object order_type=OrderType.MARKET, object price=s_decimal_NaN,
                     dict kwargs={}):
         cdef:
-            int64_t tracking_nonce = <int64_t> get_tracking_nonce()
-            str order_id = str(f"sell-{trading_pair}-{tracking_nonce}")
+            str t_pair = BinanceMarket.convert_from_exchange_trading_pair(trading_pair)
+            str order_id = get_client_order_id("sell", t_pair)
         safe_ensure_future(self.execute_sell(order_id, trading_pair, amount, order_type, price))
         return order_id
 
@@ -1131,6 +1136,8 @@ cdef class BinanceMarket(MarketBase):
                     # Required by cancel_all() below.
                     "origClientOrderId": order_id
                 }
+            else:
+                raise e
 
         if isinstance(cancel_result, dict) and cancel_result.get("status") == "CANCELED":
             self.logger().info(f"Successfully cancelled order {order_id}.")
