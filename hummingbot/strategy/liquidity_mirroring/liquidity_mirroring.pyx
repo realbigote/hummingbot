@@ -270,9 +270,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
             self.log_with_clock(logging.INFO,
-                                f"Market order failed on {market_trading_pair_tuple[0].name}: {order_id}")
-            if (market_trading_pair_tuple in self.mirrored_market_pairs):
-                del self.outstanding_offsets[order_id]
+                                f"Limit order failed on {market_trading_pair_tuple[0].name}: {order_id}")
 
     cdef c_did_cancel_order(self, object cancel_event):
         """
