@@ -1,3 +1,4 @@
+import json
 import aiohttp
 import asyncio
 from typing import (
@@ -290,9 +291,14 @@ class TradingPairFetcher:
                         from hummingbot.market.kraken.kraken_market import KrakenMarket
                         data: Dict[str, Any] = await response.json()
                         raw_pairs = data.get("result", [])
-                        converted_pairs = [KrakenMarket.convert_from_exchange_trading_pair(pair)
+
+                        def fix(pair):
+                            try: return KrakenMarket.convert_from_exchange_trading_pair(pair)
+                            except: return None
+
+                        converted_pairs = list(filter(None, [fix(pair)
                                            for pair in raw_pairs
-                                           if ".d" not in pair]
+                                           if ".d" not in pair]))
                         return [item for item in converted_pairs]
                     except Exception:
                         raise
