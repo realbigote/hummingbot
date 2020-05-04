@@ -114,12 +114,14 @@ global_config_map = {
         ConfigVar(key="blocktane_api_key",
                   prompt="Enter your Blocktane API key >>> ",
                   required_if=using_exchange("blocktane"),
-                  is_secure=True),
+                  is_secure=True,
+                  is_connect_key=True),
     "blocktane_api_secret":
         ConfigVar(key="blocktane_api_secret",
                   prompt="Enter your Blocktane API secret >>> ",
                   required_if=using_exchange("blocktane"),
-                  is_secure=True),
+                  is_secure=True,
+                  is_connect_key=True),
     "binance_api_key":
         ConfigVar(key="binance_api_key",
                   prompt="Enter your Binance API key >>> ",

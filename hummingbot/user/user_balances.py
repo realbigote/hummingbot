@@ -1,4 +1,5 @@
 from hummingbot.market.binance.binance_market import BinanceMarket
+from hummingbot.market.blocktane.blocktane_market import BlocktaneMarket
 from hummingbot.market.bittrex.bittrex_market import BittrexMarket
 from hummingbot.market.coinbase_pro.coinbase_pro_market import CoinbaseProMarket
 from hummingbot.market.huobi.huobi_market import HuobiMarket
@@ -35,6 +36,8 @@ class UserBalances:
             market = LiquidMarket(api_details[0], api_details[1])
         elif exchange == "kraken":
             market = KrakenMarket(api_details[0], api_details[1])
+        elif exchange == "blocktane":
+            market = BlocktaneMarket(api_details[0], api_details[1])
         return market
 
     # return error message if the _update_balances fails

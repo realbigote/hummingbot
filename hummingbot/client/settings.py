@@ -45,8 +45,7 @@ EXCHANGES = {
 DEXES = {
     "bamboo_relay",
     "radar_relay",
-    "dolomite",
-    "blocktane"
+    "dolomite"
 }
 
 STRATEGIES: List[str] = get_strategy_list()
