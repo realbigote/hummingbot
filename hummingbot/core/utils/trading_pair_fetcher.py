@@ -1,3 +1,4 @@
+import json
 import aiohttp
 import asyncio
 from typing import (
@@ -283,17 +284,34 @@ class TradingPairFetcher:
 
     @staticmethod
     async def fetch_kraken_trading_pairs() -> List[str]:
+        # logging.error("Kraken 1")
         async with aiohttp.ClientSession() as client:
+            # logging.error("Kraken 2")
             async with client.get(KRAKEN_ENDPOINT, timeout=API_CALL_TIMEOUT) as response:
+                # logging.error("Kraken 3")
                 if response.status == 200:
+                    # logging.error("Kraken 4")
                     try:
+                        # logging.error("Kraken 5")
                         from hummingbot.market.kraken.kraken_market import KrakenMarket
+                        # logging.error("Kraken 6")
                         data: Dict[str, Any] = await response.json()
+                        # logging.error("Kraken 7")
                         raw_pairs = data.get("result", [])
-                        converted_pairs = [KrakenMarket.convert_from_exchange_trading_pair(pair)
+                        logging.error("Kraken 8: ")
+
+                        def fix(pair):
+                            try: return KrakenMarket.convert_from_exchange_trading_pair(pair)
+                            except: return None
+
+                        converted_pairs = list(filter(None, [fix(pair)
                                            for pair in raw_pairs
-                                           if ".d" not in pair]
-                        return [item for item in converted_pairs]
+                                           if ".d" not in pair]))
+                        logging.error("Kraken 9")
+                        temp = [item for item in converted_pairs]
+                        logging.error("Kraken 10")
+                        # logging.error("Kraken grab exchange pairs " + str(temp))
+                        return temp
                     except Exception:
                         raise
                         # Do nothing if the request fails -- there will be no autocomplete for kraken trading pairs
