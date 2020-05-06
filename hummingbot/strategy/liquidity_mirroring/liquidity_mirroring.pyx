@@ -115,7 +115,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.max_loss = max_loss
         self.equivalent_tokens = equivalent_tokens
         self.current_total_offset_loss = 0
+        self.amount_to_offset = 0
         self.max_total_loss = max_total_loss
+        self.avg_sell_price = [0,0]
+        self.avg_buy_price = [0,0]
 
     @property
     def tracked_taker_orders(self) -> List[Tuple[MarketBase, MarketOrder]]:
@@ -211,26 +214,16 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
             if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
-                if buy_order_completed_event.base_asset_amount > self.two_sided_mirroring:
-                    mirrored_market_pair = self.mirrored_market_pairs[0]
-                    if self.c_ready_for_new_orders([mirrored_market_pair]):
-                        price = list(mirrored_market_pair.order_book_bid_entries())[0].price 
-                        new_order = self.c_sell_with_specific_market(mirrored_market_pair,buy_order_completed_event.base_asset_amount,OrderType.LIMIT,price)
-                        self.outstanding_offsets[new_order] = {"price": (buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount),
-                                                               "quantity": buy_order_completed_event.base_asset_amount }
+                self.avg_buy_price[0] += float(buy_order_completed_event.quote_asset_amount)
+                self.avg_buy_price[1] += float(buy_order_completed_event.base_asset_amount)
+                self.amount_to_offset += float(buy_order_completed_event.base_asset_amount)
             else:
-                self.current_total_offset_loss += float(buy_order_completed_event.quote_asset_amount - (buy_order_completed_event.base_asset_amount * self.outstanding_offsets[order_id]["price"]))
-                if buy_order_completed_event.base_asset_amount == self.outstanding_offsets[order_id]["quantity"]:
-                    del self.outstanding_offsets[order_id]
+                if (self.avg_sell_price[1] > 0):
+                        true_average = Decimal(self.avg_sell_price[0]/self.avg_sell_price[1])
                 else:
-                    new_quant = self.outstanding_offsets[order_id]["quantity"] - buy_order_completed_event.base_asset_amount
-                    new_price = list(market_trading_pair_tuple.order_book_bid_entries())[0].price
-                    if self.c_ready_for_new_orders([market_trading_pair_tuple]):
-                        new_order = self.c_buy_with_specific_market(market_trading_pair_tuple,new_quant,OrderType.LIMIT,new_price)
-                        self.outstanding_offsets[new_order] = {"price": self.outstanding_offsets[order_id]["price"],
-                                                               "quantity": new_quant }
-                        del self.outstanding_offsets[order_id]                                                           
-
+                    true_average = Decimal(0)
+                self.current_total_offset_loss += float(buy_order_completed_event.quote_asset_amount - (buy_order_completed_event.base_asset_amount * true_average))
+                self.amount_to_offset += float(buy_order_completed_event.base_asset_amount)
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id}")
@@ -246,25 +239,16 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
             if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
-                if sell_order_completed_event.quote_asset_amount > self.two_sided_mirroring:
-                    mirrored_market_pair = self.mirrored_market_pairs[0]
-                    if self.c_ready_for_new_orders([mirrored_market_pair]):
-                        price = list(mirrored_market_pair.order_book_ask_entries())[0].price 
-                        new_order = self.c_buy_with_specific_market(mirrored_market_pair,sell_order_completed_event.base_asset_amount,OrderType.LIMIT,price)
-                        self.outstanding_offsets[new_order] = {"price": (sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount),
-                                                               "quantity": sell_order_completed_event.base_asset_amount }
+                self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
+                self.avg_sell_price[0] += float(sell_order_completed_event.quote_asset_amount)
+                self.avg_sell_price[1] += float(sell_order_completed_event.base_asset_amount)
             else:
-                self.current_total_offset_loss -= float(sell_order_completed_event.quote_asset_amount - (sell_order_completed_event.base_asset_amount * self.outstanding_offsets[order_id]["price"]))
-                if sell_order_completed_event.base_asset_amount == self.outstanding_offsets[order_id]["quantity"]:
-                    del self.outstanding_offsets[order_id]
+                if (self.avg_buy_price[1] > 0):
+                        true_average = Decimal(self.avg_buy_price[0]/self.avg_buy_price[1])
                 else:
-                    new_quant = self.outstanding_offsets[order_id]["quantity"] - sell_order_completed_event.base_asset_amount
-                    new_price = list(market_trading_pair_tuple.order_book_ask_entries())[0].price
-                    if self.c_ready_for_new_orders([market_trading_pair_tuple]):
-                        new_order = self.c_sell_with_specific_market(market_trading_pair_tuple,new_quant,OrderType.LIMIT,new_price)
-                        self.outstanding_offsets[new_order] = {"price": self.outstanding_offsets[order_id]["price"],
-                                                               "quantity": new_quant }
-                        del self.outstanding_offsets[order_id]  
+                    true_average = Decimal(0)
+                self.current_total_offset_loss -= float(sell_order_completed_event.quote_asset_amount - (sell_order_completed_event.base_asset_amount * true_average))
+                self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id}")
@@ -306,8 +290,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if market_trading_pair_tuple is not None:
             self.log_with_clock(logging.INFO,
                                 f"Limit order canceled on {market_trading_pair_tuple[0].name}: {order_id}")
-            if market_trading_pair_tuple in self.mirrored_market_pairs:
-                del self.outstanding_offsets[order_id]
 
     cdef bint c_ready_for_new_orders(self, list market_trading_pair_tuples):
         """
@@ -373,10 +355,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
     cdef c_process_market_pair(self, object market_pair):
         primary_market_pair = self.primary_market_pairs[0]
-        #self.logger().warning(f"{self.equivalent_tokens}")
-        #for pair in self.primary_market_pairs:
-        #    if (pair.base_asset, pair.quote_asset) == (market_pair.base_asset, market_pair.quote_asset):
-        #        primary_market_pair = pair
 
         bids = list(market_pair.order_book_bid_entries())
         best_bid = bids[0]
@@ -385,7 +363,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         best_ask = asks[0]
 
         self.adjust_primary_orderbook(primary_market_pair, best_bid, best_ask, bids, asks)
-        self.adjust_mirrored_orderbook(market_pair, best_bid, best_ask)
+        if (self.c_ready_for_new_orders([market_pair])):
+            self.adjust_mirrored_orderbook(market_pair, best_bid, best_ask)
 
     def adjust_primary_orderbook(self, primary_market_pair, best_bid, best_ask, bids, asks):
         spread = float(best_ask.price - best_bid.price)
@@ -438,38 +417,61 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 self.c_sell_with_specific_market(primary_market_pair,Decimal(amount),OrderType.LIMIT,Decimal(max_price))
 
     def adjust_mirrored_orderbook(self,mirrored_market_pair,best_bid,best_ask):
-        active_orders = self._sb_order_tracker.market_pair_to_active_orders
-        current_orders = []
-        if mirrored_market_pair in active_orders:
-            current_orders = active_orders[mirrored_market_pair][:]
-        for order in current_orders:
-            if order.is_buy:
-                new_price = best_bid.price
-                diff = new_price - self.outstanding_offsets[order.client_order_id]["price"]
-                if diff == 0:
-                    continue
-                loss = diff * order.quantity
-                if loss < self.max_loss:
-                    self.logger().warning("HEER")
-                    if self.c_ready_for_new_orders([mirrored_market_pair]):
-                        last_order_details = self.outstanding_offsets[order.client_order_id]
+        if self.amount_to_offset == 0:
+            return
+        else:
+            current_exposure = 0.0
+            active_orders = self._sb_order_tracker.market_pair_to_active_orders
+            current_orders = []
+            if mirrored_market_pair in active_orders:
+                current_orders = active_orders[mirrored_market_pair][:]
+            
+            if self.amount_to_offset < 0:
+                # we are at a deficit of base. get rid of sell orders
+                for order in current_orders:
+                    if not order.is_buy:
                         self.c_cancel_order(mirrored_market_pair,order.client_order_id)
-                        new_order_id = self.c_buy_with_specific_market(mirrored_market_pair,last_order_details["quantity"],OrderType.LIMIT,new_price)
-                        self.outstanding_offsets[new_order_id] = last_order_details
-                else:
-                    self.logger().warning("TOO LOSSY!")
-            else:
-                new_price = best_ask.price
-                diff = self.outstanding_offsets[order.client_order_id]["price"] - new_price
-                if diff == 0:
-                    continue
-                loss = diff * order.quantity
-                if loss < self.max_loss:
-                    self.logger().warning("HEER")
-                    if self.c_ready_for_new_orders([mirrored_market_pair]):
-                        last_order_details = self.outstanding_offsets[order.client_order_id]
+                    else:
+                        if ((order.price - best_ask.price) > self.max_loss):
+                            self.c_cancel_order(mirrored_market_pair,order.client_order_id)
+                        else:
+                            current_exposure += float(order.quantity)
+
+                amount = ((-1) * self.amount_to_offset) - current_exposure
+                if amount > self.two_sided_mirroring:
+                    if (self.avg_sell_price[1] > 0):
+                        true_average = Decimal(self.avg_sell_price[0]/self.avg_sell_price[1])
+                    else:
+                        true_average = Decimal(0)
+                    new_price = best_ask.price
+                    diff = float(new_price - true_average)
+                    loss = diff * amount
+                    if loss < self.max_loss:
+                        self.c_buy_with_specific_market(mirrored_market_pair,Decimal(amount),OrderType.LIMIT,new_price)
+                    else:
+                        self.logger().warning("TOO LOSSY!")
+
+            elif self.amount_to_offset > 0:
+            # we are at a surplus of base. get rid of buy orders
+                for order in current_orders:
+                    if order.is_buy:
                         self.c_cancel_order(mirrored_market_pair,order.client_order_id)
-                        new_order_id = self.c_sell_with_specific_market(mirrored_market_pair,last_order_details["quantity"],OrderType.LIMIT,new_price)
-                        self.outstanding_offsets[new_order_id] = last_order_details
-                else:
-                    self.logger().warning("TOO LOSSY!")
+                    else:
+                        if ((order.price - best_bid.price) > self.max_loss):
+                            self.c_cancel_order(mirrored_market_pair,order.client_order_id)
+                        else:
+                            current_exposure += float(order.quantity)
+
+                amount = (self.amount_to_offset) - current_exposure
+                if amount > self.two_sided_mirroring:
+                    if (self.avg_buy_price[1] > 0):
+                        true_average = Decimal(self.avg_buy_price[0]/self.avg_buy_price[1])
+                    else:
+                        true_average = Decimal(0)
+                    new_price = best_bid.price
+                    diff = float(true_average - new_price)
+                    loss = diff * amount
+                    if loss < self.max_loss:
+                        self.c_sell_with_specific_market(mirrored_market_pair,Decimal(amount),OrderType.LIMIT,new_price)
+                    else:
+                        self.logger().warning("TOO LOSSY!")

@@ -94,13 +94,13 @@ liquidity_mirroring_config_map = {
     ),
     "max_offset_loss": ConfigVar(
         key="max_offset_loss",
-        prompt="Enter your maximum tolerated offset loss >>> ",
+        prompt="Enter your maximum tolerated one-time offset loss >>> ",
         prompt_on_new=True,
         type_str="float"
     ),
     "max_total_offset_loss": ConfigVar(
         key="max_total_offset_loss",
-        prompt="Enter your maximum tolerated offset loss >>> ",
+        prompt="Enter your maximum tolerated total offset loss >>> ",
         prompt_on_new=True,
         type_str="float"
     ),
