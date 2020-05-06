@@ -113,6 +113,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.outstanding_offsets = {}
         self.max_loss = max_loss
         self.equivalent_tokens = equivalent_tokens
+        self.current_total_offset_loss = 0
 
     @property
     def tracked_taker_orders(self) -> List[Tuple[MarketBase, MarketOrder]]:
