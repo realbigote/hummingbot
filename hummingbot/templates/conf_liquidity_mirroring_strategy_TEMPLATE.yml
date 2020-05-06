@@ -18,6 +18,7 @@ spread_percent: null
 max_exposure_base: null
 max_exposure_quote: null
 max_offset_loss: null
+max_total_offset_loss: null
 equivalent_tokens: null
 
 # For more detailed information, see:

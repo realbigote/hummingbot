@@ -18,6 +18,7 @@ def start(self):
     max_exposure_base = liquidity_mirroring_config_map.get("max_exposure_base").value
     max_exposure_quote = liquidity_mirroring_config_map.get("max_exposure_quote").value
     max_loss = liquidity_mirroring_config_map.get("max_offset_loss").value
+    max_total_loss = liquidity_mirroring_config_map.get("max_total_offset_loss").value
     equivalent_tokens = liquidity_mirroring_config_map.get("equivalent_tokens").value
     try:
         primary_market_trading_pair: str = self._convert_to_exchange_trading_pair(primary_market, [primary_trading_pair])[0]
@@ -56,5 +57,6 @@ def start(self):
                                                max_exposure_base=max_exposure_base,
                                                max_exposure_quote=max_exposure_quote,
                                                max_loss=max_loss,
+                                               max_total_loss=max_total_loss,
                                                equivalent_tokens=equivalent_tokens,
                                                logging_options=LiquidityMirroringStrategy.OPTION_LOG_ALL)
