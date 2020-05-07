@@ -64,7 +64,8 @@ liquidity_mirroring_config_map = {
         prompt=None,
         type_str="list",
         required_if=lambda: False,
-        default=[["USDT", "USDC", "USDS", "DAI", "PAX", "TUSD", "USD"], ["ETH", "WETH", "FTH"], ["BTC", "WBTC"]],
+        default=[["USDT", "USDC", "USDS", "DAI", "PAX", "TUSD", "USD", "ZUSD"],
+        ["XETH", "ETH", "WETH", "FTH"], ["BTC", "WBTC"], ["ZRX"], ["XTZ"]],
     ),
     "two_sided_mirroring": ConfigVar(
         key="two_sided_mirroring",

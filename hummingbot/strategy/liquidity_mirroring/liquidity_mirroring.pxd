@@ -12,6 +12,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         list bid_amounts
         list ask_amounts
         list equivalent_tokens
+        float initial_base_amount
+        float initial_quote_amount
         float amount_to_offset
         float current_total_offset_loss
         float two_sided_mirroring

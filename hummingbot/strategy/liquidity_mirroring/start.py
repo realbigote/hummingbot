@@ -20,6 +20,7 @@ def start(self):
     max_loss = liquidity_mirroring_config_map.get("max_offset_loss").value
     max_total_loss = liquidity_mirroring_config_map.get("max_total_offset_loss").value
     equivalent_tokens = liquidity_mirroring_config_map.get("equivalent_tokens").value
+
     try:
         primary_market_trading_pair: str = self._convert_to_exchange_trading_pair(primary_market, [primary_trading_pair])[0]
         mirrored_market_trading_pair: str = self._convert_to_exchange_trading_pair(mirrored_market, [mirrored_trading_pair])[0]

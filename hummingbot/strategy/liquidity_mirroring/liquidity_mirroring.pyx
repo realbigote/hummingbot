@@ -121,6 +121,13 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.avg_buy_price = [0,0]
         self.offset_base_exposure = 0
         self.offset_quote_exposure = 0
+        assets_df = self.wallet_balance_data_frame([self.mirrored_market_pairs[0]])
+        total_balance = assets_df['Total Balance']
+        assets_df = self.wallet_balance_data_frame([self.primary_market_pairs[0]])
+        total_balance += assets_df['Total Balance']
+        self.initial_base_amount = total_balance[0]
+        self.initial_quote_amount = total_balance[1]
+
 
     @property
     def tracked_taker_orders(self) -> List[Tuple[MarketBase, MarketOrder]]:
@@ -145,8 +152,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             lines.extend(["", "  Assets:"] +
                          ["    " + line for line in str(assets_df).split("\n")])
             total_balance += assets_df['Total Balance']
-            #total_balance += assets_df.total_balance
-            # See if there're any pending market orders.
+            
             tracked_orders_df = self.tracked_taker_orders_data_frame
             if len(tracked_orders_df) > 0:
                 df_lines = str(tracked_orders_df).split("\n")
@@ -157,9 +163,14 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
             warning_lines.extend(self.balance_warning([market_pair]))
         
+        primary_market_df = self.market_status_data_frame([self.primary_market_pairs[0]])
+        mult = primary_market_df["Best Bid Price"]
+
+        profit = float((total_balance[0] - self.initial_base_amount) * mult) + float(total_balance[1] - self.initial_quote_amount)
+
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].base_asset}): {total_balance[0]}"])
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].quote_asset}): {total_balance[1]}"])
-
+        lines.extend(["", f"   Estimated Profit: {profit}"])
         if len(warning_lines) > 0:
             lines.extend(["", "  *** WARNINGS ***"] + warning_lines)
 
@@ -478,6 +489,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                     else:
                         if ((order.price - best_ask.price) > self.max_loss):
+                            self.offset_quote_exposure -= float(order.quantity * order.price)
                             self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                         else:
                             current_exposure += float(order.quantity)
@@ -505,6 +517,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                     else:
                         if ((order.price - best_bid.price) > self.max_loss):
+                            self.offset_base_exposure -= float(order.quantity * order.price)
                             self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                         else:
                             current_exposure += float(order.quantity)
