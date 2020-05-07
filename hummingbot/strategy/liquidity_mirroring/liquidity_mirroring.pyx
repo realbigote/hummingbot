@@ -99,16 +99,16 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.max_exposure_base = max_exposure_base
         self.max_exposure_quote = max_exposure_quote
 
-        bid_amount_percents = [float(1/55),float(2/55),float(3/55),float(4/55),float(5/55),float(6/55),
+        self.bid_amount_percents = [float(1/55),float(2/55),float(3/55),float(4/55),float(5/55),float(6/55),
                                float(7/55),float(8/55),float(9/55),float(10/55)]
-        ask_amount_percents = [float(1/55),float(2/55),float(3/55),float(4/55),float(5/55),float(6/55),
+        self.ask_amount_percents = [float(1/55),float(2/55),float(3/55),float(4/55),float(5/55),float(6/55),
                                float(7/55),float(8/55),float(9/55),float(10/55)]
 
         self.bid_amounts = []
         self.ask_amounts = []
-        for amount in bid_amount_percents:
+        for amount in self.bid_amount_percents:
             self.bid_amounts.append(amount * self.max_exposure_quote)
-        for amount in ask_amount_percents:
+        for amount in self.ask_amount_percents:
             self.ask_amounts.append(amount * self.max_exposure_base)
 
         self.outstanding_offsets = {}
@@ -119,6 +119,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.max_total_loss = max_total_loss
         self.avg_sell_price = [0,0]
         self.avg_buy_price = [0,0]
+        self.offset_base_exposure = 0
+        self.offset_quote_exposure = 0
 
     @property
     def tracked_taker_orders(self) -> List[Tuple[MarketBase, MarketOrder]]:
@@ -224,6 +226,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     true_average = Decimal(0)
                 self.current_total_offset_loss += float(buy_order_completed_event.quote_asset_amount - (buy_order_completed_event.base_asset_amount * true_average))
                 self.amount_to_offset += float(buy_order_completed_event.base_asset_amount)
+                self.offset_quote_exposure -= float(buy_order_completed_event.quote_asset_amount)
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id}")
@@ -244,11 +247,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 self.avg_sell_price[1] += float(sell_order_completed_event.base_asset_amount)
             else:
                 if (self.avg_buy_price[1] > 0):
-                        true_average = Decimal(self.avg_buy_price[0]/self.avg_buy_price[1])
+                    true_average = Decimal(self.avg_buy_price[0]/self.avg_buy_price[1])
                 else:
                     true_average = Decimal(0)
                 self.current_total_offset_loss -= float(sell_order_completed_event.quote_asset_amount - (sell_order_completed_event.base_asset_amount * true_average))
                 self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
+                self.offset_base_exposure -= float(sell_order_completed_event.base_asset_amount)
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id}")
@@ -397,6 +401,16 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             self.adjust_mirrored_orderbook(market_pair, best_bid, best_ask)
 
     def adjust_primary_orderbook(self, primary_market_pair, best_bid, best_ask, bids, asks):
+        available_quote_exposure = self.max_exposure_quote - self.offset_quote_exposure
+        available_base_exposure = self.max_exposure_base - self.offset_base_exposure
+        
+        for j in range(0,len(self.bid_amount_percents)):
+            self.bid_amounts[j] = (self.bid_amount_percents[j] * available_quote_exposure)
+        
+        for j in range(0,len(self.ask_amount_percents)):
+            self.ask_amounts[j] = (self.ask_amount_percents[j] * available_base_exposure)
+
+
         spread = float(best_ask.price - best_bid.price)
         spread_factor = (spread)/float(best_ask.price)
         if spread_factor < self.spread_percent:
@@ -460,6 +474,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 # we are at a deficit of base. get rid of sell orders
                 for order in current_orders:
                     if not order.is_buy:
+                        self.offset_base_exposure -= float(order.quantity)
                         self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                     else:
                         if ((order.price - best_ask.price) > self.max_loss):
@@ -478,6 +493,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     loss = diff * amount
                     if loss < self.max_loss:
                         self.c_buy_with_specific_market(mirrored_market_pair,Decimal(amount),OrderType.LIMIT,new_price)
+                        self.offset_quote_exposure += float(new_price) * amount
                     else:
                         self.logger().warning("TOO LOSSY!")
 
@@ -485,6 +501,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             # we are at a surplus of base. get rid of buy orders
                 for order in current_orders:
                     if order.is_buy:
+                        self.offset_quote_exposure -= float(order.quantity * order.price)
                         self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                     else:
                         if ((order.price - best_bid.price) > self.max_loss):
@@ -503,5 +520,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     loss = diff * amount
                     if loss < self.max_loss:
                         self.c_sell_with_specific_market(mirrored_market_pair,Decimal(amount),OrderType.LIMIT,new_price)
+                        self.offset_base_exposure += amount
                     else:
                         self.logger().warning("TOO LOSSY!")
