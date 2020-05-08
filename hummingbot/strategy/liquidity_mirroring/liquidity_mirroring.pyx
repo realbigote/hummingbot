@@ -412,6 +412,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             self.adjust_mirrored_orderbook(market_pair, best_bid, best_ask)
 
     def adjust_primary_orderbook(self, primary_market_pair, best_bid, best_ask, bids, asks):
+        primary_market: MarketBase = primary_market_pair.market
+
         available_quote_exposure = self.max_exposure_quote - self.offset_quote_exposure
         available_base_exposure = self.max_exposure_base - self.offset_base_exposure
         
@@ -445,14 +447,19 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     if order.is_buy:
                         self.c_cancel_order(primary_market_pair,order.client_order_id)
             amount = min(best_bid.amount, (self.bid_amounts[0]/adjusted_bid))
-            self.c_buy_with_specific_market(primary_market_pair,Decimal(amount),OrderType.LIMIT,Decimal(adjusted_bid))
+
+            quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, adjusted_bid)
+            quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
+            self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
             
             price = self.primary_best_bid
             for i in range(0,8):
                 price -= bid_inc
                 min_price = min(price, bids[i+1]["price"])
-                amount = min(bids[i+1]["amount"], (self.bid_amounts[i+1]/adjusted_bid)) 
-                self.c_buy_with_specific_market(primary_market_pair,Decimal(amount),OrderType.LIMIT,Decimal(min_price))
+                quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, min_price)
+                amount = min(bids[i+1]["amount"], (self.bid_amounts[i+1]/adjusted_bid))
+                quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
+                self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
         
         if (ask_price_diff > self.spread_percent):
             self.primary_best_ask = adjusted_ask
@@ -462,16 +469,24 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     if not order.is_buy:
                         self.c_cancel_order(primary_market_pair,order.client_order_id)
             amount = min(best_ask.amount, self.ask_amounts[0])
-            self.c_sell_with_specific_market(primary_market_pair,Decimal(amount),OrderType.LIMIT,Decimal(adjusted_ask))
+
+            quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, adjusted_ask)
+            quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
+            self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
 
             price = self.primary_best_ask
             for i in range(0,8):
                 price += ask_inc
                 max_price = max(price, asks[i+1]["price"])
-                amount = min(asks[i+1]["amount"], self.ask_amounts[i+1]) 
-                self.c_sell_with_specific_market(primary_market_pair,Decimal(amount),OrderType.LIMIT,Decimal(max_price))
+                amount = min(asks[i+1]["amount"], self.ask_amounts[i+1])
+                
+                quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, max_price)
+                quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
+                self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
 
     def adjust_mirrored_orderbook(self,mirrored_market_pair,best_bid,best_ask):
+        mirrored_market: MarketBase = mirrored_market_pair.market
+        
         if self.amount_to_offset == 0:
             return
         else:
@@ -504,7 +519,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     diff = float(new_price - true_average)
                     loss = diff * amount
                     if loss < self.max_loss:
-                        self.c_buy_with_specific_market(mirrored_market_pair,Decimal(amount),OrderType.LIMIT,new_price)
+                        quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, new_price)
+                        quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, amount)
+                        
+                        self.c_buy_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                         self.offset_quote_exposure += float(new_price) * amount
                     else:
                         self.logger().warning("TOO LOSSY!")
@@ -532,7 +550,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     diff = float(true_average - new_price)
                     loss = diff * amount
                     if loss < self.max_loss:
-                        self.c_sell_with_specific_market(mirrored_market_pair,Decimal(amount),OrderType.LIMIT,new_price)
+                        quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, new_price)
+                        quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, amount)
+
+                        self.c_sell_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                         self.offset_base_exposure += amount
                     else:
                         self.logger().warning("TOO LOSSY!")
