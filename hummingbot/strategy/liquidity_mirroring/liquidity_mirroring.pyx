@@ -163,8 +163,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
             warning_lines.extend(self.balance_warning([market_pair]))
         
-        primary_market_df = self.market_status_data_frame([self.primary_market_pairs[0]])
-        mult = float(primary_market_df["Best Bid Price"])
+        mirrored_market_df = self.market_status_data_frame([self.mirrored_market_pairs[0]])
+        mult = mirrored_market_df["Best Bid Price"]
 
         profit = float((total_balance[0] - self.initial_base_amount) * mult) + float(total_balance[1] - self.initial_quote_amount)
 
