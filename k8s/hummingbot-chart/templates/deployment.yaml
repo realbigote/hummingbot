@@ -1,0 +1,20 @@
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: {{ include "resource.name" . }}
+  namespace: {{ include "resource.namespace" . }}
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: {{ include "resource.appName" . }}
+        helm.sh/chart: {{ include "chart.chart" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/managed-by: {{ .Release.Service }}
+    spec:
+      containers:
+      - name: {{ .Values.global.image.hummingbot.name }}
+        image: {{ include "image.hummingbot.repository" . }}
+        imagePullPolicy: {{ default "Always" .Values.global.image.hummingbot.imagepullPolicy }}
+        args: ["sh", "-c", "tail -f /dev/null"]
