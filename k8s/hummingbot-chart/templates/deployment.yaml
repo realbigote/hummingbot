@@ -12,9 +12,12 @@ spec:
         helm.sh/chart: {{ include "chart.chart" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/managed-by: {{ .Release.Service }}
+
     spec:
       containers:
       - name: {{ .Values.global.image.hummingbot.name }}
         image: {{ include "image.hummingbot.repository" . }}
         imagePullPolicy: {{ default "Always" .Values.global.image.hummingbot.imagepullPolicy }}
         args: ["sh", "-c", "tail -f /dev/null"]
+      imagePullSecrets:
+      - name: {{ .Values.global.imagePullSecrets.default.name }} 
