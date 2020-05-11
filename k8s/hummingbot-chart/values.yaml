@@ -1,0 +1,53 @@
+# Default values for mychart.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Define global variables
+global:
+  namespace: hummingbot
+  releaseTag: development
+  name: 
+  appName: 
+  chartName:
+
+  node:
+    feature:
+      storage:
+        name: "hetzner.storage.primary"
+      default:
+        name: "hetzner.storage.secondary"  
+        pathRoot: "/home/tradebot"
+    development:
+      storage:
+        name: "hetzner.dev.storage.primary"
+        pathRoot: "/home/tradebot"
+      default:
+        name: "hetzner.dev.storage.secondary"
+        pathRoot: "/home/tradebot"                
+    staging:
+      storage:
+        name: "hetzner.athena"
+        pathRoot: "/home/tradebot"        
+      default:
+        name: "hetzner.athena"
+        pathRoot: "/home/tradebot"        
+    release:
+      storage:
+        name: "hetzner.athena"
+        pathRoot: "/home/tradebot"        
+      default:
+        name: "hetzner.athena"
+        pathRoot: "/home/tradebot"      
+
+  image:
+    hummingbot:
+      name: hummingbot
+      repository: docker.io/tokamaktech/hummingbot
+      imagepullPolicy: Always
+
+  imagePullSecrets:
+    default:
+      name: regcred
+      registry: index.docker.io/v1/
+      username:
+      email:
