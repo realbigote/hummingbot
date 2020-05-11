@@ -105,5 +105,17 @@ liquidity_mirroring_config_map = {
         prompt_on_new=True,
         type_str="float"
     ),
+    "min_primary_amount": ConfigVar(
+        key="min_primary_amount",
+        prompt="Enter the min amount per trade on the primary exchange >>> ",
+        prompt_on_new=True,
+        type_str="float"
+    ),
+    "min_mirroring_amount": ConfigVar(
+        key="min_mirroring_amount",
+        prompt="Enter the min amount per trade on the mirrored exchange >>> ",
+        prompt_on_new=True,
+        type_str="float"
+    ),
 }
 

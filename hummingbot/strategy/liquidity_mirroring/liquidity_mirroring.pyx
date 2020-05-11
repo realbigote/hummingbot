@@ -54,6 +54,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                  max_loss: float,
                  max_total_loss: float,
                  equivalent_tokens: list,
+                 min_primary_amount: float,
+                 min_mirroring_amount: float,
                  logging_options: int = OPTION_LOG_ORDER_COMPLETED,
                  status_report_interval: float = 60.0,
                  next_trade_delay_interval: float = 15.0,
@@ -127,6 +129,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         total_balance += assets_df['Total Balance']
         self.initial_base_amount = total_balance[0]
         self.initial_quote_amount = total_balance[1]
+        self.min_primary_amount = min_primary_amount
+        self.min_mirroring_amount = min_mirroring_amount
 
 
     @property
@@ -447,7 +451,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     if order.is_buy:
                         self.c_cancel_order(primary_market_pair,order.client_order_id)
             amount = Decimal(min(best_bid.amount, (self.bid_amounts[0]/adjusted_bid)))
-            
+            amount = max(amount, Decimal(self.min_primary_amount))
+
             fee_object = primary_market.c_get_fee(
                     primary_market_pair.base_asset,
                     primary_market_pair.quote_asset,
@@ -471,7 +476,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 price -= bid_inc
                 min_price = min(price, bids[i+1]["price"])
                 amount = Decimal(min(bids[i+1]["amount"], (self.bid_amounts[i+1]/adjusted_bid)))
-                
+                amount = max(amount, Decimal(self.min_primary_amount))
+
                 fee_object = primary_market.c_get_fee(
                     primary_market_pair.base_asset,
                     primary_market_pair.quote_asset,
@@ -499,6 +505,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     if not order.is_buy:
                         self.c_cancel_order(primary_market_pair,order.client_order_id)
             amount = Decimal(min(best_ask.amount, self.ask_amounts[0]))
+            amount = max(amount, Decimal(self.min_primary_amount))
 
             fee_object = primary_market.c_get_fee(
                     primary_market_pair.base_asset,
@@ -524,7 +531,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 price += ask_inc
                 max_price = max(price, asks[i+1]["price"])
                 amount = Decimal(min(asks[i+1]["amount"], self.ask_amounts[i+1]))
-                
+                amount = max(amount, Decimal(self.min_primary_amount))
+                #TODO ensure that this doesn't overexpose the trader
+
                 fee_object = primary_market.c_get_fee(
                     primary_market_pair.base_asset,
                     primary_market_pair.quote_asset,
@@ -570,7 +579,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                             current_exposure += float(order.quantity)
 
                 amount = ((-1) * self.amount_to_offset) - current_exposure
-                if amount > self.two_sided_mirroring:
+                if (amount > self.two_sided_mirroring) and (amount > self.min_mirroring_amount):
                     if (self.avg_sell_price[1] > 0):
                         true_average = Decimal(self.avg_sell_price[0]/self.avg_sell_price[1])
                     else:
@@ -617,7 +626,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                             current_exposure += float(order.quantity)
 
                 amount = (self.amount_to_offset) - current_exposure
-                if amount > self.two_sided_mirroring:
+                if (amount > self.two_sided_mirroring) and (amount > self.min_mirroring_amount):
                     if (self.avg_buy_price[1] > 0):
                         true_average = Decimal(self.avg_buy_price[0]/self.avg_buy_price[1])
                     else:
