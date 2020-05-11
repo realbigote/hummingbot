@@ -131,6 +131,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.initial_quote_amount = total_balance[1]
         self.min_primary_amount = min_primary_amount
         self.min_mirroring_amount = min_mirroring_amount
+        self.total_trading_volume = 0
+        self.trades_executed = 0
 
 
     @property
@@ -172,6 +174,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         profit = float((total_balance[0] - self.initial_base_amount) * mult) + float(total_balance[1] - self.initial_quote_amount)
 
+        lines.extend(["", f"   Executed Trades: {self.trades_executed}"])
+        lines.extend(["", f"   Total Trade Volume: {self.total_trading_volume}"])
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].base_asset}): {total_balance[0]}"])
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].quote_asset}): {total_balance[1]}"])
         lines.extend(["", f"   Estimated Profit: {profit}"])
@@ -230,6 +234,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             str order_id = buy_order_completed_event.order_id
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
+            self.total_trading_volume += float(buy_order_completed_event.quote_asset_amount)
+            self.trades_executed += 1
             if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
                 self.avg_buy_price[0] += float(buy_order_completed_event.quote_asset_amount)
                 self.avg_buy_price[1] += float(buy_order_completed_event.base_asset_amount)
@@ -256,6 +262,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             str order_id = sell_order_completed_event.order_id
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
+            self.total_trading_volume += float(sell_order_completed_event.quote_asset_amount)
+            self.trades_executed += 1
             if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
                 self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
                 self.avg_sell_price[0] += float(sell_order_completed_event.quote_asset_amount)
