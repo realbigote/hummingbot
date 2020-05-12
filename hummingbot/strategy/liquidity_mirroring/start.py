@@ -22,6 +22,42 @@ def start(self):
     equivalent_tokens = liquidity_mirroring_config_map.get("equivalent_tokens").value
     min_primary_amount = liquidity_mirroring_config_map.get("min_primary_amount").value
     min_mirroring_amount = liquidity_mirroring_config_map.get("min_mirroring_amount").value
+    
+    bid_ratios_type = liquidity_mirroring_config_map.get("bid_amount_ratio_type").value
+    if bid_ratios_type == "manual":
+        bid_ratios = []
+        denominations = liquidity_mirroring_config_map.get("bid_amount_ratios").value
+        denominator = 0.0
+        for summand in denominations:
+            denominator += float(summand)
+        
+        if denominator == 0:
+            self.logger().warning("empty bid ratio list!")
+            return
+        else:
+            for summand in denominations:
+                bid_ratios.append(float(summand)/denominator)
+    else:
+        bid_ratios = [float(1/55),float(2/55),float(3/55),float(4/55),float(5/55),float(6/55),
+                               float(7/55),float(8/55),float(9/55),float(10/55)]
+
+    ask_ratios_type = liquidity_mirroring_config_map.get("ask_amount_ratio_type").value                               
+    if ask_ratios_type == "manual":
+        ask_ratios = []
+        denominations = liquidity_mirroring_config_map.get("ask_amount_ratios").value
+        denominator = 0.0
+        for summand in denominations:
+            denominator += float(summand)
+        
+        if denominator == 0:
+            self.logger().warning("empty ask ratio list!")
+            return
+        else:
+            for summand in denominations:
+                ask_ratios.append(float(summand)/denominator)
+    else:
+        ask_ratios = [float(1/55),float(2/55),float(3/55),float(4/55),float(5/55),float(6/55),
+                               float(7/55),float(8/55),float(9/55),float(10/55)]
 
     try:
         primary_market_trading_pair: str = self._convert_to_exchange_trading_pair(primary_market, [primary_trading_pair])[0]
@@ -61,6 +97,8 @@ def start(self):
                                                max_exposure_quote=max_exposure_quote,
                                                max_loss=max_loss,
                                                max_total_loss=max_total_loss,
+                                               bid_amount_percents=bid_ratios,
+                                               ask_amount_percents=ask_ratios,
                                                equivalent_tokens=equivalent_tokens,
                                                min_primary_amount=min_primary_amount,
                                                min_mirroring_amount=min_mirroring_amount,

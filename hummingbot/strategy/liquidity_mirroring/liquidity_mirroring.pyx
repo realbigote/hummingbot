@@ -57,6 +57,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                  equivalent_tokens: list,
                  min_primary_amount: float,
                  min_mirroring_amount: float,
+                 bid_amount_percents: list,
+                 ask_amount_percents: list,
                  logging_options: int = OPTION_LOG_ORDER_COMPLETED,
                  status_report_interval: float = 60.0,
                  next_trade_delay_interval: float = 15.0,
@@ -102,10 +104,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.max_exposure_base = max_exposure_base
         self.max_exposure_quote = max_exposure_quote
 
-        self.bid_amount_percents = [float(1/55),float(2/55),float(3/55),float(4/55),float(5/55),float(6/55),
-                               float(7/55),float(8/55),float(9/55),float(10/55)]
-        self.ask_amount_percents = [float(1/55),float(2/55),float(3/55),float(4/55),float(5/55),float(6/55),
-                               float(7/55),float(8/55),float(9/55),float(10/55)]
+        self.bid_amount_percents = bid_amount_percents
+        self.ask_amount_percents = ask_amount_percents
 
         self.bid_amounts = []
         self.ask_amounts = []
@@ -485,7 +485,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
             
             price = self.primary_best_bid
-            for i in range(0,8):
+            for i in range(0,len(self.bid_amounts) - 1):
                 price -= bid_inc
                 min_price = min(price, bids[i+1]["price"])
                 amount = Decimal(min(bids[i+1]["amount"], (self.bid_amounts[i+1]/adjusted_bid)))
@@ -540,7 +540,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
 
             price = self.primary_best_ask
-            for i in range(0,8):
+            for i in range(0,len(self.ask_amounts) - 1):
                 price += ask_inc
                 max_price = max(price, asks[i+1]["price"])
                 amount = Decimal(min(asks[i+1]["amount"], self.ask_amounts[i+1]))

@@ -22,6 +22,10 @@ max_total_offset_loss: null
 equivalent_tokens: null
 min_primary_amount: null
 min_mirroring_amount: null
+bid_amount_ratio_type: null
+ask_amount_ratio_type: null
+bid_amount_ratios: null
+ask_amount_ratios: null
 
 # For more detailed information, see:
 # https://docs.hummingbot.io/strategies/arbitrage/#configuration-parameters

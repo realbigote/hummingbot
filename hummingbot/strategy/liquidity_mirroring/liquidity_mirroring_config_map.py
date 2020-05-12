@@ -117,5 +117,27 @@ liquidity_mirroring_config_map = {
         prompt_on_new=True,
         type_str="float"
     ),
+    "bid_amount_ratio_type": ConfigVar(
+        key="bid_amount_ratio_type",
+        prompt="Enter the type of bid amount ratios you would like >>> ",
+        prompt_on_new=True,
+    ),
+    "bid_amount_ratios": ConfigVar(
+        key="bid_amount_ratios",
+        prompt="Enter the bid amount ratios >>> ",
+        required_if=lambda: (liquidity_mirroring_config_map.get("bid_amount_ratio_type").value == "manual"),
+        type_str="list"
+    ),
+    "ask_amount_ratio_type": ConfigVar(
+        key="ask_amount_ratio_type",
+        prompt="Enter the type of ask amount ratios you would like >>> ",
+        prompt_on_new=True,
+    ),
+    "ask_amount_ratios": ConfigVar(
+        key="ask_amount_ratios",
+        prompt="Enter the ask amount ratios >>> ",
+        required_if=lambda: (liquidity_mirroring_config_map.get("ask_amount_ratio_type").value == "manual"),
+        type_str="list"
+    ),
 }
 
