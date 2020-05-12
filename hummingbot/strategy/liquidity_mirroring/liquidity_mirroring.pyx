@@ -1,12 +1,13 @@
 # distutils: language=c++
 import logging
 from decimal import Decimal
+import os
 import pandas as pd
 from typing import (
     List,
     Tuple,
 )
-
+from datetime import datetime
 from hummingbot.market.market_base cimport MarketBase
 from hummingbot.core.event.events import (
     TradeType,
@@ -134,6 +135,13 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.total_trading_volume = 0
         self.trades_executed = 0
 
+        cur_dir = os.getcwd()
+        nonce = datetime.timestamp(datetime.now()) * 1000
+        filename = os.path.join(cur_dir, 'logs', f'lm-performance-{nonce}.log')
+        self.performance_logger = logging.getLogger()
+        self.performance_logger.addHandler(logging.FileHandler(filename))
+
+        self.best_bid_start = 0
 
     @property
     def tracked_taker_orders(self) -> List[Tuple[MarketBase, MarketOrder]]:
@@ -158,27 +166,21 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             lines.extend(["", "  Assets:"] +
                          ["    " + line for line in str(assets_df).split("\n")])
             total_balance += assets_df['Total Balance']
-            
-            tracked_orders_df = self.tracked_taker_orders_data_frame
-            if len(tracked_orders_df) > 0:
-                df_lines = str(tracked_orders_df).split("\n")
-                lines.extend(["", "  Pending market orders:"] +
-                             ["    " + line for line in df_lines])
-            else:
-                lines.extend(["", "  No pending market orders."])
 
             warning_lines.extend(self.balance_warning([market_pair]))
         
         mirrored_market_df = self.market_status_data_frame([self.mirrored_market_pairs[0]])
         mult = mirrored_market_df["Best Bid Price"]
 
-        profit = float((total_balance[0] - self.initial_base_amount) * mult) + float(total_balance[1] - self.initial_quote_amount)
+        profit = float((total_balance[0] * mult) - (self.initial_base_amount * self.best_bid_start)) + float(total_balance[1] - self.initial_quote_amount)
+        portfolio = float((total_balance[0] * mult) - (self.initial_base_amount * mult)) + float(total_balance[1] - self.initial_quote_amount)  
 
         lines.extend(["", f"   Executed Trades: {self.trades_executed}"])
         lines.extend(["", f"   Total Trade Volume: {self.total_trading_volume}"])
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].base_asset}): {total_balance[0]}"])
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].quote_asset}): {total_balance[1]}"])
-        lines.extend(["", f"   Estimated Profit: {profit}"])
+        lines.extend(["", f"   Overall Change in Holdings: {profit}"])
+        lines.extend(["", f"   Increase in Portfolio: {portfolio}"])
         if len(warning_lines) > 0:
             lines.extend(["", "  *** WARNINGS ***"] + warning_lines)
 
@@ -385,6 +387,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         bids = list(market_pair.order_book_bid_entries())
         best_bid = bids[0]
+
+        if (self.best_bid_start == 0):
+            self.best_bid_start = best_bid.price
 
         asks = list(market_pair.order_book_ask_entries())
         best_ask = asks[0]
