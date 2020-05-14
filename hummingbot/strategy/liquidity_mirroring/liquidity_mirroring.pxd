@@ -12,6 +12,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         list bid_amounts
         list ask_amounts
         list equivalent_tokens
+        str slack_url
         object performance_logger
         float best_bid_start
         float initial_base_amount

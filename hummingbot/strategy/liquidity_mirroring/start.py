@@ -3,6 +3,7 @@ from typing import (
     Tuple,
 )
 
+from hummingbot.client.config.global_config_map import global_config_map
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
 from hummingbot.strategy.liquidity_mirroring.liquidity_mirroring_market_pair import LiquidityMirroringMarketPair
 from hummingbot.strategy.liquidity_mirroring.liquidity_mirroring import LiquidityMirroringStrategy
@@ -22,6 +23,7 @@ def start(self):
     equivalent_tokens = liquidity_mirroring_config_map.get("equivalent_tokens").value
     min_primary_amount = liquidity_mirroring_config_map.get("min_primary_amount").value
     min_mirroring_amount = liquidity_mirroring_config_map.get("min_mirroring_amount").value
+    slack_hook = global_config_map.get("SLACK_HOOK").value
     
     bid_ratios_type = liquidity_mirroring_config_map.get("bid_amount_ratio_type").value
     if bid_ratios_type == "manual":
@@ -102,4 +104,5 @@ def start(self):
                                                equivalent_tokens=equivalent_tokens,
                                                min_primary_amount=min_primary_amount,
                                                min_mirroring_amount=min_mirroring_amount,
+                                               slack_hook=slack_hook,
                                                logging_options=LiquidityMirroringStrategy.OPTION_LOG_ALL)

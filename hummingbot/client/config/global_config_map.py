@@ -330,6 +330,11 @@ global_config_map = {
                   prompt="Would you like to send error logs to hummingbot? (Yes/No) >>> ",
                   type_str="bool",
                   default=True),
+    "SLACK_HOOK":
+        ConfigVar(key="SLACK_HOOK",
+                  prompt="Enter your slack hook url >>> ",
+                  type_str="str",
+                  default='https://hooks.slack.com/services/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'),
     "min_quote_order_amount":
         ConfigVar(key="min_quote_order_amount",
                   prompt=None,

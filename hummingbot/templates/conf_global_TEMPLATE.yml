@@ -108,3 +108,5 @@ min_quote_order_amount:
   - 11
 - - BNB
   - 0.5
+
+SLACK_HOOK: null

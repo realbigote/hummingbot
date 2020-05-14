@@ -1,7 +1,9 @@
 # distutils: language=c++
+from slack_pusher import SlackPusher
 import logging
 from decimal import Decimal
 import os
+import conf
 import pandas as pd
 from typing import (
     List,
@@ -59,6 +61,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                  min_mirroring_amount: float,
                  bid_amount_percents: list,
                  ask_amount_percents: list,
+                 slack_hook: str,
                  logging_options: int = OPTION_LOG_ORDER_COMPLETED,
                  status_report_interval: float = 60.0,
                  next_trade_delay_interval: float = 15.0,
@@ -142,6 +145,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.performance_logger.addHandler(logging.FileHandler(filename))
 
         self.best_bid_start = 0
+        self.slack_url = slack_hook
 
     @property
     def tracked_taker_orders(self) -> List[Tuple[MarketBase, MarketOrder]]:
@@ -627,6 +631,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
             elif self.amount_to_offset > 0:
             # we are at a surplus of base. get rid of buy orders
+                #SlackPusher(self.slack_url, "HELLO")
                 for order in current_orders:
                     if order.is_buy:
                         self.offset_quote_exposure -= float(order.quantity * order.price)
