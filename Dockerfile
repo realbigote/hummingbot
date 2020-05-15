@@ -37,7 +37,7 @@ COPY DATA_COLLECTION.md .
 # Install linux dependencies
 RUN apt update && \
     apt-get update && \
-    apt-get install -y gcc build-essential
+    apt-get install -y gcc build-essential htop tmux
 
 # ./install | create hummingbot environment
 RUN conda env create -f setup/environment-linux.yml

@@ -43,7 +43,7 @@ The default name can be overidded by setting nameOverride in values
 {{- define "image.hummingbot.repository" -}}
 {{- $repository :=  .Values.global.image.hummingbot.repository }}
 {{- $tag :=  include "resource.releaseTag" . }}
-{{- printf "%s:latest" $repository | trunc 63 | trimSuffix "-" -}}
+{{- printf "%s:development" $repository | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 
