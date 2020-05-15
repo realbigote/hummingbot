@@ -4,7 +4,7 @@ metadata:
   name: {{ include "resource.name" . }}
   namespace: {{ include "resource.namespace" . }}
 spec:
-  replicas: 5
+  replicas: 1
   template:
     metadata:
       labels:
@@ -18,6 +18,9 @@ spec:
       - name: {{ .Values.global.image.hummingbot.name }}
         image: {{ include "image.hummingbot.repository" . }}
         imagePullPolicy: {{ default "Always" .Values.global.image.hummingbot.imagepullPolicy }}
-        args: ["sh", "-c", "tail -f /dev/null"]
+        args: [ "bash", "-c", "python3", "bin/hummingbot_quickstart.py" ]
+        env: 
+        - name: "CONFIG_PASSWORD"
+          value: "Yoloswag420!"
       imagePullSecrets:
       - name: {{ .Values.global.imagePullSecrets.default.name }} 
