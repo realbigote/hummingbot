@@ -1,12 +1,15 @@
 # distutils: language=c++
+from slack_pusher import SlackPusher
 import logging
 from decimal import Decimal
+import os
+import conf
 import pandas as pd
 from typing import (
     List,
     Tuple,
 )
-
+from datetime import datetime
 from hummingbot.market.market_base cimport MarketBase
 from hummingbot.core.event.events import (
     TradeType,
@@ -54,6 +57,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                  max_loss: float,
                  max_total_loss: float,
                  equivalent_tokens: list,
+                 min_primary_amount: float,
+                 min_mirroring_amount: float,
+                 bid_amount_percents: list,
+                 ask_amount_percents: list,
+                 slack_hook: str,
                  logging_options: int = OPTION_LOG_ORDER_COMPLETED,
                  status_report_interval: float = 60.0,
                  next_trade_delay_interval: float = 15.0,
@@ -99,10 +107,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.max_exposure_base = max_exposure_base
         self.max_exposure_quote = max_exposure_quote
 
-        self.bid_amount_percents = [float(1/55),float(2/55),float(3/55),float(4/55),float(5/55),float(6/55),
-                               float(7/55),float(8/55),float(9/55),float(10/55)]
-        self.ask_amount_percents = [float(1/55),float(2/55),float(3/55),float(4/55),float(5/55),float(6/55),
-                               float(7/55),float(8/55),float(9/55),float(10/55)]
+        self.bid_amount_percents = bid_amount_percents
+        self.ask_amount_percents = ask_amount_percents
 
         self.bid_amounts = []
         self.ask_amounts = []
@@ -127,7 +133,19 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         total_balance += assets_df['Total Balance']
         self.initial_base_amount = total_balance[0]
         self.initial_quote_amount = total_balance[1]
+        self.min_primary_amount = min_primary_amount
+        self.min_mirroring_amount = min_mirroring_amount
+        self.total_trading_volume = 0
+        self.trades_executed = 0
 
+        cur_dir = os.getcwd()
+        nonce = datetime.timestamp(datetime.now()) * 1000
+        filename = os.path.join(cur_dir, 'logs', f'lm-performance-{nonce}.log')
+        self.performance_logger = logging.getLogger()
+        self.performance_logger.addHandler(logging.FileHandler(filename))
+
+        self.best_bid_start = 0
+        self.slack_url = slack_hook
 
     @property
     def tracked_taker_orders(self) -> List[Tuple[MarketBase, MarketOrder]]:
@@ -152,25 +170,21 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             lines.extend(["", "  Assets:"] +
                          ["    " + line for line in str(assets_df).split("\n")])
             total_balance += assets_df['Total Balance']
-            
-            tracked_orders_df = self.tracked_taker_orders_data_frame
-            if len(tracked_orders_df) > 0:
-                df_lines = str(tracked_orders_df).split("\n")
-                lines.extend(["", "  Pending market orders:"] +
-                             ["    " + line for line in df_lines])
-            else:
-                lines.extend(["", "  No pending market orders."])
 
             warning_lines.extend(self.balance_warning([market_pair]))
         
         mirrored_market_df = self.market_status_data_frame([self.mirrored_market_pairs[0]])
         mult = mirrored_market_df["Best Bid Price"]
 
-        profit = float((total_balance[0] - self.initial_base_amount) * mult) + float(total_balance[1] - self.initial_quote_amount)
+        profit = float((total_balance[0] * mult) - (self.initial_base_amount * self.best_bid_start)) + float(total_balance[1] - self.initial_quote_amount)
+        portfolio = float((total_balance[0] * mult) - (self.initial_base_amount * mult)) + float(total_balance[1] - self.initial_quote_amount)  
 
+        lines.extend(["", f"   Executed Trades: {self.trades_executed}"])
+        lines.extend(["", f"   Total Trade Volume: {self.total_trading_volume}"])
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].base_asset}): {total_balance[0]}"])
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].quote_asset}): {total_balance[1]}"])
-        lines.extend(["", f"   Estimated Profit: {profit}"])
+        lines.extend(["", f"   Overall Change in Holdings: {profit}"])
+        lines.extend(["", f"   Increase in Portfolio: {portfolio}"])
         if len(warning_lines) > 0:
             lines.extend(["", "  *** WARNINGS ***"] + warning_lines)
 
@@ -226,6 +240,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             str order_id = buy_order_completed_event.order_id
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
+            self.total_trading_volume += float(buy_order_completed_event.quote_asset_amount)
+            self.trades_executed += 1
             if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
                 self.avg_buy_price[0] += float(buy_order_completed_event.quote_asset_amount)
                 self.avg_buy_price[1] += float(buy_order_completed_event.base_asset_amount)
@@ -252,6 +268,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             str order_id = sell_order_completed_event.order_id
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
+            self.total_trading_volume += float(sell_order_completed_event.quote_asset_amount)
+            self.trades_executed += 1
             if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
                 self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
                 self.avg_sell_price[0] += float(sell_order_completed_event.quote_asset_amount)
@@ -374,6 +392,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         bids = list(market_pair.order_book_bid_entries())
         best_bid = bids[0]
 
+        if (self.best_bid_start == 0):
+            self.best_bid_start = best_bid.price
+
         asks = list(market_pair.order_book_ask_entries())
         best_ask = asks[0]
 
@@ -447,7 +468,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     if order.is_buy:
                         self.c_cancel_order(primary_market_pair,order.client_order_id)
             amount = Decimal(min(best_bid.amount, (self.bid_amounts[0]/adjusted_bid)))
-            
+            amount = max(amount, Decimal(self.min_primary_amount))
+
             fee_object = primary_market.c_get_fee(
                     primary_market_pair.base_asset,
                     primary_market_pair.quote_asset,
@@ -467,11 +489,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
             
             price = self.primary_best_bid
-            for i in range(0,8):
+            for i in range(0,len(self.bid_amounts) - 1):
                 price -= bid_inc
                 min_price = min(price, bids[i+1]["price"])
                 amount = Decimal(min(bids[i+1]["amount"], (self.bid_amounts[i+1]/adjusted_bid)))
-                
+                amount = max(amount, Decimal(self.min_primary_amount))
+
                 fee_object = primary_market.c_get_fee(
                     primary_market_pair.base_asset,
                     primary_market_pair.quote_asset,
@@ -499,6 +522,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     if not order.is_buy:
                         self.c_cancel_order(primary_market_pair,order.client_order_id)
             amount = Decimal(min(best_ask.amount, self.ask_amounts[0]))
+            amount = max(amount, Decimal(self.min_primary_amount))
 
             fee_object = primary_market.c_get_fee(
                     primary_market_pair.base_asset,
@@ -520,11 +544,13 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
 
             price = self.primary_best_ask
-            for i in range(0,8):
+            for i in range(0,len(self.ask_amounts) - 1):
                 price += ask_inc
                 max_price = max(price, asks[i+1]["price"])
                 amount = Decimal(min(asks[i+1]["amount"], self.ask_amounts[i+1]))
-                
+                amount = max(amount, Decimal(self.min_primary_amount))
+                #TODO ensure that this doesn't overexpose the trader
+
                 fee_object = primary_market.c_get_fee(
                     primary_market_pair.base_asset,
                     primary_market_pair.quote_asset,
@@ -570,7 +596,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                             current_exposure += float(order.quantity)
 
                 amount = ((-1) * self.amount_to_offset) - current_exposure
-                if amount > self.two_sided_mirroring:
+                if (amount > self.two_sided_mirroring) and (amount > self.min_mirroring_amount):
                     if (self.avg_sell_price[1] > 0):
                         true_average = Decimal(self.avg_sell_price[0]/self.avg_sell_price[1])
                     else:
@@ -605,6 +631,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
             elif self.amount_to_offset > 0:
             # we are at a surplus of base. get rid of buy orders
+                #SlackPusher(self.slack_url, "HELLO")
                 for order in current_orders:
                     if order.is_buy:
                         self.offset_quote_exposure -= float(order.quantity * order.price)
@@ -617,7 +644,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                             current_exposure += float(order.quantity)
 
                 amount = (self.amount_to_offset) - current_exposure
-                if amount > self.two_sided_mirroring:
+                if (amount > self.two_sided_mirroring) and (amount > self.min_mirroring_amount):
                     if (self.avg_buy_price[1] > 0):
                         true_average = Decimal(self.avg_buy_price[0]/self.avg_buy_price[1])
                     else:

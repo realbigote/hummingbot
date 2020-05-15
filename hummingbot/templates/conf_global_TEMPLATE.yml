@@ -69,6 +69,8 @@ paper_trade_account_balance:
   - 1000
 - - FTH
   - 10
+- - XETH
+  - 10
 
 # Telegram integration
 telegram_enabled: false
@@ -106,3 +108,5 @@ min_quote_order_amount:
   - 11
 - - BNB
   - 0.5
+
+SLACK_HOOK: null

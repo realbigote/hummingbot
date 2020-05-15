@@ -12,6 +12,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         list bid_amounts
         list ask_amounts
         list equivalent_tokens
+        str slack_url
+        object performance_logger
+        float best_bid_start
         float initial_base_amount
         float initial_quote_amount
         float amount_to_offset
@@ -26,8 +29,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         float max_exposure_quote
         float max_loss
         float max_total_loss
+        float total_trading_volume
+        float trades_executed
         float offset_base_exposure
         float offset_quote_exposure
+        float min_primary_amount
+        float min_mirroring_amount
         list avg_buy_price
         list avg_sell_price
         list bid_amount_percents
