@@ -22,5 +22,17 @@ spec:
         env: 
         - name: "CONFIG_PASSWORD"
           value: "Yoloswag420!"
+        volumeMounts:
+        - mountPath: /conf/conf_arb_39.yml
+          name: config-vol
+          subPath: conf_arb_39.yml
       imagePullSecrets:
-      - name: {{ .Values.global.imagePullSecrets.default.name }} 
+      - name: {{ .Values.global.imagePullSecrets.default.name }}
+      
+      volumes:
+      - name: config-vol
+        configMap:
+          name: {{ include "resource.name" . }}
+          items:
+          - key: conf_arb_39.yml
+            path: conf_arb_39.yml 
