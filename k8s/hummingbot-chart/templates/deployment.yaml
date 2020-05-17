@@ -12,27 +12,43 @@ spec:
         helm.sh/chart: {{ include "chart.chart" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/managed-by: {{ .Release.Service }}
-
     spec:
+      imagePullSecrets:
+      - name: {{ .Values.global.imagePullSecrets.default.name }}
       containers:
       - name: {{ .Values.global.image.hummingbot.name }}
         image: {{ include "image.hummingbot.repository" . }}
         imagePullPolicy: {{ default "Always" .Values.global.image.hummingbot.imagepullPolicy }}
-        args: [ "bash", "-c", "python3", "bin/hummingbot_quickstart.py" ]
+        args: ["sh", "-c", "./init.sh" ]
         env: 
         - name: "CONFIG_PASSWORD"
-          value: "Yoloswag420!"
+          value: "tradebot"
+        - name: "STRATEGY"
+          value: "arbitrage"
+        - name: "CONFIG_FILE_NAME"
+          value: "strat_conf.yml" 
         volumeMounts:
-        - mountPath: /conf/conf_arb_39.yml
+        - mountPath: /conf-master-data
+          name: config-data
+        - mountPath: /conf
           name: config-vol
-          subPath: conf_arb_39.yml
-      imagePullSecrets:
-      - name: {{ .Values.global.imagePullSecrets.default.name }}
-      
+      initContainers:
+      - name: copy
+        image: {{ include "image.hummingbot.repository" . }}
+        command: ["bash", "-c", "cp /conf-master-data/* /conf/"]
+        volumeMounts:
+        - mountPath: /conf
+          name: config-vol
+        - mountPath: /conf-master-data
+          name: config-data
       volumes:
       - name: config-vol
+        emptyDir: {}
+      - name: config-data
         configMap:
-          name: {{ include "resource.name" . }}
+          name: hummingbot-conf
           items:
-          - key: conf_arb_39.yml
-            path: conf_arb_39.yml 
+          - key: strat_conf.yml
+            path: strat_conf.yml 
+          - key: conf_global.yml
+            path: conf_global.yml 
