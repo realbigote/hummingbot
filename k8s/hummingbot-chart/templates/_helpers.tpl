@@ -27,10 +27,13 @@ The default name can be overidded by setting nameOverride in values
 {{- default .Chart.Name .Values.chartName | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "strategy.name" -}}
+{{- default "test-strat" .Values.global.options.strategy | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
 
 {{- define "resource.name" -}}
-{{- $chartName := include "chart.name" . -}}
-{{- $chartName | trunc 63 | trimSuffix "-" -}}
+{{- $strategyName := include "strategy.name" . -}}
+{{- printf "%s-%s-%s" .Values.global.strategyPrefix $strategyName .Values.global.strategySuffix | replace "+" "_" | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 

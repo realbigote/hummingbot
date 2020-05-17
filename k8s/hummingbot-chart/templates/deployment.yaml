@@ -22,11 +22,11 @@ spec:
         args: ["sh", "-c", "./init.sh" ]
         env: 
         - name: "CONFIG_PASSWORD"
-          value: "tradebot"
+          value: {{ .Values.global.options.config_password }}
         - name: "STRATEGY"
-          value: "arbitrage"
+          value: {{ .Values.global.options.strategy }}
         - name: "CONFIG_FILE_NAME"
-          value: "strat_conf.yml" 
+          value: {{ .Values.global.options.config_file_name }} 
         volumeMounts:
         - mountPath: /conf-master-data
           name: config-data
@@ -48,7 +48,7 @@ spec:
         configMap:
           name: hummingbot-conf
           items:
-          - key: strat_conf.yml
-            path: strat_conf.yml 
+          - key: {{ .Values.global.options.config_file_name }}
+            path: {{ .Values.global.options.config_file_name }} 
           - key: conf_global.yml
             path: conf_global.yml 

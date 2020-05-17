@@ -6,13 +6,13 @@ metadata:
   labels:
     app: {{ include "resource.appName" . }}
 data:
-  strat_conf.yml: |
+  {{ .Values.global.options.config_file_name }}: |
     #####################################
     ###   Arbitrage strategy config   ###
     #####################################
 
     template_version: 3
-    strategy: arbitrage
+    strategy: {{ .Values.global.options.strategy }}
 
     # The following configuations are only required for the
     # arbitrage strategy
@@ -52,7 +52,7 @@ data:
     kill_switch_rate: -100.0
 
     # Paper Trading
-    paper_trade_enabled: true
+    paper_trade_enabled: {{ .Values.global.options.paper_trade }}
     paper_trade_account_balance:
     - - USDT
       - 1000
