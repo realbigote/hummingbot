@@ -59,14 +59,14 @@ liquidity_mirroring_config_map = {
         prompt_on_new=True,
         validator=lambda value: is_valid_primary_market_trading_pair(value),
     ),
-    "equivalent_tokens": ConfigVar(
-        key="equivalent_tokens",
-        prompt=None,
-        type_str="list",
-        required_if=lambda: False,
-        default=[["USDT", "USDC", "USDS", "DAI", "PAX", "TUSD", "USD", "ZUSD"],
-        ["XETH", "ETH", "WETH", "FTH"], ["BTC", "WBTC"], ["ZRX"], ["XTZ"]],
-    ),
+    #"equivalent_tokens": ConfigVar(
+    #    key="equivalent_tokens",
+    #    prompt=None,
+    #    type_str="list",
+    #    required_if=lambda: False,
+    #    default=[["USDT", "USDC", "USDS", "DAI", "PAX", "TUSD", "USD", "ZUSD"],
+    #    ["XETH", "ETH", "WETH", "FTH"], ["BTC", "WBTC"], ["ZRX"], ["XTZ"]],
+    #),
     "two_sided_mirroring": ConfigVar(
         key="two_sided_mirroring",
         prompt="Two-Sided Mirroring Threshold in base currency (inf for one-sided) >>> ",

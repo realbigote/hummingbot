@@ -20,7 +20,9 @@ def start(self):
     max_exposure_quote = liquidity_mirroring_config_map.get("max_exposure_quote").value
     max_loss = liquidity_mirroring_config_map.get("max_offset_loss").value
     max_total_loss = liquidity_mirroring_config_map.get("max_total_offset_loss").value
-    equivalent_tokens = liquidity_mirroring_config_map.get("equivalent_tokens").value
+    #equivalent_tokens = liquidity_mirroring_config_map.get("equivalent_tokens").value
+    equivalent_tokens = [["USDT", "USDC", "USDS", "DAI", "PAX", "TUSD", "USD", "ZUSD"],
+        ["XETH", "ETH", "WETH", "FTH"], ["BTC", "WBTC"], ["ZRX"], ["XTZ"]]
     min_primary_amount = liquidity_mirroring_config_map.get("min_primary_amount").value
     min_mirroring_amount = liquidity_mirroring_config_map.get("min_mirroring_amount").value
     slack_hook = global_config_map.get("SLACK_HOOK").value

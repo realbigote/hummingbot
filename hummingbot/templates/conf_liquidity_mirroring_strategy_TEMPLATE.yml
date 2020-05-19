@@ -19,7 +19,7 @@ max_exposure_base: null
 max_exposure_quote: null
 max_offset_loss: null
 max_total_offset_loss: null
-equivalent_tokens: null
+#equivalent_tokens: null
 min_primary_amount: null
 min_mirroring_amount: null
 bid_amount_ratio_type: null
