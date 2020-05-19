@@ -33,11 +33,12 @@ COPY setup.py .
 COPY LICENSE .
 COPY README.md .
 COPY DATA_COLLECTION.md .
+COPY init.sh .
 
 # Install linux dependencies
 RUN apt update && \
     apt-get update && \
-    apt-get install -y gcc build-essential
+    apt-get install -y gcc build-essential htop tmux
 
 # ./install | create hummingbot environment
 RUN conda env create -f setup/environment-linux.yml
@@ -49,5 +50,5 @@ ENV PATH /opt/conda/envs/$(head -1 setup/environment-linux.yml | cut -d' ' -f2)/
 # ./compile
 RUN /opt/conda/envs/$(head -1 setup/environment-linux.yml | cut -d' ' -f2)/bin/python3 setup.py build_ext --inplace -j 8
 
-CMD [ "sh", "-c", "/opt/conda/envs/$(head -1 setup/environment-linux.yml | cut -d' ' -f2)/bin/python3 bin/hummingbot_quickstart.py" ]
-
+# Change init script permissions
+RUN chmod 777 init.sh
