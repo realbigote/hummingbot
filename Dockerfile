@@ -30,10 +30,13 @@ COPY bin/ bin/
 COPY hummingbot/ hummingbot/
 COPY setup/environment-linux.yml setup/
 COPY setup.py .
+COPY slack_pusher.py .
 COPY LICENSE .
 COPY README.md .
 COPY DATA_COLLECTION.md .
 COPY init.sh .
+
+
 
 # Install linux dependencies
 RUN apt update && \
