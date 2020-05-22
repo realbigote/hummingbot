@@ -26,6 +26,7 @@ bid_amount_ratio_type: null
 ask_amount_ratio_type: null
 bid_amount_ratios: null
 ask_amount_ratios: null
+paper_trade_offset: null
 
 # For more detailed information, see:
 # https://docs.hummingbot.io/strategies/arbitrage/#configuration-parameters

@@ -1,3 +1,4 @@
+from hummingbot.client.config.global_config_map import global_config_map
 from hummingbot.client.config.config_var import ConfigVar
 from hummingbot.client.config.config_validators import (
     validate_exchange,
@@ -7,6 +8,12 @@ from hummingbot.client.settings import (
     required_exchanges,
     EXAMPLE_PAIRS,
 )
+
+def configure_offsetting_exchange(value: bool):
+    if (value):
+        if not global_config_map.get("paper_trade_enabled").value:
+            mirrored_market = liquidity_mirroring_config_map.get("mirrored_market").value
+            required_exchanges.remove(mirrored_market)
 
 def is_valid_mirroring_market_trading_pair(value: str) -> bool:
     mirrored_market = liquidity_mirroring_config_map.get("mirrored_market").value
@@ -138,6 +145,14 @@ liquidity_mirroring_config_map = {
         prompt="Enter the ask amount ratios >>> ",
         required_if=lambda: (liquidity_mirroring_config_map.get("ask_amount_ratio_type").value == "manual"),
         type_str="list"
+    ),
+    "paper_trade_offset": ConfigVar(
+        key="paper_trade_offset",
+        prompt="Would you like to simulate the offsetting exchange on paper trade (True/False) >>> ",
+        required_if=lambda: not global_config_map.get("paper_trade_enabled").value,
+        default=False,
+        type_str="bool",
+        on_validated=lambda value: configure_offsetting_exchange(value)
     ),
 }
 
