@@ -146,6 +146,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         self.best_bid_start = 0
         self.slack_url = slack_hook
+        self.cycle_number = 0
 
     @property
     def tracked_taker_orders(self) -> List[Tuple[MarketBase, MarketOrder]]:
@@ -427,7 +428,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 ask_levels.append({"price": asks[i].price, "amount": asks[i].amount})
                 current_ask_price = asks[i].price
                 i += 1
-
+        self.cycle_number += 1
+        self.cycle_number %= 10
         self.adjust_primary_orderbook(primary_market_pair, best_bid, best_ask, bid_levels, ask_levels)
         if (self.c_ready_for_new_orders([market_pair])):
             self.adjust_mirrored_orderbook(market_pair, best_bid, best_ask)
@@ -460,7 +462,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         active_orders = self._sb_order_tracker.market_pair_to_active_orders
 
-        if (bid_price_diff > self.spread_percent):
+        #TODO make this first condition less arbitrary!
+        if ((bid_price_diff > self.spread_percent) or (self.cycle_number == 0)):
             self.primary_best_bid = adjusted_bid
             bid_inc = self.primary_best_bid * 0.001
             if primary_market_pair in active_orders:
@@ -514,7 +517,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
                 self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
         
-        if (ask_price_diff > self.spread_percent):
+        if (ask_price_diff > self.spread_percent) or (self.cycle_number == 0):
             self.primary_best_ask = adjusted_ask
             ask_inc = self.primary_best_ask * 0.001
             if primary_market_pair in active_orders:
