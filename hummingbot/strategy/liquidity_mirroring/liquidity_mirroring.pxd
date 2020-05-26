@@ -19,7 +19,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         float initial_quote_amount
         float amount_to_offset
         float current_total_offset_loss
-        float two_sided_mirroring
+        bint two_sided_mirroring
         float primary_best_bid
         float primary_best_ask
         float mirrored_best_bid
