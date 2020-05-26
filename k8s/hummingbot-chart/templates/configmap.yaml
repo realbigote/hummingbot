@@ -7,25 +7,50 @@ metadata:
     app: {{ include "resource.appName" . }}
 data:
   {{ .Values.global.options.config_file_name }}: |
-    #####################################
-    ###   Arbitrage strategy config   ###
-    #####################################
+    ###############################################
+    ###   Liquidity Mirroring strategy config   ###
+    ###############################################
 
     template_version: 3
-    strategy: {{ .Values.global.options.strategy }}
+    strategy: liquidity_mirroring
 
     # The following configuations are only required for the
-    # arbitrage strategy
+    # liquidity mirroring strategy
 
     # Exchange and token parameters
-    primary_market: binance
-    secondary_market: kraken
-    primary_market_trading_pair: ETH-USDC
-    secondary_market_trading_pair: XETH-USDC
-
-    # Minimum profitability target required to place an order
-    # Expressed in percentage value, e.g. 1 = 1% target profit
-    min_profitability: 0.3
+    primary_market: kraken
+    mirrored_market: binance
+    market_trading_pair_to_mirror: XTZ-USDT
+    primary_market_trading_pair: XTZ-ZUSD
+    two_sided_mirroring: 0.0
+    spread_percent: 0.0001
+    max_exposure_base: 100.0
+    max_exposure_quote: 1000.0
+    max_offset_loss: 2.0
+    max_total_offset_loss: 20.0
+    equivalent_tokens:
+    - - USDT
+      - USDC
+      - USDS
+      - DAI
+      - PAX
+      - TUSD
+      - USD
+      - ZUSD
+    - - XETH
+      - ETH
+      - WETH
+      - FTH
+    - - BTC
+      - WBTC
+    - - ZRX
+    - - XTZ
+    min_primary_amount: 0.1
+    min_mirroring_amount: 0.1
+    bid_amount_ratio_type: default
+    ask_amount_ratio_type: default
+    bid_amount_ratios:
+    ask_amount_ratios:
 
     # For more detailed information, see:
     # https://docs.hummingbot.io/strategies/arbitrage/#configuration-parameters
@@ -55,7 +80,7 @@ data:
     paper_trade_enabled: {{ .Values.global.options.paper_trade }}
     paper_trade_account_balance:
     - - USDT
-      - 1000
+      - 10000
     - - ONE
       - 1000
     - - USDQ
@@ -76,6 +101,10 @@ data:
       - 10
     - - XETH
       - 10
+    - - XTZ
+      - 1000
+    - - ZUSD
+      - 10000
 
     # Telegram integration
     telegram_enabled: false

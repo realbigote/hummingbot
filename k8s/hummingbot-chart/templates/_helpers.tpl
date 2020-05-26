@@ -28,7 +28,7 @@ The default name can be overidded by setting nameOverride in values
 {{- end -}}
 
 {{- define "strategy.name" -}}
-{{- default "test-strat" .Values.global.options.strategy | trunc 63 | trimSuffix "-" -}}
+{{- default "test-strat" .Values.global.options.strategyName | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 {{- define "resource.name" -}}

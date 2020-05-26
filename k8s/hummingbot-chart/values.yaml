@@ -54,6 +54,7 @@ global:
 
   options:
     paper_trade: true
-    strategy: arbitrage    
+    strategy: liquidity_mirroring 
+    strategyName: liquidy-mirroring   
     config_password: tradebot
     config_file_name: strat_conf.yml
