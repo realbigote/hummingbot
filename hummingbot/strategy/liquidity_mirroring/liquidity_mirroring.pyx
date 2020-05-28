@@ -432,7 +432,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.cycle_number %= 10
         self.adjust_primary_orderbook(primary_market_pair, best_bid, best_ask, bid_levels, ask_levels)
         if (self.c_ready_for_new_orders([market_pair])):
-            self.adjust_mirrored_orderbook(market_pair, best_bid, best_ask)
+            if (self.two_sided_mirroring):
+                self.adjust_mirrored_orderbook(market_pair, best_bid, best_ask)
 
     def adjust_primary_orderbook(self, primary_market_pair, best_bid, best_ask, bids, asks):
         primary_market: MarketBase = primary_market_pair.market
@@ -464,6 +465,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         #TODO make this first condition less arbitrary!
         if ((bid_price_diff > self.spread_percent) or (self.cycle_number == 0)):
+            self.cycle_number = 0
             self.primary_best_bid = adjusted_bid
             bid_inc = self.primary_best_bid * 0.001
             if primary_market_pair in active_orders:
@@ -518,6 +520,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
         
         if (ask_price_diff > self.spread_percent) or (self.cycle_number == 0):
+            self.cycle_number = 0
             self.primary_best_ask = adjusted_ask
             ask_inc = self.primary_best_ask * 0.001
             if primary_market_pair in active_orders:
@@ -599,7 +602,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                             current_exposure += float(order.quantity)
 
                 amount = ((-1) * self.amount_to_offset) - current_exposure
-                if (amount > self.two_sided_mirroring) and (amount > self.min_mirroring_amount):
+                if (amount > self.min_mirroring_amount):
                     if (self.avg_sell_price[1] > 0):
                         true_average = Decimal(self.avg_sell_price[0]/self.avg_sell_price[1])
                     else:
@@ -647,7 +650,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                             current_exposure += float(order.quantity)
 
                 amount = (self.amount_to_offset) - current_exposure
-                if (amount > self.two_sided_mirroring) and (amount > self.min_mirroring_amount):
+                if (amount > self.min_mirroring_amount):
                     if (self.avg_buy_price[1] > 0):
                         true_average = Decimal(self.avg_buy_price[0]/self.avg_buy_price[1])
                     else:

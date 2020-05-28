@@ -76,10 +76,10 @@ liquidity_mirroring_config_map = {
     #),
     "two_sided_mirroring": ConfigVar(
         key="two_sided_mirroring",
-        prompt="Two-Sided Mirroring Threshold in base currency (inf for one-sided) >>> ",
-        default=float("inf"),
+        prompt="Two-sided mirroring enabled (True/False) >>> ",
+        default=False,
         prompt_on_new=True,
-        type_str="float" 
+        type_str="bool" 
     ),
     "spread_percent": ConfigVar(
         key="spread_percent",
@@ -102,25 +102,25 @@ liquidity_mirroring_config_map = {
     ),
     "max_offset_loss": ConfigVar(
         key="max_offset_loss",
-        prompt="Enter your maximum tolerated one-time offset loss >>> ",
+        prompt="Enter your maximum tolerated one-time offset loss (in quote currency) >>> ",
         prompt_on_new=True,
         type_str="float"
     ),
     "max_total_offset_loss": ConfigVar(
         key="max_total_offset_loss",
-        prompt="Enter your maximum tolerated total offset loss >>> ",
+        prompt="Enter your maximum tolerated total offset loss (in quote currency) >>> ",
         prompt_on_new=True,
         type_str="float"
     ),
     "min_primary_amount": ConfigVar(
         key="min_primary_amount",
-        prompt="Enter the min amount per trade on the primary exchange >>> ",
+        prompt="Enter the min amount of base currency per trade on the primary exchange >>> ",
         prompt_on_new=True,
         type_str="float"
     ),
     "min_mirroring_amount": ConfigVar(
         key="min_mirroring_amount",
-        prompt="Enter the min amount per trade on the mirrored exchange >>> ",
+        prompt="Enter the min amount of base currency per trade on the mirrored exchange >>> ",
         prompt_on_new=True,
         type_str="float"
     ),
@@ -148,7 +148,7 @@ liquidity_mirroring_config_map = {
     ),
     "paper_trade_offset": ConfigVar(
         key="paper_trade_offset",
-        prompt="Would you like to simulate the offsetting exchange on paper trade (True/False) >>> ",
+        prompt="Simulating the offsetting exchange on paper trade (True/False) >>> ",
         required_if=lambda: not global_config_map.get("paper_trade_enabled").value,
         default=False,
         type_str="bool",
