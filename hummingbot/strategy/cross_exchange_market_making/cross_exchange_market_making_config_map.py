@@ -9,9 +9,16 @@ from decimal import Decimal
 from hummingbot.client.config.config_helpers import (
     minimum_order_amount
 )
+from hummingbot.client.config.global_config_map import global_config_map
 from hummingbot.data_feed.exchange_price_manager import ExchangePriceManager
 from typing import Optional
 
+
+def configure_offsetting_exchange(value: bool):
+    if (value):
+        if not global_config_map.get("paper_trade_enabled").value:
+            mirrored_market = cross_exchange_market_making_config_map.get("taker_market").value
+            required_exchanges.remove(mirrored_market)
 
 def maker_trading_pair_prompt():
     maker_market = cross_exchange_market_making_config_map.get("maker_market").value
@@ -175,5 +182,13 @@ cross_exchange_market_making_config_map = {
         default=16.67,
         type_str="decimal",
         required_if=lambda: False,
-    )
+    ),
+    "paper_trade_offset": ConfigVar(
+        key="paper_trade_offset",
+        prompt="Simulating the offsetting exchange on paper trade (True/False) >>> ",
+        required_if=lambda: not global_config_map.get("paper_trade_enabled").value,
+        default=False,
+        type_str="bool",
+        on_validated=lambda value: configure_offsetting_exchange(value)
+    ),
 }

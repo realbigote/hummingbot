@@ -4,6 +4,8 @@ from typing import (
 )
 from decimal import Decimal
 from hummingbot.client.config.global_config_map import global_config_map
+from hummingbot.market.markets_recorder import MarketsRecorder
+from hummingbot.market.paper_trade import create_paper_trade_market
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
 from hummingbot.strategy.cross_exchange_market_making.cross_exchange_market_pair import CrossExchangeMarketPair
 from hummingbot.strategy.cross_exchange_market_making.cross_exchange_market_making import CrossExchangeMarketMakingStrategy
@@ -24,10 +26,11 @@ def start(self):
     active_order_canceling = xemm_map.get("active_order_canceling").value
     adjust_order_enabled = xemm_map.get("adjust_order_enabled").value
     top_depth_tolerance = xemm_map.get("top_depth_tolerance").value
-    order_size_taker_volume_factor = xemm_map.get("order_size_taker_volume_factor").value / Decimal("100")
-    order_size_taker_balance_factor = xemm_map.get("order_size_taker_balance_factor").value / Decimal("100")
-    order_size_portfolio_ratio_limit = xemm_map.get("order_size_portfolio_ratio_limit").value / Decimal("100")
+    order_size_taker_volume_factor = Decimal(xemm_map.get("order_size_taker_volume_factor").value) / Decimal("100")
+    order_size_taker_balance_factor = Decimal(xemm_map.get("order_size_taker_balance_factor").value) / Decimal("100")
+    order_size_portfolio_ratio_limit = Decimal(xemm_map.get("order_size_portfolio_ratio_limit").value) / Decimal("100")
     anti_hysteresis_duration = xemm_map.get("anti_hysteresis_duration").value
+    paper_trade_offset = xemm_map.get("paper_trade_offset").value
 
     # check if top depth tolerance is a list or if trade size override exists
     if isinstance(top_depth_tolerance, list) or "trade_size_override" in xemm_map:
@@ -48,8 +51,29 @@ def start(self):
         (taker_market, [taker_trading_pair]),
     ]
 
-    self._initialize_wallet(token_trading_pairs=list(set(maker_assets + taker_assets)))
-    self._initialize_markets(market_names)
+    #self._initialize_wallet(token_trading_pairs=list(set(maker_assets + taker_assets)))
+    #self._initialize_markets(market_names)
+    if not paper_trade_offset:                          
+        self._initialize_wallet(token_trading_pairs=list(set(maker_assets + taker_assets)))
+        self._initialize_markets(market_names)
+    else:
+        self._initialize_wallet(token_trading_pairs=list(set(maker_assets)))
+        self._initialize_markets([(maker_market, [maker_trading_pair])])
+        try:
+            market = create_paper_trade_market(taker_market, [taker_trading_pair])
+        except Exception:
+            raise
+        paper_trade_account_balance = global_config_map.get("paper_trade_account_balance").value
+        for asset, balance in paper_trade_account_balance:
+            market.set_balance(asset, balance)
+        self.markets[taker_market]: MarketBase = market
+        self.markets_recorder = MarketsRecorder(
+            self.trade_fill_db,
+            [self.markets[taker_market]],
+            self.strategy_file_name,
+            self.strategy_name,
+        )
+        self.markets_recorder.start()
     self.assets = set(maker_assets + taker_assets)
     maker_data = [self.markets[maker_market], maker_trading_pair] + list(maker_assets)
     taker_data = [self.markets[taker_market], taker_trading_pair] + list(taker_assets)

@@ -62,3 +62,4 @@ order_size_portfolio_ratio_limit: null
 
 # For more detailed information, see:
 # https://docs.hummingbot.io/strategies/cross-exchange-market-making/#configuration-parameters
+paper_trade_offset: null
