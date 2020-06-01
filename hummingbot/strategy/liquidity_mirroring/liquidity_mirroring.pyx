@@ -492,7 +492,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             price_tx = Decimal(adjusted_bid) / (Decimal(1) + fee_object.percent) - fixed_cost_per_unit
             quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, price_tx)
             quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
-            while (not c_ready_for_new_orders([primary_market_pair])):
+            while (not self.c_ready_for_new_orders([primary_market_pair])):
               continue
             self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
         
@@ -520,7 +520,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 min_price = Decimal(min_price) / (Decimal(1) + fee_object.percent) - fixed_cost_per_unit
                 quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, min_price)
                 quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
-                while (not c_ready_for_new_orders([primary_market_pair])):
+                while (not self.c_ready_for_new_orders([primary_market_pair])):
                     continue
                 self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                 
@@ -554,7 +554,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
             quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, price_tx)
             quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
-            while (not c_ready_for_new_orders([primary_market_pair])):
+            while (not self.c_ready_for_new_orders([primary_market_pair])):
                 continue
             self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
     
@@ -584,7 +584,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, max_price)
                 quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
 
-                while (not c_ready_for_new_orders([primary_market_pair])):
+                while (not self.c_ready_for_new_orders([primary_market_pair])):
                     continue
                 self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                 
