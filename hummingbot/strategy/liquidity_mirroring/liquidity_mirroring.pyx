@@ -430,7 +430,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 current_ask_price = asks[i].price
                 i += 1
         self.cycle_number += 1
-        self.cycle_number %= 100
+        self.cycle_number %= 10
         self.adjust_primary_orderbook(primary_market_pair, best_bid, best_ask, bid_levels, ask_levels)
         if (self.two_sided_mirroring):
             self.adjust_mirrored_orderbook(market_pair, best_bid, best_ask)
@@ -464,8 +464,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         active_orders = self._sb_order_tracker.market_pair_to_active_orders
 
         #TODO make this first condition less arbitrary!
-        if ((bid_price_diff > self.spread_percent) or ((self.cycle_number % 10) == 0)):
-            #self.cycle_number = 0
+        if ((bid_price_diff > self.spread_percent) or (self.cycle_number == 0)):
+            self.cycle_number = 0
             self.primary_best_bid = adjusted_bid
             bid_inc = self.primary_best_bid * 0.001
             if primary_market_pair in active_orders:
@@ -492,34 +492,37 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             price_tx = Decimal(adjusted_bid) / (Decimal(1) + fee_object.percent) - fixed_cost_per_unit
             quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, price_tx)
             quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
-            if self.cycle_number == 0:
+            while (not c_ready_for_new_orders([primary_market_pair])):
+              continue
+            self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+        
+            price = self.primary_best_bid
+            for i in range(0,len(self.bid_amounts) - 1):
+                price -= bid_inc
+                min_price = min(price, bids[i+1]["price"])
+                amount = Decimal(min(bids[i+1]["amount"], (self.bid_amounts[i+1]/adjusted_bid)))
+                amount = max(amount, Decimal(self.min_primary_amount))
+
+                fee_object = primary_market.c_get_fee(
+                    primary_market_pair.base_asset,
+                    primary_market_pair.quote_asset,
+                    OrderType.LIMIT,
+                    TradeType.BUY,
+                    amount,
+                    min_price
+                )
+
+                total_flat_fees = self.c_sum_flat_fees(primary_market_pair.quote_asset,
+                                                           fee_object.flat_fees)
+
+                fixed_cost_per_unit = total_flat_fees / amount                                                           
+
+                min_price = Decimal(min_price) / (Decimal(1) + fee_object.percent) - fixed_cost_per_unit
+                quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, min_price)
+                quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
+                while (not c_ready_for_new_orders([primary_market_pair])):
+                    continue
                 self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-            
-                price = self.primary_best_bid
-                for i in range(0,len(self.bid_amounts) - 1):
-                    price -= bid_inc
-                    min_price = min(price, bids[i+1]["price"])
-                    amount = Decimal(min(bids[i+1]["amount"], (self.bid_amounts[i+1]/adjusted_bid)))
-                    amount = max(amount, Decimal(self.min_primary_amount))
-
-                    fee_object = primary_market.c_get_fee(
-                        primary_market_pair.base_asset,
-                        primary_market_pair.quote_asset,
-                        OrderType.LIMIT,
-                        TradeType.BUY,
-                        amount,
-                        min_price
-                    )
-
-                    total_flat_fees = self.c_sum_flat_fees(primary_market_pair.quote_asset,
-                                                               fee_object.flat_fees)
-
-                    fixed_cost_per_unit = total_flat_fees / amount                                                           
-
-                    min_price = Decimal(min_price) / (Decimal(1) + fee_object.percent) - fixed_cost_per_unit
-                    quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, min_price)
-                    quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
-                    self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                 
         
         if (ask_price_diff > self.spread_percent) or (self.cycle_number == 0):
@@ -551,35 +554,39 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
             quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, price_tx)
             quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
-            if self.cycle_number == 0:
-                self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+            while (not c_ready_for_new_orders([primary_market_pair])):
+                continue
+            self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
     
-                price = self.primary_best_ask
-                for i in range(0,len(self.ask_amounts) - 1):
-                    price += ask_inc
-                    max_price = max(price, asks[i+1]["price"])
-                    amount = Decimal(min(asks[i+1]["amount"], self.ask_amounts[i+1]))
-                    amount = max(amount, Decimal(self.min_primary_amount))
-                    #TODO ensure that this doesn't overexpose the trader
+            price = self.primary_best_ask
+            for i in range(0,len(self.ask_amounts) - 1):
+                price += ask_inc
+                max_price = max(price, asks[i+1]["price"])
+                amount = Decimal(min(asks[i+1]["amount"], self.ask_amounts[i+1]))
+                amount = max(amount, Decimal(self.min_primary_amount))
+                #TODO ensure that this doesn't overexpose the trader
     
-                    fee_object = primary_market.c_get_fee(
-                        primary_market_pair.base_asset,
-                        primary_market_pair.quote_asset,
-                        OrderType.LIMIT,
-                        TradeType.SELL,
-                        amount,
-                        max_price
-                    )
+                fee_object = primary_market.c_get_fee(
+                    primary_market_pair.base_asset,
+                    primary_market_pair.quote_asset,
+                    OrderType.LIMIT,
+                    TradeType.SELL,
+                    amount,
+                    max_price
+                )
                 
-                    total_flat_fees = self.c_sum_flat_fees(primary_market_pair.quote_asset,
-                                                               fee_object.flat_fees)
+                total_flat_fees = self.c_sum_flat_fees(primary_market_pair.quote_asset,
+                                                           fee_object.flat_fees)
     
-                    fixed_cost_per_unit = total_flat_fees / amount                                                           
+                fixed_cost_per_unit = total_flat_fees / amount                                                           
     
-                    max_price = Decimal(max_price) / (Decimal(1) - fee_object.percent) + fixed_cost_per_unit
-                    quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, max_price)
-                    quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
-                    self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                max_price = Decimal(max_price) / (Decimal(1) - fee_object.percent) + fixed_cost_per_unit
+                quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, max_price)
+                quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
+
+                while (not c_ready_for_new_orders([primary_market_pair])):
+                    continue
+                self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                 
 
     def adjust_mirrored_orderbook(self,mirrored_market_pair,best_bid,best_ask):
