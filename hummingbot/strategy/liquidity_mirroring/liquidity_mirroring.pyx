@@ -471,7 +471,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             if primary_market_pair in active_orders:
                 for order in active_orders[primary_market_pair]:
                     if order.is_buy:
-                        self.c_cancel_order(primary_market_pair,order.client_order_id)       
+                        self.c_cancel_order(primary_market_pair,order.client_order_id)
+                        while (self._sb_order_tracker.c_check_and_track_cancel(order.client_order_id)):
+                            continue
                 
             amount = Decimal(min(best_bid.amount, (self.bid_amounts[0]/adjusted_bid)))
             amount = max(amount, Decimal(self.min_primary_amount))
@@ -493,7 +495,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, price_tx)
             quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
             while (not self.c_ready_for_new_orders([primary_market_pair])):
-              continue
+                continue
             self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
         
             price = self.primary_best_bid
@@ -515,7 +517,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 total_flat_fees = self.c_sum_flat_fees(primary_market_pair.quote_asset,
                                                            fee_object.flat_fees)
 
-                fixed_cost_per_unit = total_flat_fees / amount                                                           
+                fixed_cost_per_unit = total_flat_fees / amount
 
                 min_price = Decimal(min_price) / (Decimal(1) + fee_object.percent) - fixed_cost_per_unit
                 quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, min_price)
@@ -532,7 +534,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             if primary_market_pair in active_orders:
                 for order in active_orders[primary_market_pair]:
                     if not order.is_buy:
-                        self.c_cancel_order(primary_market_pair,order.client_order_id)   
+                        self.c_cancel_order(primary_market_pair,order.client_order_id)
+                        while (self._sb_order_tracker.c_check_and_track_cancel(order.client_order_id)):
+                            continue
                 
             amount = Decimal(min(best_ask.amount, self.ask_amounts[0]))
             amount = max(amount, Decimal(self.min_primary_amount))
