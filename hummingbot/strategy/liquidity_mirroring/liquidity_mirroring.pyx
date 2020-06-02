@@ -471,9 +471,13 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             if primary_market_pair in active_orders:
                 for order in active_orders[primary_market_pair]:
                     if order.is_buy:
-                        self.c_cancel_order(primary_market_pair,order.client_order_id)
+                        try:
+                            self.c_cancel_order(primary_market_pair,order.client_order_id)
+                        except:
+                            break
                         while (self._sb_order_tracker.c_check_and_track_cancel(order.client_order_id)):
                             continue
+                        time.sleep(0.8)
                 
             amount = Decimal(min(best_bid.amount, (self.bid_amounts[0]/adjusted_bid)))
             amount = max(amount, Decimal(self.min_primary_amount))
@@ -496,8 +500,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
             while (not self.c_ready_for_new_orders([primary_market_pair])):
                 continue
-            self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-        
+            try:
+                self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+            except:
+                pass
+            time.sleep(0.8)
+
             price = self.primary_best_bid
             for i in range(0,len(self.bid_amounts) - 1):
                 price -= bid_inc
@@ -524,8 +532,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
                 while (not self.c_ready_for_new_orders([primary_market_pair])):
                     continue
-                self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-                
+                try:
+                    self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                except:
+                    break
+                time.sleep(0.8)
         
         if (ask_price_diff > self.spread_percent) or (self.cycle_number == 0):
             self.cycle_number = 0
@@ -534,10 +545,14 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             if primary_market_pair in active_orders:
                 for order in active_orders[primary_market_pair]:
                     if not order.is_buy:
-                        self.c_cancel_order(primary_market_pair,order.client_order_id)
+                        try:
+                            self.c_cancel_order(primary_market_pair,order.client_order_id)
+                        except:
+                            break
                         while (self._sb_order_tracker.c_check_and_track_cancel(order.client_order_id)):
                             continue
-                
+                        time.sleep(0.8)
+
             amount = Decimal(min(best_ask.amount, self.ask_amounts[0]))
             amount = max(amount, Decimal(self.min_primary_amount))
 
@@ -560,7 +575,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
             while (not self.c_ready_for_new_orders([primary_market_pair])):
                 continue
-            self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+            try:
+                self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+            except:
+                pass
+            time.sleep(0.8)
     
             price = self.primary_best_ask
             for i in range(0,len(self.ask_amounts) - 1):
@@ -590,8 +609,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
                 while (not self.c_ready_for_new_orders([primary_market_pair])):
                     continue
-                self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-                
+                try:
+                    self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                except:
+                    break
+                time.sleep(0.8)
 
     def adjust_mirrored_orderbook(self,mirrored_market_pair,best_bid,best_ask):
         mirrored_market: MarketBase = mirrored_market_pair.market
