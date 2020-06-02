@@ -38,8 +38,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
     OPTION_LOG_FULL_PROFITABILITY_STEP = 1 << 4
     OPTION_LOG_INSUFFICIENT_ASSET = 1 << 5
     OPTION_LOG_ALL = 0xfffffffffffffff
-    MARKET_ORDER_MAX_TRACKING_TIME = 60.0 * 10
-    FAILED_ORDER_COOL_OFF_TIME = 10.0
+    MARKET_ORDER_MAX_TRACKING_TIME = 0.4 * 10
+    FAILED_ORDER_COOL_OFF_TIME = 0.0
 
     @classmethod
     def logger(cls):
@@ -66,7 +66,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                  logging_options: int = OPTION_LOG_ORDER_COMPLETED,
                  status_report_interval: float = 60.0,
                  next_trade_delay_interval: float = 15.0,
-                 failed_order_tolerance: int = 1):
+                 failed_order_tolerance: int = 100):
         """
         :param market_pairs: list liquidity mirroring market pairs
         :param logging_options: select the types of logs to output
@@ -304,7 +304,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 f"Failed market order count {self._failed_market_order_count} exceeded tolerance lever of " \
                 f"{self._failed_order_tolerance}. Please check market connectivity before restarting."
 
-            self.logger().network(failed_order_kill_switch_log, app_warning_msg=failed_order_kill_switch_log)
+            #self.logger().network(failed_order_kill_switch_log, app_warning_msg=failed_order_kill_switch_log)
             self.c_stop(self._clock)
         cdef:
             str order_id = fail_event.order_id
