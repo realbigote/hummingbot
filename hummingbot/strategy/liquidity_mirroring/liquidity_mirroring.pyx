@@ -2,6 +2,7 @@
 from slack_pusher import SlackPusher
 import logging
 from decimal import Decimal
+from threading import Lock
 import os
 import conf
 import time
@@ -10,7 +11,8 @@ from typing import (
     List,
     Tuple,
 )
-from datetime import datetime
+from datetime import datetime, timedelta
+from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.market.market_base cimport MarketBase
 from hummingbot.core.event.events import (
     TradeType,
@@ -41,6 +43,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
     MARKET_ORDER_MAX_TRACKING_TIME = 0.4 * 10
     FAILED_ORDER_COOL_OFF_TIME = 0.0
 
+    CANCEL_EXPIRY_DURATION = 60.0
     @classmethod
     def logger(cls):
         global as_logger
@@ -139,6 +142,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.total_trading_volume = 0
         self.trades_executed = 0
 
+        self.marked_for_deletion = []
         cur_dir = os.getcwd()
         nonce = datetime.timestamp(datetime.now()) * 1000
         filename = os.path.join(cur_dir, 'logs', f'lm-performance-{nonce}.log')
@@ -232,6 +236,22 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         finally:
             self._last_timestamp = timestamp
 
+    cdef c_did_create_buy_order(self, object buy_order_created_event):
+        cdef:
+            str order_id = buy_order_created_event.order_id
+            object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
+        if (market_trading_pair_tuple.market == self.primary_market_pairs[0].market):
+            expiration_time = datetime.timestamp(datetime.now() + timedelta(seconds=2)) 
+            self.marked_for_deletion.append({"id": order_id, "is_buy": True, "time": expiration_time })
+
+    cdef c_did_create_sell_order(self, object sell_order_created_event):
+        cdef:
+            str order_id = sell_order_created_event.order_id
+            object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
+        if (market_trading_pair_tuple.market == self.primary_market_pairs[0].market):
+            expiration_time = datetime.timestamp(datetime.now() + timedelta(seconds=2))
+            self.marked_for_deletion.append({"id": order_id, "is_buy": False, "time": expiration_time })
+
     cdef c_did_complete_buy_order(self, object buy_order_completed_event):
         """
         Output log for completed buy order.
@@ -323,6 +343,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             str order_id = cancel_event.order_id
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
+            for order in self.marked_for_deletion:
+                if order["id"] == order_id:
+                    self.marked_for_deletion.remove(order)
+                    break
+
             self.log_with_clock(logging.INFO,
                                 f"Limit order canceled on {market_trading_pair_tuple[0].name}: {order_id}")
 
@@ -437,7 +462,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
     def adjust_primary_orderbook(self, primary_market_pair, best_bid, best_ask, bids, asks):
         primary_market: MarketBase = primary_market_pair.market
-
         available_quote_exposure = self.max_exposure_quote - self.offset_quote_exposure
         available_base_exposure = self.max_exposure_base - self.offset_base_exposure
         
@@ -468,17 +492,15 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             self.cycle_number = 0
             self.primary_best_bid = adjusted_bid
             bid_inc = self.primary_best_bid * 0.001
-            if primary_market_pair in active_orders:
-                for order in active_orders[primary_market_pair]:
-                    if order.is_buy:
+            for order in self.marked_for_deletion:
+                if (order["is_buy"] == True):
+                    current_time = datetime.timestamp(datetime.now())
+                    if order["time"] < current_time:
                         try:
-                            self.c_cancel_order(primary_market_pair,order.client_order_id)
+                            self.c_cancel_order(primary_market_pair,order["id"])
                         except:
                             break
-                        while (self._sb_order_tracker.c_check_and_track_cancel(order.client_order_id)):
-                            continue
-                        time.sleep(0.8)
-                
+
             amount = Decimal(min(best_bid.amount, (self.bid_amounts[0]/adjusted_bid)))
             amount = max(amount, Decimal(self.min_primary_amount))
 
@@ -504,7 +526,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
             except:
                 pass
-            time.sleep(0.8)
 
             price = self.primary_best_bid
             for i in range(0,len(self.bid_amounts) - 1):
@@ -536,22 +557,18 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                 except:
                     break
-                time.sleep(0.8)
-        
-        if (ask_price_diff > self.spread_percent) or (self.cycle_number == 0):
-            self.cycle_number = 0
+
+        if (ask_price_diff > self.spread_percent) or (self.cycle_number == 5):
             self.primary_best_ask = adjusted_ask
             ask_inc = self.primary_best_ask * 0.001
-            if primary_market_pair in active_orders:
-                for order in active_orders[primary_market_pair]:
-                    if not order.is_buy:
+            for order in self.marked_for_deletion:
+                if (order["is_buy"] == False):
+                    current_time = datetime.timestamp(datetime.now())
+                    if order["time"] < current_time:
                         try:
-                            self.c_cancel_order(primary_market_pair,order.client_order_id)
+                            self.c_cancel_order(primary_market_pair,order["id"])
                         except:
                             break
-                        while (self._sb_order_tracker.c_check_and_track_cancel(order.client_order_id)):
-                            continue
-                        time.sleep(0.8)
 
             amount = Decimal(min(best_ask.amount, self.ask_amounts[0]))
             amount = max(amount, Decimal(self.min_primary_amount))
@@ -579,7 +596,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
             except:
                 pass
-            time.sleep(0.8)
     
             price = self.primary_best_ask
             for i in range(0,len(self.ask_amounts) - 1):
@@ -613,11 +629,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                 except:
                     break
-                time.sleep(0.8)
 
     def adjust_mirrored_orderbook(self,mirrored_market_pair,best_bid,best_ask):
         mirrored_market: MarketBase = mirrored_market_pair.market
-        
         if self.amount_to_offset == 0:
             return
         else:
