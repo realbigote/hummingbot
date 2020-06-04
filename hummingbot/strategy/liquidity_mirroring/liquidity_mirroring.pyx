@@ -279,6 +279,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id}")
+            for order in self.marked_for_deletion:
+                if order["id"] == order_id:
+                    self.marked_for_deletion.remove(order)
+                    break
 
     cdef c_did_complete_sell_order(self, object sell_order_completed_event):
         """
@@ -307,6 +311,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id}")
+            for order in self.marked_for_deletion:
+                if order["id"] == order_id:
+                    self.marked_for_deletion.remove(order)
+                    break
 
     cdef c_did_fail_order(self, object fail_event):
         """
@@ -332,6 +340,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if market_trading_pair_tuple is not None:
             self.log_with_clock(logging.INFO,
                                 f"Limit order failed on {market_trading_pair_tuple[0].name}: {order_id}")
+            for order in self.marked_for_deletion:
+                if order["id"] == order_id:
+                    self.marked_for_deletion.remove(order)
+                    break
 
     cdef c_did_cancel_order(self, object cancel_event):
         """
