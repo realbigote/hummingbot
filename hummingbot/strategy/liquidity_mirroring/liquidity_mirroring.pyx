@@ -236,21 +236,65 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         finally:
             self._last_timestamp = timestamp
 
+    cdef c_did_fill_order(self, object order_filled_event):
+        cdef:
+            str order_id = order_filled_event.order_id
+            object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
+        if market_trading_pair_tuple is not None:
+            if order_filled_event.trade_type == TradeType.BUY:
+                self.total_trading_volume += float(order_filled_event.amount)
+                self.trades_executed += 1
+                if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
+                    self.avg_buy_price[0] += float(order_filled_event.price * order_filled_event.amount)
+                    self.avg_buy_price[1] += float(order_filled_event.amount)
+                    self.amount_to_offset += float(order_filled_event.amount)
+                else:
+                    if (self.avg_sell_price[1] > 0):
+                            true_average = Decimal(self.avg_sell_price[0]/self.avg_sell_price[1])
+                    else:
+                        true_average = Decimal(0)
+                    self.current_total_offset_loss += float((order_filled_event.price * order_filled_event.amount) - (order_filled_event.amount * true_average))
+                    self.amount_to_offset += float(order_filled_event.amount)
+                    self.offset_quote_exposure -= float(order_filled_event.amount)
+                if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
+                    self.log_with_clock(logging.INFO,
+                    f"Limit order filled on {market_trading_pair_tuple[0].name}: {order_id}")
+            elif order_filled_event.trade_type == TradeType.SELL:
+                self.total_trading_volume += float(order_filled_event.amount)
+                self.trades_executed += 1
+                if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
+                    self.avg_sell_price[0] += float(order_filled_event.price * order_filled_event.amount)
+                    self.avg_sell_price[1] += float(order_filled_event.amount)
+                    self.amount_to_offset -= float(order_filled_event.amount)
+                else:
+                    if (self.avg_buy_price[1] > 0):
+                            true_average = Decimal(self.avg_buy_price[0]/self.avg_buy_price[1])
+                    else:
+                        true_average = Decimal(0)
+                    self.current_total_offset_loss -= float((order_filled_event.amount * order_filled_event.price) - (order_filled_event.amount * true_average))
+                    self.amount_to_offset -= float(order_filled_event.amount)
+                    self.offset_base_exposure -= float(order_filled_event.amount)
+                if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
+                    self.log_with_clock(logging.INFO,
+                        f"Limit order filled on {market_trading_pair_tuple[0].name}: {order_id}")
+
     cdef c_did_create_buy_order(self, object buy_order_created_event):
         cdef:
             str order_id = buy_order_created_event.order_id
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
-        if (market_trading_pair_tuple.market == self.primary_market_pairs[0].market):
-            expiration_time = datetime.timestamp(datetime.now() + timedelta(seconds=2)) 
-            self.marked_for_deletion.append({"id": order_id, "is_buy": True, "time": expiration_time })
+        if market_trading_pair_tuple is not None:
+            if (market_trading_pair_tuple.market == self.primary_market_pairs[0].market):
+                expiration_time = datetime.timestamp(datetime.now() + timedelta(seconds=2)) 
+                self.marked_for_deletion.append({"id": order_id, "is_buy": True, "time": expiration_time })
 
     cdef c_did_create_sell_order(self, object sell_order_created_event):
         cdef:
             str order_id = sell_order_created_event.order_id
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
-        if (market_trading_pair_tuple.market == self.primary_market_pairs[0].market):
-            expiration_time = datetime.timestamp(datetime.now() + timedelta(seconds=2))
-            self.marked_for_deletion.append({"id": order_id, "is_buy": False, "time": expiration_time })
+        if market_trading_pair_tuple is not None:
+            if (market_trading_pair_tuple.market == self.primary_market_pairs[0].market):
+                expiration_time = datetime.timestamp(datetime.now() + timedelta(seconds=2))
+                self.marked_for_deletion.append({"id": order_id, "is_buy": False, "time": expiration_time })
 
     cdef c_did_complete_buy_order(self, object buy_order_completed_event):
         """
@@ -262,20 +306,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             str order_id = buy_order_completed_event.order_id
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
-            self.total_trading_volume += float(buy_order_completed_event.quote_asset_amount)
-            self.trades_executed += 1
-            if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
-                self.avg_buy_price[0] += float(buy_order_completed_event.quote_asset_amount)
-                self.avg_buy_price[1] += float(buy_order_completed_event.base_asset_amount)
-                self.amount_to_offset += float(buy_order_completed_event.base_asset_amount)
-            else:
-                if (self.avg_sell_price[1] > 0):
-                        true_average = Decimal(self.avg_sell_price[0]/self.avg_sell_price[1])
-                else:
-                    true_average = Decimal(0)
-                self.current_total_offset_loss += float(buy_order_completed_event.quote_asset_amount - (buy_order_completed_event.base_asset_amount * true_average))
-                self.amount_to_offset += float(buy_order_completed_event.base_asset_amount)
-                self.offset_quote_exposure -= float(buy_order_completed_event.quote_asset_amount)
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id}")
@@ -294,20 +324,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             str order_id = sell_order_completed_event.order_id
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
-            self.total_trading_volume += float(sell_order_completed_event.quote_asset_amount)
-            self.trades_executed += 1
-            if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
-                self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
-                self.avg_sell_price[0] += float(sell_order_completed_event.quote_asset_amount)
-                self.avg_sell_price[1] += float(sell_order_completed_event.base_asset_amount)
-            else:
-                if (self.avg_buy_price[1] > 0):
-                    true_average = Decimal(self.avg_buy_price[0]/self.avg_buy_price[1])
-                else:
-                    true_average = Decimal(0)
-                self.current_total_offset_loss -= float(sell_order_completed_event.quote_asset_amount - (sell_order_completed_event.base_asset_amount * true_average))
-                self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
-                self.offset_base_exposure -= float(sell_order_completed_event.base_asset_amount)
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id}")
@@ -339,7 +355,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
             self.log_with_clock(logging.INFO,
-                                f"Limit order failed on {market_trading_pair_tuple[0].name}: {order_id}")
+                f"Limit order failed on {market_trading_pair_tuple[0].name}: {order_id}")
             for order in self.marked_for_deletion:
                 if order["id"] == order_id:
                     self.marked_for_deletion.remove(order)
