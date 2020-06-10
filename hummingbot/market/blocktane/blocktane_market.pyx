@@ -6,6 +6,7 @@ import logging
 import pandas as pd
 from decimal import Decimal
 from libc.stdint cimport int64_t
+from threading import Lock
 from async_timeout import timeout
 from typing import Optional, List, Dict, Any, AsyncIterable, Tuple
 
@@ -45,7 +46,7 @@ from hummingbot.market.blocktane.blocktane_api_order_book_data_source import Blo
 
 bm_logger = None
 s_decimal_0 = Decimal(0)
-TRADING_PAIR_SPLITTER = re.compile(r"^(\w+)(fth|eth|trst|cad|usd|trx|xrp)$")
+TRADING_PAIR_SPLITTER = re.compile(r"^(\w+)(fth|eth|trst|cad|usd|trx|xrp|tkmka|tkmkb)$")
 
 cdef class BlocktaneMarketTransactionTracker(TransactionTracker):
     cdef:
@@ -471,7 +472,7 @@ cdef class BlocktaneMarket(MarketBase):
                 if stream_message.get('order'): # Updates tracked orders
                     order = stream_message.get('order')
                     order_status = order["state"]
-                    order_id = order["id"]
+                    order_id = order["id"] #temporary, perhaps
 
                     tracked_order = None
                     for o in self._in_flight_orders.values():
@@ -719,10 +720,12 @@ cdef class BlocktaneMarket(MarketBase):
                 "volume": str(amount),
                 "ord_type": "market"
             }
-
-        api_response = await self._api_request("POST", path_url=path_url, params=params)
-
-        return api_response
+        try:
+            api_response = await self._api_request("POST", path_url=path_url, params=params)
+            return api_response
+        except Exception:
+            self.logger().warning(f"{Exception}")
+            return
 
     async def execute_buy(self,
                           order_id: str,
@@ -758,6 +761,7 @@ cdef class BlocktaneMarket(MarketBase):
                 decimal_price,
                 decimal_amount
             )
+
             if order_type is OrderType.LIMIT:
 
                 order_result = await self.place_order(order_id,
@@ -766,6 +770,8 @@ cdef class BlocktaneMarket(MarketBase):
                                                       True,
                                                       order_type,
                                                       decimal_price)
+                while order_result == None:
+                    continue                                                      
             elif order_type is OrderType.MARKET:
                 decimal_price = self.c_get_price(trading_pair, True)
                 order_result = await self.place_order(order_id,
@@ -872,6 +878,9 @@ cdef class BlocktaneMarket(MarketBase):
                                                       False,
                                                       order_type,
                                                       decimal_price)
+                while order_result == None:
+                    continue
+
             elif order_type is OrderType.MARKET:
                 decimal_price = self.c_get_price(trading_pair, False)
                 order_result = await self.place_order(order_id,
@@ -940,7 +949,10 @@ cdef class BlocktaneMarket(MarketBase):
             path_url = f"/market/orders/{tracked_order.exchange_order_id}/cancel"
 
             cancel_result = await self._api_request("POST", path_url=path_url)
-            
+
+            while cancel_result == None:
+                continue
+
             self.logger().info(f"Successfully cancelled order {order_id}.")
             tracked_order.last_state = "cancel"
             self.c_stop_tracking_order(order_id)
