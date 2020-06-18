@@ -476,9 +476,10 @@ cdef class BlocktaneMarket(MarketBase):
 
                     tracked_order = None
                     for o in self._in_flight_orders.values():
-                        if int(o.exchange_order_id) == int(order_id):
-                            tracked_order = o
-                            break
+                        if o.exchange_order_id is not None:
+                            if int(o.exchange_order_id) == int(order_id):
+                                tracked_order = o
+                                break
 
                     if tracked_order is None:
                         self.logger().debug(f"Unrecognized order ID from user stream: {order_id}.")
