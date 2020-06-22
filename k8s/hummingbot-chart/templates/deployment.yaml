@@ -1,0 +1,54 @@
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: {{ include "resource.name" . }}
+  namespace: {{ include "resource.namespace" . }}
+spec:
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: {{ include "resource.appName" . }}
+        helm.sh/chart: {{ include "chart.chart" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/managed-by: {{ .Release.Service }}
+    spec:
+      imagePullSecrets:
+      - name: {{ .Values.global.imagePullSecrets.default.name }}
+      containers:
+      - name: {{ .Values.global.image.hummingbot.name }}
+        image: {{ include "image.hummingbot.repository" . }}
+        imagePullPolicy: {{ default "Always" .Values.global.image.hummingbot.imagepullPolicy }}
+        args: ["sh", "-c", "./init.sh" ]
+        env: 
+        - name: "CONFIG_PASSWORD"
+          value: {{ .Values.global.options.config_password }}
+        - name: "STRATEGY"
+          value: {{ .Values.global.options.strategy }}
+        - name: "CONFIG_FILE_NAME"
+          value: {{ .Values.global.options.config_file_name }} 
+        volumeMounts:
+        - mountPath: /conf-master-data
+          name: config-data
+        - mountPath: /conf
+          name: config-vol
+      initContainers:
+      - name: copy
+        image: {{ include "image.hummingbot.repository" . }}
+        command: ["bash", "-c", "cp /conf-master-data/* /conf/"]
+        volumeMounts:
+        - mountPath: /conf
+          name: config-vol
+        - mountPath: /conf-master-data
+          name: config-data
+      volumes:
+      - name: config-vol
+        emptyDir: {}
+      - name: config-data
+        configMap:
+          name: hummingbot-conf
+          items:
+          - key: {{ .Values.global.options.config_file_name }}
+            path: {{ .Values.global.options.config_file_name }} 
+          - key: conf_global.yml
+            path: conf_global.yml 

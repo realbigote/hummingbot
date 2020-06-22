@@ -9,8 +9,6 @@ Use the `start` command from the client to initialize a market making bot.
 
 If any configuration settings are missing, you will be prompted to add them (see: [Configuration](/operation/configuration/)).
 
-If you have previously configured Hummingbot using `config` but are in a new session of the CLI, you will need to run `config` again to unlock your Ethereum wallet.
-
 ## Automatic Approvals
 
 In order to trade on an Ethereum-based decentralized exchange (DEX), you may need to send an Ethereum transaction to approve your tokens for trading on the exchange if it is the first time that you are trading that token. Hummingbot checks if tokens are approved and automatically handles the approval transaction before it begins operation.
@@ -37,8 +35,8 @@ For cross-exchange market making, we **recommend** that users start with roughly
 
 ## Using Commands
 
-Please see [Client: Commands](/operation/client#client-commands) for a comprehensive list of Hummingbot's commands and their descriptions.
+Please see [Command Reference](/operation/commands) for a comprehensive list of Hummingbot's commands and their descriptions.
 
 ## Understanding Logs
 
-Hummingbot's right pane contains a log of all actions taken by the bot, including approvals, canncellations, fills, etc. When the user exits Hummingbot, it saves a log file containing all of the section's activity to the `logs/` folder. (For more info, see: [Logs and Logging](/utilities/logging))
+Hummingbot's right pane contains a log of all actions taken by the bot, including approvals, canncellations, fills, etc. When the user exits Hummingbot, it saves a log file containing all of the section's activity to the `logs/` folder. (For more info, see: [Logs and Logging](/advanced/logging))

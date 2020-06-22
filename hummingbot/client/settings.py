@@ -30,6 +30,7 @@ CONF_POSTFIX = "_strategy"
 EXCHANGES = {
     "bamboo_relay",
     "binance",
+    "blocktane",
     "coinbase_pro",
     "huobi",
     "liquid",
@@ -37,7 +38,8 @@ EXCHANGES = {
     "dolomite",
     "bittrex",
     "kucoin",
-    "bitcoin_com"
+    "bitcoin_com",
+    "kraken"
 }
 
 DEXES = {
@@ -53,12 +55,14 @@ EXAMPLE_PAIRS = {
     "binance": "ZRX-ETH",
     "bitcoin_com": "ETH-BCH",
     "bittrex": "ZRX-ETH",
+    "blocktane": "FTH-USD",
     "kucoin": "ETH-USDT",
     "coinbase_pro": "ETH-USDC",
     "dolomite": "WETH-DAI",
     "huobi": "ETH-USDT",
     "liquid": "ETH-USD",
     "radar_relay": "ZRX-WETH",
+    "kraken": "XETH-USDC"
 }
 
 EXAMPLE_ASSETS = {
@@ -66,12 +70,14 @@ EXAMPLE_ASSETS = {
     "binance": "ZRX",
     "bitcoin_com": "BCH",
     "bittrex": "ZRX",
+    "blocktane": "FTH",
     "kucoin": "ETH",
     "coinbase_pro": "ETH",
     "dolomite": "LRC",
     "huobi": "eth",
     "liquid": "ETH",
     "radar_relay": "ZRX",
+    "kraken": "XETH"
 }
 
 MAXIMUM_OUTPUT_PANE_LINE_COUNT = 1000

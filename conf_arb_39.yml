@@ -1,0 +1,22 @@
+#####################################
+###   Arbitrage strategy config   ###
+#####################################
+
+template_version: 3
+strategy: arbitrage
+
+# The following configuations are only required for the
+# arbitrage strategy
+
+# Exchange and token parameters
+primary_market: binance
+secondary_market: kraken
+primary_market_trading_pair: ETH-USDC
+secondary_market_trading_pair: XETH-USDC
+
+# Minimum profitability target required to place an order
+# Expressed in percentage value, e.g. 1 = 1% target profit
+min_profitability: 0.3
+
+# For more detailed information, see:
+# https://docs.hummingbot.io/strategies/arbitrage/#configuration-parameters
