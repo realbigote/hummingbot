@@ -148,9 +148,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         cur_dir = os.getcwd()
         nonce = datetime.timestamp(datetime.now()) * 1000
         filename = os.path.join(cur_dir, 'logs', f'lm-performance-{nonce}.log')
-        self.performance_logger = logging.getLogger()
+        self.performance_logger = logging.getLogger('performance_logger')
         self.performance_logger.addHandler(logging.FileHandler(filename))
 
+        self.performance_logger.info(f"Ask amount ratios: {self.ask_amount_percents}")
+        self.performance_logger.info(f"Bid amount ratios: {self.bid_amount_percents}")
+        
         self.best_bid_start = 0
         self.slack_url = slack_hook
         self.cycle_number = 0
@@ -162,6 +165,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
     @property
     def tracked_taker_orders_data_frame(self) -> List[pd.DataFrame]:
         return self._sb_order_tracker.tracked_taker_orders_data_frame
+
+    def performance_update(self):
+        self.performance_logger.info(f"Current amount to offset: {self.amount_to_offset}")
+        self.performance_logger.info(f"P/L on offsets: {self.current_total_offset_loss}")
 
     def format_status(self) -> str:
         cdef:
@@ -533,6 +540,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 i += 1
         self.cycle_number += 1
         self.cycle_number %= 10
+        if (self.cycle_number == 7):
+            self.performance_update()
         self.adjust_primary_orderbook(primary_market_pair, best_bid, best_ask, bid_levels, ask_levels)
         if (self.two_sided_mirroring):
             self.adjust_mirrored_orderbook(market_pair, best_bid, best_ask)
