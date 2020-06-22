@@ -148,12 +148,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         cur_dir = os.getcwd()
         nonce = datetime.timestamp(datetime.now()) * 1000
         filename = os.path.join(cur_dir, 'logs', f'lm-performance-{nonce}.log')
-        self.performance_logger = logging.getLogger('performance_logger')
+        self.performance_logger = logging.getLogger()
         self.performance_logger.addHandler(logging.FileHandler(filename))
 
-        self.performance_logger.info(f"Ask amount ratios: {self.ask_amount_percents}")
-        self.performance_logger.info(f"Bid amount ratios: {self.bid_amount_percents}")
-        
         self.best_bid_start = 0
         self.slack_url = slack_hook
         self.cycle_number = 0
@@ -165,10 +162,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
     @property
     def tracked_taker_orders_data_frame(self) -> List[pd.DataFrame]:
         return self._sb_order_tracker.tracked_taker_orders_data_frame
-
-    def performance_update(self):
-        self.performance_logger.info(f"Current amount to offset: {self.amount_to_offset}")
-        self.performance_logger.info(f"P/L on offsets: {self.current_total_offset_loss}")
 
     def format_status(self) -> str:
         cdef:
@@ -540,8 +533,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 i += 1
         self.cycle_number += 1
         self.cycle_number %= 10
-        if (self.cycle_number == 7):
-            self.performance_update()
         self.adjust_primary_orderbook(primary_market_pair, best_bid, best_ask, bid_levels, ask_levels)
         if (self.two_sided_mirroring):
             self.adjust_mirrored_orderbook(market_pair, best_bid, best_ask)
@@ -550,13 +541,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         primary_market: MarketBase = primary_market_pair.market
         available_quote_exposure = self.max_exposure_quote - self.offset_quote_exposure
         available_base_exposure = self.max_exposure_base - self.offset_base_exposure
-        
-        for j in range(0,len(self.bid_amount_percents)):
-            self.bid_amounts[j] = (self.bid_amount_percents[j] * available_quote_exposure)
-        
-        for j in range(0,len(self.ask_amount_percents)):
-            self.ask_amounts[j] = (self.ask_amount_percents[j] * available_base_exposure)
-
 
         spread = float(best_ask.price - best_bid.price)
         spread_factor = (spread)/float(best_ask.price)
@@ -571,13 +555,17 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         bid_price_diff = abs(1 - (self.primary_best_bid/adjusted_bid))
         ask_price_diff = abs(1 - (self.primary_best_ask/adjusted_ask))
 
-        active_orders = self._sb_order_tracker.market_pair_to_active_orders
+        for j in range(0,len(self.bid_amount_percents)):
+            self.bid_amounts[j] = (self.bid_amount_percents[j] * (available_quote_exposure/adjusted_bid))
+        
+        for j in range(0,len(self.ask_amount_percents)):
+            self.ask_amounts[j] = (self.ask_amount_percents[j] * available_base_exposure)
 
         #TODO make this first condition less arbitrary!
         if ((bid_price_diff > self.spread_percent) or (self.cycle_number == 0)):
             self.cycle_number = 0
             self.primary_best_bid = adjusted_bid
-            bid_inc = self.primary_best_bid * 0.001
+            bid_inc = self.primary_best_bid * self.spread_percent
             for order in self.marked_for_deletion:
                 if (order["is_buy"] == True):
                     current_time = datetime.timestamp(datetime.now())
@@ -587,7 +575,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         except:
                             break
 
-            amount = Decimal(min(best_bid.amount, (self.bid_amounts[0]/adjusted_bid)))
+            amount = Decimal(min(best_bid.amount, (self.bid_amounts[0])))
             amount = max(amount, Decimal(self.min_primary_amount))
 
             fee_object = primary_market.c_get_fee(
@@ -617,7 +605,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             for i in range(0,len(self.bid_amounts) - 1):
                 price -= bid_inc
                 min_price = min(price, bids[i+1]["price"])
-                amount = Decimal(min(bids[i+1]["amount"], (self.bid_amounts[i+1]/adjusted_bid)))
+                amount = Decimal(min(bids[i+1]["amount"], (self.bid_amounts[i+1])))
                 amount = max(amount, Decimal(self.min_primary_amount))
 
                 fee_object = primary_market.c_get_fee(
@@ -646,7 +634,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         if (ask_price_diff > self.spread_percent) or (self.cycle_number == 5):
             self.primary_best_ask = adjusted_ask
-            ask_inc = self.primary_best_ask * 0.001
+            ask_inc = self.primary_best_ask * self.spread_percent
             for order in self.marked_for_deletion:
                 if (order["is_buy"] == False):
                     current_time = datetime.timestamp(datetime.now())
