@@ -328,7 +328,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.amount_to_offset += float(buy_order_completed_event.base_asset_amount)
                     self.has_been_offset.append(f"{order_id}COMPLETE")
             else:
-                self.total_trading_volume += float(buy_order_completed_event.amount)
+                self.total_trading_volume += float(buy_order_completed_event.quote_asset_amount)
                 self.trades_executed += 1
                 if (self.avg_sell_price[1] > 0):
                         true_average = Decimal(self.avg_sell_price[0]/self.avg_sell_price[1])
@@ -364,10 +364,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
                     self.has_been_offset.append(f"{order_id}COMPLETE")
             else:
-                self.total_trading_volume += float(sell_order_completed_event.amount)
+                self.total_trading_volume += float(sell_order_completed_event.quote_asset_amount)
                 self.trades_executed += 1
                 if (self.avg_buy_price[1] > 0):
-                        true_average = Decimal(self.avg_sell_price[0]/self.avg_sell_price[1])
+                        true_average = Decimal(self.avg_buy_price[0]/self.avg_buy_price[1])
                 else:
                     true_average = Decimal(0)
                 self.current_total_offset_loss -= float(sell_order_completed_event.quote_asset_amount - (sell_order_completed_event.base_asset_amount * true_average))
@@ -641,7 +641,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     if order["time"] < current_time:
                         try:
                             self.c_cancel_order(primary_market_pair,order["id"])
-                        except:
+                        except:                            
                             break
 
             amount = Decimal(min(best_ask.amount, self.ask_amounts[0]))
