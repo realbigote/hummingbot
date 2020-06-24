@@ -502,6 +502,14 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         return True
 
+    def check_flat_fee_coverage(self, market, flat_fees):
+        covered = True
+        for fee in flat_fees:
+            covered = covered and (market.get_available_balance(fee[0]) > fee[1])
+            if covered == False:
+                break
+        return covered
+
     cdef c_process_market_pair(self, object market_pair):
         primary_market_pair = self.primary_market_pairs[0]
 
@@ -606,11 +614,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             price_tx = Decimal(adjusted_bid) / (Decimal(1) + fee_object.percent) - fixed_cost_per_unit
             quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, price_tx)
             quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
+
             while (not self.c_ready_for_new_orders([primary_market_pair])):
                 continue
             try:
                 if (primary_market.get_available_balance(primary_market_pair.quote_asset) >
-                  quant_price * quant_amount):
+                  quant_price * quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
                     self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                 else:
                     self.logger().warning(f"INSUFFICIENT FUNDS for buy on {primary_market.name}")
@@ -641,11 +650,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 min_price = Decimal(min_price) / (Decimal(1) + fee_object.percent) - fixed_cost_per_unit
                 quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, min_price)
                 quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
+
                 while (not self.c_ready_for_new_orders([primary_market_pair])):
                     continue
                 try:
                     if (primary_market.get_available_balance(primary_market_pair.quote_asset) >
-                      quant_price * quant_amount):
+                      quant_price * quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
                         self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                     else:
                         self.logger().warning(f"INSUFFICIENT FUNDS for buy on {primary_market.name}")
@@ -675,7 +685,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     amount,
                     adjusted_ask
                 )
-            
+            self.logger().warning(f"{fee_object}")
             total_flat_fees = self.c_sum_flat_fees(primary_market_pair.quote_asset,
                                                        fee_object.flat_fees)
             fixed_cost_per_unit = total_flat_fees / amount                                                       
@@ -688,7 +698,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 continue
             try:
                 if (primary_market.get_available_balance(primary_market_pair.base_asset) >
-                  quant_amount):
+                  quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
                     self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                 else:
                     self.logger().warning(f"INSUFFICIENT FUNDS for sell on {primary_market.name}")
@@ -725,7 +735,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     continue
                 try:
                     if (primary_market.get_available_balance(primary_market_pair.base_asset) >
-                      quant_amount):
+                      quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
                         self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                     else:
                         self.logger().warning(f"INSUFFICIENT FUNDs for sell on {primary_market.name}!")
