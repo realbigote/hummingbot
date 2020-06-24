@@ -82,12 +82,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self._logging_options = logging_options
         self.primary_market_pairs = primary_market_pairs
         self.mirrored_market_pairs = mirrored_market_pairs
-        primary_market = self.primary_market_pairs[0].market
-        mirrored_market = self.mirrored_market_pairs[0].market
-        primary_base_asset = self.primary_market_pairs[0].base_asset
-        primary_quote_asset = self.primary_market_pairs[0].quote_asset
-        mirrored_base_asset = self.mirrored_market_pairs[0].base_asset
-        mirrored_quote_asset = self.mirrored_market_pairs[0].quote_asset
+        
         self._all_markets_ready = False
         self._status_report_interval = status_report_interval
         self._last_timestamp = 0
@@ -137,29 +132,20 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.avg_buy_price = [0,0]
         self.offset_base_exposure = 0
         self.offset_quote_exposure = 0
-        self.logger().info("Preparing wallet balances for strategy")
+
         self.primary_base_balance = 0
-        while self.primary_base_balance == 0:
-            self.primary_base_balance = primary_market.get_available_balance(primary_base_asset)#
 
         self.primary_quote_balance = 0
-        while self.primary_quote_balance == 0:
-            self.primary_quote_balance = primary_market.get_available_balance(primary_quote_asset)
 
         self.mirrored_base_balance = 0
-        while self.mirrored_base_balance == 0:
-            self.mirrored_base_balance = mirrored_market.get_available_balance(mirrored_base_asset)
 
         self.mirrored_quote_balance = 0
-        while self.mirrored_quote_balance == 0:
-            self.mirrored_quote_balance = mirrored_market.get_available_balance(mirrored_quote_asset)
-             
+        self.balances_set = False     
+        
         assets_df = self.wallet_balance_data_frame([self.mirrored_market_pairs[0]])
         total_balance = assets_df['Total Balance']
         assets_df = self.wallet_balance_data_frame([self.primary_market_pairs[0]])
         total_balance += assets_df['Total Balance']
-
-        self.logger().info("Wallet balances prepared for strategy")
 
         self.initial_base_amount = total_balance[0]
         self.initial_quote_amount = total_balance[1]
@@ -251,6 +237,22 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 else:
                     if self.OPTION_LOG_STATUS_REPORT:
                         self.logger().info(f"Markets are ready. Trading started.")
+            if not self.balances_set:
+                primary_market = self.primary_market_pairs[0].market
+                mirrored_market = self.mirrored_market_pairs[0].market
+                primary_base_asset = self.primary_market_pairs[0].base_asset
+                primary_quote_asset = self.primary_market_pairs[0].quote_asset
+                mirrored_base_asset = self.mirrored_market_pairs[0].base_asset
+                mirrored_quote_asset = self.mirrored_market_pairs[0].quote_asset
+                while self.primary_base_balance == 0:
+                    self.primary_base_balance = primary_market.get_available_balance(primary_base_asset)
+                while self.primary_quote_balance == 0:
+                    self.primary_quote_balance = primary_market.get_available_balance(primary_quote_asset)
+                while self.mirrored_base_balance == 0:
+                    self.mirrored_base_balance = mirrored_market.get_available_balance(mirrored_base_asset)
+                while self.mirrored_quote_balance == 0:
+                    self.mirrored_quote_balance = mirrored_market.get_available_balance(mirrored_quote_asset)
+                self.balances_set = True
 
             if not all([market.network_status is NetworkStatus.CONNECTED for market in self._sb_markets]):
                 if should_report_warnings:

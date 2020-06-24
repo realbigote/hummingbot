@@ -46,6 +46,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         list bid_amount_percents
         list ask_amount_percents
         bint _all_markets_ready
+        bint balances_set
         dict outstanding_offsets
         dict _order_id_to_market
         dict market_orderbook_heaps
