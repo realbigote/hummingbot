@@ -784,7 +784,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
                         new_price = Decimal(new_price) / (Decimal(1) + fee_object.percent) - fixed_cost_per_unit
                         quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, new_price)
-                        quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, amount)
+                        quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
 
                         self.c_buy_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                         self.offset_quote_exposure += float(new_price) * amount
@@ -832,7 +832,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
                         new_price = Decimal(new_price) / (Decimal(1) - fee_object.percent) + fixed_cost_per_unit
                         quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, new_price)
-                        quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, amount)
+                        quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
 
                         self.c_sell_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                         self.offset_base_exposure += amount
