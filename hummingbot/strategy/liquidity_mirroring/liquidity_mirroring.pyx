@@ -253,7 +253,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 while self.mirrored_quote_balance == 0:
                     self.mirrored_quote_balance = mirrored_market.get_available_balance(mirrored_quote_asset)
                 self.balances_set = True
-
+            self.logger().warning(f"{self.primary_base_balance}")
             if not all([market.network_status is NetworkStatus.CONNECTED for market in self._sb_markets]):
                 if should_report_warnings:
                     self.logger().warning(f"Markets are not all online. No trading is permitted.")
@@ -670,7 +670,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             while (not self.c_ready_for_new_orders([primary_market_pair])):
                 continue
             try:
-                if (primary_market.get_available_balance(primary_market_pair.quote_asset) >
+                if (min(primary_market.get_available_balance(primary_market_pair.quote_asset),self.primary_quote_balance) >
                   quant_price * quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
                     self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                 else:
@@ -706,9 +706,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 while (not self.c_ready_for_new_orders([primary_market_pair])):
                     continue
                 try:
-                    if (primary_market.get_available_balance(primary_market_pair.quote_asset) >
+                    if (min(primary_market.get_available_balance(primary_market_pair.quote_asset),self.primary_quote_balance) >
                       quant_price * quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
-                        self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                          self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                     else:
                         self.logger().warning(f"INSUFFICIENT FUNDS for buy on {primary_market.name}")
                 except:
@@ -749,9 +749,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             while (not self.c_ready_for_new_orders([primary_market_pair])):
                 continue
             try:
-                if (primary_market.get_available_balance(primary_market_pair.base_asset) >
+                if (min(primary_market.get_available_balance(primary_market_pair.base_asset),self.primary_base_balance) >
                   quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
-                    self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                      self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                 else:
                     self.logger().warning(f"INSUFFICIENT FUNDS for sell on {primary_market.name}")
             except:
@@ -786,7 +786,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 while (not self.c_ready_for_new_orders([primary_market_pair])):
                     continue
                 try:
-                    if (primary_market.get_available_balance(primary_market_pair.base_asset) >
+                    if (min(primary_market.get_available_balance(primary_market_pair.base_asset),self.primary_base_balance) >
                       quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
                         self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                     else:
