@@ -141,14 +141,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         self.mirrored_quote_balance = 0
         self.balances_set = False     
-        
-        assets_df = self.wallet_balance_data_frame([self.mirrored_market_pairs[0]])
-        total_balance = assets_df['Total Balance']
-        assets_df = self.wallet_balance_data_frame([self.primary_market_pairs[0]])
-        total_balance += assets_df['Total Balance']
 
-        self.initial_base_amount = total_balance[0]
-        self.initial_quote_amount = total_balance[1]
         self.min_primary_amount = min_primary_amount
         self.min_mirroring_amount = min_mirroring_amount
         self.total_trading_volume = 0
@@ -252,8 +245,14 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.mirrored_base_balance = mirrored_market.get_available_balance(mirrored_base_asset)
                 while self.mirrored_quote_balance == 0:
                     self.mirrored_quote_balance = mirrored_market.get_available_balance(mirrored_quote_asset)
+                assets_df = self.wallet_balance_data_frame([self.mirrored_market_pairs[0]])
+                total_balance = assets_df['Total Balance']
+                assets_df = self.wallet_balance_data_frame([self.primary_market_pairs[0]])
+                total_balance += assets_df['Total Balance']
+                self.initial_base_amount = total_balance[0]
+                self.initial_quote_amount = total_balance[1]
                 self.balances_set = True
-            self.logger().warning(f"{self.primary_base_balance}")
+
             if not all([market.network_status is NetworkStatus.CONNECTED for market in self._sb_markets]):
                 if should_report_warnings:
                     self.logger().warning(f"Markets are not all online. No trading is permitted.")
