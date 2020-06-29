@@ -814,7 +814,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                     else:
                         #shouldn't be some fixed value here!
-                        if (max((order.price - best_ask.price),(best_ask.price - order.price)) > 0.01):
+                        #if (max((order.price - best_ask.price),(best_ask.price - order.price)) > 0.01):
+                        if ((self.cycle_number % 5) == 0):
                             self.offset_quote_exposure -= float(order.quantity * order.price)
                             self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                         else:
@@ -863,7 +864,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                     else:
                         #shouldn't be some fixed value here!
-                        if (max((order.price - best_bid.price),(best_bid.price - order.price)) > 0.01):
+                        #if (max((order.price - best_bid.price),(best_bid.price - order.price)) > 0.01):
+                        if ((self.cycle_number % 5) == 0):
                             self.offset_base_exposure -= float(order.quantity * order.price)
                             self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                         else:
