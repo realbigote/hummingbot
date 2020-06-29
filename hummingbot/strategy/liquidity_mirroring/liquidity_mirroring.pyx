@@ -604,6 +604,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 i += 1
         self.cycle_number += 1
         self.cycle_number %= 10
+        if ((self.cycle_number % 2) == 0):
+            self.logger().warning(f"{self.amount_to_offset}")
         self.adjust_primary_orderbook(primary_market_pair, best_bid, best_ask, bid_levels, ask_levels)
         if (self.two_sided_mirroring):
             self.adjust_mirrored_orderbook(market_pair, best_bid, best_ask)
