@@ -578,7 +578,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         i = 1
         current_level = 0
         current_bid_price = best_bid.price
-        while (len(bid_levels) < 10):
+        while (len(bid_levels) < min(10,len(bids))):
             if (bids[i].price == current_bid_price):
                 bid_levels[current_level]["amount"] += bids[i].amount
                 i += 1
@@ -593,7 +593,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         i = 1
         current_level = 0
         current_ask_price = best_ask.price
-        while (len(ask_levels) < 10):
+        while (len(ask_levels) < min(10,len(asks))):
             if (asks[i].price == current_ask_price):
                 ask_levels[current_level]["amount"] += asks[i].amount
                 i += 1
@@ -682,8 +682,14 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             price = self.primary_best_bid
             for i in range(0,len(self.bid_amounts) - 1):
                 price -= bid_inc
-                min_price = min(price, bids[i+1]["price"])
-                amount = Decimal(min(bids[i+1]["amount"], (self.bid_amounts[i+1])))
+                if len(bids) > (i + 1):
+                    bid_price = bids[i+1]["price"]
+                    bid_amount = bids[i+1]["amount"]
+                else:
+                    bid_price = float("inf")
+                    bid_amount = float("inf")
+                min_price = min(price, bid_price)
+                amount = Decimal(min(bid_amount, (self.bid_amounts[i+1])))
                 amount = max(amount, Decimal(self.min_primary_amount))
 
                 fee_object = primary_market.c_get_fee(
@@ -761,8 +767,14 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             price = self.primary_best_ask
             for i in range(0,len(self.ask_amounts) - 1):
                 price += ask_inc
-                max_price = max(price, asks[i+1]["price"])
-                amount = Decimal(min(asks[i+1]["amount"], self.ask_amounts[i+1]))
+                if len(asks) > (i + 1):
+                    ask_price = asks[i+1]["price"]
+                    ask_amount = asks[i+1]["amount"]
+                else:
+                    ask_price = 0
+                    ask_amount = float("inf")
+                max_price = max(price, ask_price)
+                amount = Decimal(min(ask_amount, self.ask_amounts[i+1]))
                 amount = max(amount, Decimal(self.min_primary_amount))
                 #TODO ensure that this doesn't overexpose the trader
     
@@ -815,7 +827,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     else:
                         #shouldn't be some fixed value here!
                         #if (max((order.price - best_ask.price),(best_ask.price - order.price)) > 0.01):
-                        if ((self.cycle_number % 5) == 0):
+                        if ((self.cycle_number) == 0):
                             self.offset_quote_exposure -= float(order.quantity * order.price)
                             self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                         else:
@@ -832,21 +844,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     loss = diff * amount
                     if loss < self.max_loss:
 
-                        fee_object = mirrored_market.c_get_fee(
-                            mirrored_market_pair.base_asset,
-                            mirrored_market_pair.quote_asset,
-                            OrderType.LIMIT,
-                            TradeType.BUY,
-                            amount,
-                            new_price
-                        )
-
-                        total_flat_fees = self.c_sum_flat_fees(mirrored_market_pair.quote_asset,
-                                                                   fee_object.flat_fees)
-
-                        fixed_cost_per_unit = total_flat_fees / Decimal(amount)                                                           
-
-                        new_price = Decimal(new_price) / (Decimal(1) + fee_object.percent) - fixed_cost_per_unit
                         quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, new_price)
                         quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
 
@@ -865,7 +862,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     else:
                         #shouldn't be some fixed value here!
                         #if (max((order.price - best_bid.price),(best_bid.price - order.price)) > 0.01):
-                        if ((self.cycle_number % 5) == 0):
+                        if ((self.cycle_number) == 0):
                             self.offset_base_exposure -= float(order.quantity * order.price)
                             self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                         else:
@@ -881,21 +878,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     diff = float(true_average - new_price)
                     loss = diff * amount
                     if loss < self.max_loss:
-                        fee_object = mirrored_market.c_get_fee(
-                            mirrored_market_pair.base_asset,
-                            mirrored_market_pair.quote_asset,
-                            OrderType.LIMIT,
-                            TradeType.SELL,
-                            amount,
-                            new_price
-                        )
 
-                        total_flat_fees = self.c_sum_flat_fees(mirrored_market_pair.quote_asset,
-                                                                   fee_object.flat_fees)
-
-                        fixed_cost_per_unit = total_flat_fees / Decimal(amount)                                                           
-
-                        new_price = Decimal(new_price) / (Decimal(1) - fee_object.percent) + fixed_cost_per_unit
                         quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, new_price)
                         quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
 
