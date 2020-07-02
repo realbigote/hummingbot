@@ -12,7 +12,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         list bid_amounts
         list ask_amounts
         list equivalent_tokens
-        list marked_for_deletion
+        dict marked_for_deletion
         list has_been_offset
         str slack_url
         object performance_logger
