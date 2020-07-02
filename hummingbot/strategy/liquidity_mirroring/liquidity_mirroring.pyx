@@ -7,6 +7,7 @@ import os
 import conf
 import time
 import pandas as pd
+import random
 from typing import (
     List,
     Tuple,
@@ -338,7 +339,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if market_trading_pair_tuple is not None:
             if (market_trading_pair_tuple.market == self.primary_market_pairs[0].market):
                 self.primary_quote_balance -= float(buy_order_created_event.amount * buy_order_created_event.price)
-                expiration_time = datetime.timestamp(datetime.now() + timedelta(seconds=2)) 
+                num_seconds = random.randint(2,10)
+                expiration_time = datetime.timestamp(datetime.now() + timedelta(seconds=num_seconds)) 
                 self.marked_for_deletion.append({"id": order_id, "is_buy": True, "time": expiration_time })
             elif (market_trading_pair_tuple.market == self.mirrored_market_pairs[0].market):
                 self.mirrored_quote_balance -= float(buy_order_created_event.amount * buy_order_created_event.price)
@@ -350,7 +352,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if market_trading_pair_tuple is not None:
             if (market_trading_pair_tuple.market == self.primary_market_pairs[0].market):
                 self.primary_base_balance -= float(sell_order_created_event.amount)
-                expiration_time = datetime.timestamp(datetime.now() + timedelta(seconds=2))
+                num_seconds = random.randint(2,10)
+                expiration_time = datetime.timestamp(datetime.now() + timedelta(seconds=num_seconds))
                 self.marked_for_deletion.append({"id": order_id, "is_buy": False, "time": expiration_time })
             elif (market_trading_pair_tuple.market == self.mirrored_market_pairs[0].market):
                 self.mirrored_base_balance -= float(sell_order_created_event.amount)
