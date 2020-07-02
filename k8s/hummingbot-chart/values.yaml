@@ -5,12 +5,12 @@
 # Define global variables
 global:
   namespace: hummingbot
-  releaseTag: release
+  releaseTag: development
   name: 
   appName: 
   chartName:
-  strategyPrefix: bittrex-binance  
-  strategySuffix: xtz-usdt
+  strategyPrefix: bolsa-pure-mm-liq-mirr  
+  strategySuffix: eth-usds
 
   node:
     feature:

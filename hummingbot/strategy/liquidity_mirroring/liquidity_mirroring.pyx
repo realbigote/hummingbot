@@ -198,6 +198,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].quote_asset}): {total_balance[1]}"])
         lines.extend(["", f"   Overall Change in Holdings: {profit}"])
         lines.extend(["", f"   Increase in Portfolio: {portfolio}"])
+        lines.extend(["", f"   Amount to offset: {self.amount_to_offset}"])
         if len(warning_lines) > 0:
             lines.extend(["", "  *** WARNINGS ***"] + warning_lines)
 
@@ -605,7 +606,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.cycle_number += 1
         self.cycle_number %= 10
         if ((self.cycle_number % 2) == 0):
-            self.logger().warning(f"{self.amount_to_offset}")
+            self.logger().info(f"Amount to offset: {self.amount_to_offset}")
         self.adjust_primary_orderbook(primary_market_pair, best_bid, best_ask, bid_levels, ask_levels)
         if (self.two_sided_mirroring):
             self.adjust_mirrored_orderbook(market_pair, best_bid, best_ask)
