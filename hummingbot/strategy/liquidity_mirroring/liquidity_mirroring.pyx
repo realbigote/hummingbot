@@ -153,6 +153,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.sells_to_replace = list(range(0,len(self.ask_amounts)))
         self.has_been_offset = []
 
+        self.previous_sells = [0 for i in range(0, len(self.ask_amounts))]
+        self.previous_buys = [0 for i in range(0, len(self.bid_amounts))]
+        
         cur_dir = os.getcwd()
         nonce = datetime.timestamp(datetime.now()) * 1000
         filename = os.path.join(cur_dir, 'logs', f'lm-performance-{nonce}.log')

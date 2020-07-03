@@ -11,6 +11,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         list primary_market_pairs
         list bid_amounts
         list ask_amounts
+        list previous_sells
+        list previous_buys
         list equivalent_tokens
         list buys_to_replace
         list sells_to_replace
