@@ -21,6 +21,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         float initial_quote_amount
         float amount_to_offset
         float current_total_offset_loss
+        float primary_base_balance
+        float primary_quote_balance
+        float mirrored_base_balance
+        float mirrored_quote_balance
         bint two_sided_mirroring
         float primary_best_bid
         float primary_best_ask
@@ -42,6 +46,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         list bid_amount_percents
         list ask_amount_percents
         bint _all_markets_ready
+        bint balances_set
         dict outstanding_offsets
         dict _order_id_to_market
         dict market_orderbook_heaps
