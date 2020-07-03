@@ -186,14 +186,15 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         profit = float((total_balance[0] * mult) - (self.initial_base_amount * self.best_bid_start)) + float(total_balance[1] - self.initial_quote_amount)
         portfolio = float((total_balance[0] * mult) - (self.initial_base_amount * mult)) + float(total_balance[1] - self.initial_quote_amount)  
-
+        current_time = datetime.now().isoformat()
+        lines.extend(["", f"   Time: {current_time}"])
         lines.extend(["", f"   Executed Trades: {self.trades_executed}"])
         lines.extend(["", f"   Total Trade Volume: {self.total_trading_volume}"])
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].base_asset}): {total_balance[0]}"])
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].quote_asset}): {total_balance[1]}"])
         lines.extend(["", f"   Overall Change in Holdings: {profit}"])
         lines.extend(["", f"   Increase in Portfolio: {portfolio}"])
-        lines.extend(["", f"   Amount to offset: {self.amount_to_offset}"])
+        lines.extend(["", f"   Amount to offset (in base currency): {self.amount_to_offset}"])
         if len(warning_lines) > 0:
             lines.extend(["", "  *** WARNINGS ***"] + warning_lines)
 
