@@ -151,6 +151,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.marked_for_deletion = {}
         self.buys_to_replace = list(range(0,len(self.bid_amounts)))
         self.sells_to_replace = list(range(0,len(self.ask_amounts)))
+        self.bid_replace_ranks = []
+        self.ask_replace_ranks = []
         self.has_been_offset = []
 
         self.previous_sells = [0 for i in range(0, len(self.ask_amounts))]
@@ -350,7 +352,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if market_trading_pair_tuple is not None:
             if (market_trading_pair_tuple.market == self.primary_market_pairs[0].market):
                 self.primary_quote_balance -= float(buy_order_created_event.amount * buy_order_created_event.price)
-                num_seconds = random.randint(2,10)
+                num_seconds = random.randint(30,50)
                 expiration_time = datetime.timestamp(datetime.now() + timedelta(seconds=num_seconds)) 
                 self.marked_for_deletion[order_id]["time"] = expiration_time
             elif (market_trading_pair_tuple.market == self.mirrored_market_pairs[0].market):
@@ -363,7 +365,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if market_trading_pair_tuple is not None:
             if (market_trading_pair_tuple.market == self.primary_market_pairs[0].market):
                 self.primary_base_balance -= float(sell_order_created_event.amount)
-                num_seconds = random.randint(2,10)
+                num_seconds = random.randint(30,50)
                 expiration_time = datetime.timestamp(datetime.now() + timedelta(seconds=num_seconds))
                 self.marked_for_deletion[order_id]["time"] = expiration_time
             elif (market_trading_pair_tuple.market == self.mirrored_market_pairs[0].market):
@@ -589,12 +591,21 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         bids = list(market_pair.order_book_bid_entries())
         best_bid = bids[0]
+        #TODO make these thresholds dynamic and sensible
+        if (abs(float(best_bid.price) - self.previous_buys[0]) > 0.05):
+            self.previous_buys[0] = float(best_bid.price)
+            if 0 not in self.bid_replace_ranks:
+                self.bid_replace_ranks.append(0)
 
         if (self.best_bid_start == 0):
             self.best_bid_start = best_bid.price
 
         asks = list(market_pair.order_book_ask_entries())
         best_ask = asks[0]
+        if (abs(float(best_ask.price) - self.previous_sells[0]) > 0.05):
+            self.previous_sells[0] = float(best_ask.price)
+            if 0 not in self.ask_replace_ranks:
+                self.ask_replace_ranks.append(0)
 
         # ensure we are looking at levels and not just orders
         bid_levels = [{"price": best_bid.price, "amount": best_bid.amount}]
@@ -609,6 +620,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 current_level += 1
                 bid_levels.append({"price": bids[i].price, "amount": bids[i].amount})
                 current_bid_price = bids[i].price
+                if (abs(float(current_bid_price) - self.previous_buys[current_level]) > 0.05):
+                    self.previous_buys[current_level] = float(current_bid_price)
+                    if current_level not in self.bid_replace_ranks:
+                        self.bid_replace_ranks.append(current_level)
                 i += 1
 
         # ensure we are looking at levels and not just orders
@@ -624,11 +639,16 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 current_level += 1
                 ask_levels.append({"price": asks[i].price, "amount": asks[i].amount})
                 current_ask_price = asks[i].price
+                if (abs(float(current_ask_price) - self.previous_sells[current_level]) > 0.05):
+                    self.previous_sells[current_level] = float(current_ask_price)
+                    if current_level not in self.ask_replace_ranks:
+                        self.ask_replace_ranks.append(current_level)
                 i += 1
+        self.logger().warning(f"{self.sells_to_replace}")
+        self.logger().warning(f"{self.buys_to_replace}")
         self.cycle_number += 1
         self.cycle_number %= 10
-        self.logger().warning(f"{self.buys_to_replace}")
-        self.logger().warning(f"{self.sells_to_replace}")
+        
         if ((self.cycle_number % 2) == 0):
             self.logger().info(f"Amount to offset: {self.amount_to_offset}")
         self.adjust_primary_orderbook(primary_market_pair, best_bid, best_ask, bid_levels, ask_levels)
@@ -660,8 +680,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             self.ask_amounts[j] = (self.ask_amount_percents[j] * available_base_exposure)
 
         #TODO make this first condition less arbitrary!
-        if ((bid_price_diff > self.spread_percent) or (self.cycle_number == 0)):
-            self.cycle_number = 0
+        if ((len(self.bid_replace_ranks) > 0) or (self.cycle_number == 0)):
             self.primary_best_bid = adjusted_bid
             bid_inc = self.primary_best_bid * self.spread_percent
             for order_id in self.marked_for_deletion.keys():
@@ -669,11 +688,14 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 if (order["is_buy"] == True):
                     if "time" in order:
                         current_time = datetime.timestamp(datetime.now())
-                        if order["time"] < current_time:
+                        if (order["time"] < current_time) or (order["rank"] in self.bid_replace_ranks):
                             try:
                                 self.c_cancel_order(primary_market_pair,order_id)
                             except:
                                 break
+
+            self.bid_replace_ranks.clear()
+
             if 0 in self.buys_to_replace:
                 self.buys_to_replace.remove(0)
                 amount = Decimal(min(best_bid.amount, (self.bid_amounts[0])))
@@ -755,7 +777,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     except:
                         break
 
-        if (ask_price_diff > self.spread_percent) or (self.cycle_number == 5):
+        if (len(self.ask_replace_ranks) > 0) or (self.cycle_number == 5):
             self.primary_best_ask = adjusted_ask
             ask_inc = self.primary_best_ask * self.spread_percent
             for order_id in self.marked_for_deletion.keys():
@@ -763,11 +785,14 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 if (order["is_buy"] == False):
                     if "time" in order:
                         current_time = datetime.timestamp(datetime.now())
-                        if order["time"] < current_time:
+                        if (order["time"] < current_time) or (order["rank"] in self.ask_replace_ranks):
                             try:
                                 self.c_cancel_order(primary_market_pair,order_id)
                             except:                            
                                 break
+
+            self.ask_replace_ranks.clear()
+
             if 0 in self.sells_to_replace:
                 self.sells_to_replace.remove(0)
                 amount = Decimal(min(best_ask.amount, self.ask_amounts[0]))
