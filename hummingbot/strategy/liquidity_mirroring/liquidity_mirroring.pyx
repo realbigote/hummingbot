@@ -199,6 +199,16 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         return "\n".join(lines)
 
+    def slack_order_filled_message(self, market: str, amount: float, price: float, is_buy: bool):
+        if is_buy:
+            buy_sell = "BUY"
+        else:
+            buy_sell = "SELL"
+
+        msg = {"msg_type": "order filled", "data": {"market": market, "price": price, "amount": amount, "buy/sell": buy_sell}}
+
+        SlackPusher(self.slack_url, msg)
+
     cdef c_tick(self, double timestamp):
         """
         Clock tick entry point.
@@ -253,6 +263,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.avg_buy_price[1] += float(order_filled_event.amount)
                         self.amount_to_offset += float(order_filled_event.amount)
                         self.has_been_offset.append(order_id)
+                        self.slack_order_filled_message(str(self.primary_market_pairs[0].market), float(order_filled_event.amount), float(order_filled_event.price), True)
                     else:
                         self.has_been_offset.remove(f"{order_id}COMPLETE")
                 else:
@@ -265,6 +276,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.amount_to_offset += float(order_filled_event.amount)
                         self.offset_quote_exposure -= float(order_filled_event.amount)
                         self.has_been_offset.append(order_id)
+                        self.slack_order_filled_message(str(self.mirrored_market_pairs[0].market), float(order_filled_event.amount), float(order_filled_event.price), True)
                     else:
                         self.has_been_offset.remove(f"{order_id}COMPLETE")
                 if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
@@ -279,6 +291,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.avg_sell_price[1] += float(order_filled_event.amount)
                         self.amount_to_offset -= float(order_filled_event.amount)
                         self.has_been_offset.append(order_id)
+                        self.slack_order_filled_message(str(self.primary_market_pairs[0].market), float(order_filled_event.amount), float(order_filled_event.price), False)
                     else:
                         self.has_been_offset.remove(f"{order_id}COMPLETE")
                 else:
@@ -291,6 +304,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.amount_to_offset -= float(order_filled_event.amount)
                         self.offset_base_exposure -= float(order_filled_event.amount)
                         self.has_been_offset.append(order_id)
+                        self.slack_order_filled_message(str(self.mirrored_market_pairs[0].market), float(order_filled_event.amount), float(order_filled_event.price), False)
                     else:
                         self.has_been_offset.remove(f"{order_id}COMPLETE")
                 if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
@@ -336,6 +350,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.avg_buy_price[1] += float(buy_order_completed_event.base_asset_amount)
                     self.amount_to_offset += float(buy_order_completed_event.base_asset_amount)
                     self.has_been_offset.append(f"{order_id}COMPLETE")
+                    price = float(buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount)
+                    self.slack_order_filled_message(str(self.primary_market_pairs[0].market), float(buy_order_completed_event.base_asset_amount), price, True)
             else:
                 if order_id not in self.has_been_offset:
                     self.total_trading_volume += float(buy_order_completed_event.quote_asset_amount)
@@ -348,6 +364,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.amount_to_offset += float(buy_order_completed_event.base_asset_amount)
                     self.offset_quote_exposure -= float(buy_order_completed_event.quote_asset_amount)
                     self.has_been_offset.append(f"{order_id}COMPLETE")
+                    price = float(buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount)
+                    self.slack_order_filled_message(str(self.primary_market_pairs[0].market), float(buy_order_completed_event.base_asset_amount), price, True)
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id}")
@@ -374,6 +392,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.avg_sell_price[1] += float(sell_order_completed_event.base_asset_amount)
                     self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
                     self.has_been_offset.append(f"{order_id}COMPLETE")
+                    price = float(sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount)
+                    self.slack_order_filled_message(str(self.primary_market_pairs[0].market), float(sell_order_completed_event.base_asset_amount), price, False)
             else:
                 if order_id not in self.has_been_offset:
                     self.total_trading_volume += float(sell_order_completed_event.quote_asset_amount)
@@ -386,6 +406,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
                     self.offset_base_exposure -= float(sell_order_completed_event.quote_asset_amount)
                     self.has_been_offset.append(f"{order_id}COMPLETE")
+                    price = float(sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount)
+                    self.slack_order_filled_message(str(self.mirrored_market_pairs[0].market), float(sell_order_completed_event.base_asset_amount), price, False)
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id}")
@@ -794,7 +816,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
             elif self.amount_to_offset > 0:
             # we are at a surplus of base. get rid of buy orders
-                #SlackPusher(self.slack_url, "HELLO")
                 for order in current_orders:
                     if order.is_buy:
                         self.offset_quote_exposure -= float(order.quantity * order.price)
