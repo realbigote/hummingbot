@@ -22,6 +22,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         float amount_to_offset
         float current_total_offset_loss
         bint two_sided_mirroring
+        float start_time
         float primary_best_bid
         float primary_best_ask
         float mirrored_best_bid
