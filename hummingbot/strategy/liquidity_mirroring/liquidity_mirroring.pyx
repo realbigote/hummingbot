@@ -214,7 +214,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         msg = {"msg_type": "order filled", "data": {"market": market, "price": price, "amount": amount, "buy/sell": buy_sell}}
 
-        #SlackPusher(self.slack_url, str(msg))
+        SlackPusher(self.slack_url, str(msg))
 
     def slack_insufficient_funds_message(self, market: str, asset: str):
         msg = f"{asset} balance low on {market}"
@@ -279,6 +279,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.c_process_market_pair(market_pair)
             else:
                 self.logger().warning("Too much total offset loss!")
+                SlackPusher(self.slack_url, "Total offset loss beyond threshold")
         finally:
             self._last_timestamp = timestamp
 
