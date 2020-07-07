@@ -725,8 +725,7 @@ cdef class BlocktaneMarket(MarketBase):
             api_response = await self._api_request("POST", path_url=path_url, params=params)
             return api_response
         except Exception:
-            self.logger().warning(f"{Exception}")
-            return
+            raise Exception
 
     async def execute_buy(self,
                           order_id: str,
@@ -771,8 +770,8 @@ cdef class BlocktaneMarket(MarketBase):
                                                       True,
                                                       order_type,
                                                       decimal_price)
-                while order_result == None:
-                    continue                                                      
+                while order_result is None:
+                    continue                        
             elif order_type is OrderType.MARKET:
                 decimal_price = self.c_get_price(trading_pair, True)
                 order_result = await self.place_order(order_id,
@@ -879,9 +878,8 @@ cdef class BlocktaneMarket(MarketBase):
                                                       False,
                                                       order_type,
                                                       decimal_price)
-                while order_result == None:
+                while order_result is None:
                     continue
-
             elif order_type is OrderType.MARKET:
                 decimal_price = self.c_get_price(trading_pair, False)
                 order_result = await self.place_order(order_id,
@@ -950,10 +948,8 @@ cdef class BlocktaneMarket(MarketBase):
             path_url = f"/market/orders/{tracked_order.exchange_order_id}/cancel"
 
             cancel_result = await self._api_request("POST", path_url=path_url)
-
-            while cancel_result == None:
+            while cancel_result is None:
                 continue
-
             self.logger().info(f"Successfully cancelled order {order_id}.")
             tracked_order.last_state = "cancel"
             self.c_stop_tracking_order(order_id)

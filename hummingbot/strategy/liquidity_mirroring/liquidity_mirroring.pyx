@@ -82,6 +82,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self._logging_options = logging_options
         self.primary_market_pairs = primary_market_pairs
         self.mirrored_market_pairs = mirrored_market_pairs
+        
         self._all_markets_ready = False
         self._status_report_interval = status_report_interval
         self._last_timestamp = 0
@@ -131,12 +132,16 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.avg_buy_price = [0,0]
         self.offset_base_exposure = 0
         self.offset_quote_exposure = 0
-        assets_df = self.wallet_balance_data_frame([self.mirrored_market_pairs[0]])
-        total_balance = assets_df['Total Balance']
-        assets_df = self.wallet_balance_data_frame([self.primary_market_pairs[0]])
-        total_balance += assets_df['Total Balance']
-        self.initial_base_amount = total_balance[0]
-        self.initial_quote_amount = total_balance[1]
+
+        self.primary_base_balance = 0
+
+        self.primary_quote_balance = 0
+
+        self.mirrored_base_balance = 0
+
+        self.mirrored_quote_balance = 0
+        self.balances_set = False     
+
         self.min_primary_amount = min_primary_amount
         self.min_mirroring_amount = min_mirroring_amount
         self.total_trading_volume = 0
@@ -187,14 +192,15 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         profit = float((total_balance[0] * mult) - (self.initial_base_amount * self.best_bid_start)) + float(total_balance[1] - self.initial_quote_amount)
         portfolio = float((total_balance[0] * mult) - (self.initial_base_amount * mult)) + float(total_balance[1] - self.initial_quote_amount)  
-
+        current_time = datetime.now().isoformat()
+        lines.extend(["", f"   Time: {current_time}"])
         lines.extend(["", f"   Executed Trades: {self.trades_executed}"])
         lines.extend(["", f"   Total Trade Volume: {self.total_trading_volume}"])
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].base_asset}): {total_balance[0]}"])
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].quote_asset}): {total_balance[1]}"])
         lines.extend(["", f"   Overall Change in Holdings: {profit}"])
         lines.extend(["", f"   Increase in Portfolio: {portfolio}"])
-        lines.extend(["", f"   Amount to offset: {self.amount_to_offset}"])
+        lines.extend(["", f"   Amount to offset (in base currency): {self.amount_to_offset}"])
         if len(warning_lines) > 0:
             lines.extend(["", "  *** WARNINGS ***"] + warning_lines)
 
@@ -241,6 +247,28 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 else:
                     if self.OPTION_LOG_STATUS_REPORT:
                         self.logger().info(f"Markets are ready. Trading started.")
+            if not self.balances_set:
+                primary_market = self.primary_market_pairs[0].market
+                mirrored_market = self.mirrored_market_pairs[0].market
+                primary_base_asset = self.primary_market_pairs[0].base_asset
+                primary_quote_asset = self.primary_market_pairs[0].quote_asset
+                mirrored_base_asset = self.mirrored_market_pairs[0].base_asset
+                mirrored_quote_asset = self.mirrored_market_pairs[0].quote_asset
+                while self.primary_base_balance == 0:
+                    self.primary_base_balance = primary_market.get_available_balance(primary_base_asset)
+                while self.primary_quote_balance == 0:
+                    self.primary_quote_balance = primary_market.get_available_balance(primary_quote_asset)
+                while self.mirrored_base_balance == 0:
+                    self.mirrored_base_balance = mirrored_market.get_available_balance(mirrored_base_asset)
+                while self.mirrored_quote_balance == 0:
+                    self.mirrored_quote_balance = mirrored_market.get_available_balance(mirrored_quote_asset)
+                assets_df = self.wallet_balance_data_frame([self.mirrored_market_pairs[0]])
+                total_balance = assets_df['Total Balance']
+                assets_df = self.wallet_balance_data_frame([self.primary_market_pairs[0]])
+                total_balance += assets_df['Total Balance']
+                self.initial_base_amount = total_balance[0]
+                self.initial_quote_amount = total_balance[1]
+                self.balances_set = True
 
             if not all([market.network_status is NetworkStatus.CONNECTED for market in self._sb_markets]):
                 if should_report_warnings:
@@ -267,6 +295,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.avg_buy_price[0] += float(order_filled_event.price * order_filled_event.amount)
                         self.avg_buy_price[1] += float(order_filled_event.amount)
                         self.amount_to_offset += float(order_filled_event.amount)
+                        self.primary_base_balance += float(order_filled_event.amount)
                         self.has_been_offset.append(order_id)
                         self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(order_filled_event.amount), float(order_filled_event.price), True)
                     else:
@@ -280,6 +309,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.current_total_offset_loss += float((order_filled_event.price * order_filled_event.amount) - (order_filled_event.amount * true_average))
                         self.amount_to_offset += float(order_filled_event.amount)
                         self.offset_quote_exposure -= float(order_filled_event.amount)
+                        self.mirrored_base_balance += float(order_filled_event.amount) 
                         self.has_been_offset.append(order_id)
                         self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, float(order_filled_event.amount), float(order_filled_event.price), True)
                     else:
@@ -295,6 +325,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.avg_sell_price[0] += float(order_filled_event.price * order_filled_event.amount)
                         self.avg_sell_price[1] += float(order_filled_event.amount)
                         self.amount_to_offset -= float(order_filled_event.amount)
+                        self.primary_quote_balance += float(order_filled_event.price * order_filled_event.amount)
                         self.has_been_offset.append(order_id)
                         self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(order_filled_event.amount), float(order_filled_event.price), False)
                     else:
@@ -308,6 +339,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.current_total_offset_loss -= float((order_filled_event.amount * order_filled_event.price) - (order_filled_event.amount * true_average))
                         self.amount_to_offset -= float(order_filled_event.amount)
                         self.offset_base_exposure -= float(order_filled_event.amount)
+                        self.mirrored_quote_balance += float(order_filled_event.price * order_filled_event.amount)
                         self.has_been_offset.append(order_id)
                         self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, float(order_filled_event.amount), float(order_filled_event.price), False)
                     else:
@@ -325,8 +357,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
             if (market_trading_pair_tuple.market == self.primary_market_pairs[0].market):
+                self.primary_quote_balance -= float(buy_order_created_event.amount * buy_order_created_event.price)
                 expiration_time = datetime.timestamp(datetime.now() + timedelta(seconds=2)) 
                 self.marked_for_deletion.append({"id": order_id, "is_buy": True, "time": expiration_time })
+            elif (market_trading_pair_tuple.market == self.mirrored_market_pairs[0].market):
+                self.mirrored_quote_balance -= float(buy_order_created_event.amount * buy_order_created_event.price)
 
     cdef c_did_create_sell_order(self, object sell_order_created_event):
         cdef:
@@ -334,8 +369,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
             if (market_trading_pair_tuple.market == self.primary_market_pairs[0].market):
+                self.primary_base_balance -= float(sell_order_created_event.amount)
                 expiration_time = datetime.timestamp(datetime.now() + timedelta(seconds=2))
                 self.marked_for_deletion.append({"id": order_id, "is_buy": False, "time": expiration_time })
+            elif (market_trading_pair_tuple.market == self.mirrored_market_pairs[0].market):
+                self.mirrored_base_balance -= float(sell_order_created_event.amount)
 
     cdef c_did_complete_buy_order(self, object buy_order_completed_event):
         """
@@ -354,6 +392,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.avg_buy_price[0] += float(buy_order_completed_event.quote_asset_amount)
                     self.avg_buy_price[1] += float(buy_order_completed_event.base_asset_amount)
                     self.amount_to_offset += float(buy_order_completed_event.base_asset_amount)
+                    self.primary_base_balance += float(buy_order_completed_event.base_asset_amount)
                     self.has_been_offset.append(f"{order_id}COMPLETE")
                     price = float(buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount)
                     self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(buy_order_completed_event.base_asset_amount), price, True)
@@ -368,6 +407,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.current_total_offset_loss += float(buy_order_completed_event.quote_asset_amount - (buy_order_completed_event.base_asset_amount * true_average))
                     self.amount_to_offset += float(buy_order_completed_event.base_asset_amount)
                     self.offset_quote_exposure -= float(buy_order_completed_event.quote_asset_amount)
+                    self.mirrored_base_balance += float(buy_order_completed_event.base_asset_amount)
                     self.has_been_offset.append(f"{order_id}COMPLETE")
                     price = float(buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount)
                     self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(buy_order_completed_event.base_asset_amount), price, True)
@@ -396,6 +436,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.avg_sell_price[0] += float(sell_order_completed_event.quote_asset_amount)
                     self.avg_sell_price[1] += float(sell_order_completed_event.base_asset_amount)
                     self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
+                    self.primary_quote_balance += float(sell_order_completed_event.quote_asset_amount)
                     self.has_been_offset.append(f"{order_id}COMPLETE")
                     price = float(sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount)
                     self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(sell_order_completed_event.base_asset_amount), price, False)
@@ -410,6 +451,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.current_total_offset_loss -= float(sell_order_completed_event.quote_asset_amount - (sell_order_completed_event.base_asset_amount * true_average))
                     self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
                     self.offset_base_exposure -= float(sell_order_completed_event.quote_asset_amount)
+                    self.mirrored_quote_balance += float(sell_order_completed_event.quote_asset_amount)
                     self.has_been_offset.append(f"{order_id}COMPLETE")
                     price = float(sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount)
                     self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, float(sell_order_completed_event.base_asset_amount), price, False)
@@ -461,11 +503,21 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             str order_id = cancel_event.order_id
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
+            full_order = self._sb_order_tracker.c_get_limit_order(market_trading_pair_tuple, order_id)
             for order in self.marked_for_deletion:
                 if order["id"] == order_id:
                     self.marked_for_deletion.remove(order)
                     break
-
+            if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
+                if full_order.is_buy:
+                    self.primary_quote_balance += float(full_order.price * full_order.quantity)
+                else:
+                    self.primary_base_balance += float(full_order.quantity)
+            else:
+                if full_order.is_buy:
+                    self.mirrored_quote_balance += float(full_order.price * full_order.quantity)
+                else:
+                    self.mirrored_base_balance += float(full_order.quantity)
             self.log_with_clock(logging.INFO,
                                 f"Limit order canceled on {market_trading_pair_tuple[0].name}: {order_id}")
 
@@ -531,6 +583,14 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         return True
 
+    def check_flat_fee_coverage(self, market, flat_fees):
+        covered = True
+        for fee in flat_fees:
+            covered = covered and (market.get_available_balance(fee[0]) > fee[1])
+            if covered == False:
+                break
+        return covered
+
     cdef c_process_market_pair(self, object market_pair):
         primary_market_pair = self.primary_market_pairs[0]
 
@@ -548,7 +608,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         i = 1
         current_level = 0
         current_bid_price = best_bid.price
-        while (len(bid_levels) < 10):
+        while (len(bid_levels) < min(10,len(bids))):
             if (bids[i].price == current_bid_price):
                 bid_levels[current_level]["amount"] += bids[i].amount
                 i += 1
@@ -563,7 +623,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         i = 1
         current_level = 0
         current_ask_price = best_ask.price
-        while (len(ask_levels) < 10):
+        while (len(ask_levels) < min(10,len(asks))):
             if (asks[i].price == current_ask_price):
                 ask_levels[current_level]["amount"] += asks[i].amount
                 i += 1
@@ -581,6 +641,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 self.start_time = current_time
                 SlackPusher(self.slack_url, self.format_status())
                 self.logger().warning(f"{self.format_status()}")
+        if ((self.cycle_number % 2) == 0):
+            self.logger().info(f"Amount to offset: {self.amount_to_offset}")
         self.adjust_primary_orderbook(primary_market_pair, best_bid, best_ask, bid_levels, ask_levels)
         if (self.two_sided_mirroring):
             self.adjust_mirrored_orderbook(market_pair, best_bid, best_ask)
@@ -642,11 +704,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             price_tx = Decimal(adjusted_bid) / (Decimal(1) + fee_object.percent) - fixed_cost_per_unit
             quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, price_tx)
             quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
+
             while (not self.c_ready_for_new_orders([primary_market_pair])):
                 continue
             try:
-                if (primary_market.get_available_balance(primary_market_pair.quote_asset) >
-                  quant_price * quant_amount):
+                if (min(primary_market.get_available_balance(primary_market_pair.quote_asset),self.primary_quote_balance) >
+                  quant_price * quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
                     self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                 else:
                     self.logger().warning(f"INSUFFICIENT FUNDS for buy on {primary_market.name}")
@@ -657,8 +720,14 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             price = self.primary_best_bid
             for i in range(0,len(self.bid_amounts) - 1):
                 price -= bid_inc
-                min_price = min(price, bids[i+1]["price"])
-                amount = Decimal(min(bids[i+1]["amount"], (self.bid_amounts[i+1])))
+                if len(bids) > (i + 1):
+                    bid_price = bids[i+1]["price"]
+                    bid_amount = bids[i+1]["amount"]
+                else:
+                    bid_price = float("inf")
+                    bid_amount = float("inf")
+                min_price = min(price, bid_price)
+                amount = Decimal(min(bid_amount, (self.bid_amounts[i+1])))
                 amount = max(amount, Decimal(self.min_primary_amount))
 
                 fee_object = primary_market.c_get_fee(
@@ -678,12 +747,13 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 min_price = Decimal(min_price) / (Decimal(1) + fee_object.percent) - fixed_cost_per_unit
                 quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, min_price)
                 quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
+
                 while (not self.c_ready_for_new_orders([primary_market_pair])):
                     continue
                 try:
-                    if (primary_market.get_available_balance(primary_market_pair.quote_asset) >
-                      quant_price * quant_amount):
-                        self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                    if (min(primary_market.get_available_balance(primary_market_pair.quote_asset),self.primary_quote_balance) >
+                      quant_price * quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
+                          self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                     else:
                         self.logger().warning(f"INSUFFICIENT FUNDS for buy on {primary_market.name}")
                         self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.quote_asset)
@@ -713,7 +783,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     amount,
                     adjusted_ask
                 )
-            
+
             total_flat_fees = self.c_sum_flat_fees(primary_market_pair.quote_asset,
                                                        fee_object.flat_fees)
             fixed_cost_per_unit = total_flat_fees / amount                                                       
@@ -725,9 +795,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             while (not self.c_ready_for_new_orders([primary_market_pair])):
                 continue
             try:
-                if (primary_market.get_available_balance(primary_market_pair.base_asset) >
-                  quant_amount):
-                    self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                if (min(primary_market.get_available_balance(primary_market_pair.base_asset),self.primary_base_balance) >
+                  quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
+                      self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                 else:
                     self.logger().warning(f"INSUFFICIENT FUNDS for sell on {primary_market.name}")
                     self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.base_asset)
@@ -737,8 +807,14 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             price = self.primary_best_ask
             for i in range(0,len(self.ask_amounts) - 1):
                 price += ask_inc
-                max_price = max(price, asks[i+1]["price"])
-                amount = Decimal(min(asks[i+1]["amount"], self.ask_amounts[i+1]))
+                if len(asks) > (i + 1):
+                    ask_price = asks[i+1]["price"]
+                    ask_amount = asks[i+1]["amount"]
+                else:
+                    ask_price = 0
+                    ask_amount = float("inf")
+                max_price = max(price, ask_price)
+                amount = Decimal(min(ask_amount, self.ask_amounts[i+1]))
                 amount = max(amount, Decimal(self.min_primary_amount))
                 #TODO ensure that this doesn't overexpose the trader
     
@@ -763,8 +839,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 while (not self.c_ready_for_new_orders([primary_market_pair])):
                     continue
                 try:
-                    if (primary_market.get_available_balance(primary_market_pair.base_asset) >
-                      quant_amount):
+                    if (min(primary_market.get_available_balance(primary_market_pair.base_asset),self.primary_base_balance) >
+                      quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
                         self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                     else:
                         self.logger().warning(f"INSUFFICIENT FUNDs for sell on {primary_market.name}!")
@@ -790,8 +866,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.offset_base_exposure -= float(order.quantity)
                         self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                     else:
-                        #shouldn't be some fixed value here!
-                        if (max((order.price - best_ask.price),(best_ask.price - order.price)) > 0.01):
+                        if ((self.cycle_number) == 0):
                             self.offset_quote_exposure -= float(order.quantity * order.price)
                             self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                         else:
@@ -800,36 +875,17 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 amount = ((-1) * self.amount_to_offset) - current_exposure
                 if (amount > self.min_mirroring_amount):
                     if (self.avg_sell_price[1] > 0):
-                        true_average = Decimal(self.avg_sell_price[0]/self.avg_sell_price[1])
+                        true_average = self.avg_sell_price[0]/self.avg_sell_price[1]
+                        new_price = true_average + (self.max_loss/amount)
                     else:
-                        true_average = Decimal(0)
-                    new_price = best_ask.price
-                    diff = float(new_price - true_average)
-                    loss = diff * amount
-                    if loss < self.max_loss:
+                        #should not hit this; if we are offsetting, there should be an extant sell price
+                        new_price = float(best_ask.price)
 
-                        fee_object = mirrored_market.c_get_fee(
-                            mirrored_market_pair.base_asset,
-                            mirrored_market_pair.quote_asset,
-                            OrderType.LIMIT,
-                            TradeType.BUY,
-                            amount,
-                            new_price
-                        )
+                    quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, Decimal(new_price))
+                    quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
 
-                        total_flat_fees = self.c_sum_flat_fees(mirrored_market_pair.quote_asset,
-                                                                   fee_object.flat_fees)
-
-                        fixed_cost_per_unit = total_flat_fees / Decimal(amount)                                                           
-
-                        new_price = Decimal(new_price) / (Decimal(1) + fee_object.percent) - fixed_cost_per_unit
-                        quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, new_price)
-                        quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
-
-                        self.c_buy_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-                        self.offset_quote_exposure += float(new_price) * amount
-                    else:
-                        self.logger().warning("TOO LOSSY!")
+                    self.c_buy_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                    self.offset_quote_exposure += float(new_price) * amount
 
             elif self.amount_to_offset > 0:
             # we are at a surplus of base. get rid of buy orders
@@ -839,7 +895,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                     else:
                         #shouldn't be some fixed value here!
-                        if (max((order.price - best_bid.price),(best_bid.price - order.price)) > 0.01):
+                        #if (max((order.price - best_bid.price),(best_bid.price - order.price)) > 0.01):
+                        if ((self.cycle_number) == 0):
                             self.offset_base_exposure -= float(order.quantity * order.price)
                             self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                         else:
@@ -848,32 +905,14 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 amount = (self.amount_to_offset) - current_exposure
                 if (amount > self.min_mirroring_amount):
                     if (self.avg_buy_price[1] > 0):
-                        true_average = Decimal(self.avg_buy_price[0]/self.avg_buy_price[1])
+                        true_average = self.avg_buy_price[0]/self.avg_buy_price[1]
+                        new_price = true_average - (self.max_loss/amount)
                     else:
-                        true_average = Decimal(0)
-                    new_price = best_bid.price
-                    diff = float(true_average - new_price)
-                    loss = diff * amount
-                    if loss < self.max_loss:
-                        fee_object = mirrored_market.c_get_fee(
-                            mirrored_market_pair.base_asset,
-                            mirrored_market_pair.quote_asset,
-                            OrderType.LIMIT,
-                            TradeType.SELL,
-                            amount,
-                            new_price
-                        )
+                        # should not hit this. there should be an extant buy
+                        new_price = float(best_bid.price)
 
-                        total_flat_fees = self.c_sum_flat_fees(mirrored_market_pair.quote_asset,
-                                                                   fee_object.flat_fees)
+                    quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, Decimal(new_price))
+                    quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
 
-                        fixed_cost_per_unit = total_flat_fees / Decimal(amount)                                                           
-
-                        new_price = Decimal(new_price) / (Decimal(1) - fee_object.percent) + fixed_cost_per_unit
-                        quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, new_price)
-                        quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
-
-                        self.c_sell_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-                        self.offset_base_exposure += amount
-                    else:
-                        self.logger().warning("TOO LOSSY!")
+                    self.c_sell_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                    self.offset_base_exposure += amount
