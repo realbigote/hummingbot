@@ -66,6 +66,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                  bid_amount_percents: list,
                  ask_amount_percents: list,
                  slack_hook: str,
+                 slack_update_period: float,
                  logging_options: int = OPTION_LOG_ORDER_COMPLETED,
                  status_report_interval: float = 60.0,
                  next_trade_delay_interval: float = 15.0,
@@ -160,6 +161,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.slack_url = slack_hook
         self.cycle_number = 0
         self.start_time = datetime.timestamp(datetime.now())
+        self.slack_update_period = slack_update_period
 
     @property
     def tracked_taker_orders(self) -> List[Tuple[MarketBase, MarketOrder]]:
@@ -638,10 +640,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if self.cycle_number == 8:
             current_time = datetime.timestamp(datetime.now())
             time_elapsed = current_time - self.start_time
-            if (time_elapsed > 86400):
+            if (time_elapsed > (3600 * self.slack_update_period)):
                 self.start_time = current_time
                 SlackPusher(self.slack_url, self.format_status())
-                self.logger().warning(f"{self.format_status()}")
         if ((self.cycle_number % 2) == 0):
             self.logger().info(f"Amount to offset: {self.amount_to_offset}")
         self.adjust_primary_orderbook(primary_market_pair, best_bid, best_ask, bid_levels, ask_levels)
