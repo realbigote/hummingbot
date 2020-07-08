@@ -11,8 +11,14 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         list primary_market_pairs
         list bid_amounts
         list ask_amounts
+        list previous_sells
+        list previous_buys
         list equivalent_tokens
-        list marked_for_deletion
+        list buys_to_replace
+        list sells_to_replace
+        list bid_replace_ranks
+        list ask_replace_ranks
+        dict marked_for_deletion
         list has_been_offset
         str slack_url
         object performance_logger
