@@ -64,6 +64,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         int _failed_market_order_count
         int _last_failed_market_order_timestamp
         int cycle_number
+        float slack_update_period
 
     cdef c_process_market_pair(self, object market_pair)
     cdef bint c_ready_for_new_orders(self, list market_trading_pairs)
