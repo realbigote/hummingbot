@@ -591,8 +591,15 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         bids = list(market_pair.order_book_bid_entries())
         best_bid = bids[0]
+
+        asks = list(market_pair.order_book_ask_entries())
+        best_ask = asks[0]
+
+        midpoint = float(best_ask.price + best_bid.price)/2.0
+        threshold = 0.0001 * self.previous_buys[0]
+
         #TODO make these thresholds dynamic and sensible
-        if (abs(float(best_bid.price) - self.previous_buys[0]) > 0.05):
+        if (abs(float(best_bid.price) - self.previous_buys[0]) > threshold):
             self.previous_buys[0] = float(best_bid.price)
             if 0 not in self.bid_replace_ranks:
                 self.bid_replace_ranks.append(0)
@@ -600,9 +607,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if (self.best_bid_start == 0):
             self.best_bid_start = best_bid.price
 
-        asks = list(market_pair.order_book_ask_entries())
-        best_ask = asks[0]
-        if (abs(float(best_ask.price) - self.previous_sells[0]) > 0.05):
+        threshold = 0.0001 * self.previous_sells[0]
+        if (abs(float(best_ask.price) - self.previous_sells[0]) > threshold):
             self.previous_sells[0] = float(best_ask.price)
             if 0 not in self.ask_replace_ranks:
                 self.ask_replace_ranks.append(0)
@@ -620,7 +626,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 current_level += 1
                 bid_levels.append({"price": bids[i].price, "amount": bids[i].amount})
                 current_bid_price = bids[i].price
-                if (abs(float(current_bid_price) - self.previous_buys[current_level]) > 0.05):
+                threshold = self.previous_buys[current_level] * (midpoint - self.previous_buys[current_level]) * 0.0001
+
+                if (abs(float(current_bid_price) - self.previous_buys[current_level]) > threshold):
                     self.previous_buys[current_level] = float(current_bid_price)
                     if current_level not in self.bid_replace_ranks:
                         self.bid_replace_ranks.append(current_level)
@@ -639,16 +647,19 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 current_level += 1
                 ask_levels.append({"price": asks[i].price, "amount": asks[i].amount})
                 current_ask_price = asks[i].price
-                if (abs(float(current_ask_price) - self.previous_sells[current_level]) > 0.05):
+                threshold = self.previous_sells[current_level] * (self.previous_sells[current_level] - midpoint) * 0.0001
+                if (abs(float(current_ask_price) - self.previous_sells[current_level]) > threshold):
                     self.previous_sells[current_level] = float(current_ask_price)
                     if current_level not in self.ask_replace_ranks:
                         self.ask_replace_ranks.append(current_level)
                 i += 1
-        self.logger().warning(f"{self.sells_to_replace}")
-        self.logger().warning(f"{self.buys_to_replace}")
+
         self.cycle_number += 1
         self.cycle_number %= 10
-        
+
+        self.logger().warning(f"{self.buys_to_replace}")
+        self.logger().warning(f"{self.sells_to_replace}")
+
         if ((self.cycle_number % 2) == 0):
             self.logger().info(f"Amount to offset: {self.amount_to_offset}")
         self.adjust_primary_orderbook(primary_market_pair, best_bid, best_ask, bid_levels, ask_levels)
