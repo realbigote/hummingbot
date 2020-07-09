@@ -244,6 +244,43 @@ global_config_map = {
                   required_if=using_exchange("kraken"),
                   is_secure=True,
                   is_connect_key=True),
+    "celo_address":
+        ConfigVar(key="celo_address",
+                  prompt="Enter your Celo account address >>> ",
+                  type_str="str",
+                  required_if=lambda: False,
+                  is_connect_key=True),
+    "celo_password":
+        ConfigVar(key="celo_password",
+                  prompt="Enter your Celo account password >>> ",
+                  type_str="str",
+                  required_if=lambda: global_config_map["celo_address"].value is not None,
+                  is_secure=True,
+                  is_connect_key=True),
+    "loopring_accountid":
+        ConfigVar(key="loopring_accountid",
+                  prompt="Enter your Loopring account id >>> ",
+                  required_if=using_exchange("loopring"),
+                  is_secure=True,
+                  is_connect_key=True),
+    "loopring_exchangeid":
+        ConfigVar(key="loopring_exchangeid",
+                  prompt="Enter the Loopring exchange id >>> ",
+                  required_if=using_exchange("loopring"),
+                  is_secure=True,
+                  is_connect_key=True),
+    "loopring_private_key":
+        ConfigVar(key="loopring_private_key",
+                  prompt="Enter your Loopring private key >>> ",
+                  required_if=using_exchange("loopring"),
+                  is_secure=True,
+                  is_connect_key=True),
+    "loopring_api_key":
+        ConfigVar(key="loopring_api_key",
+                  prompt="Enter your loopring api key >>> ",
+                  required_if=using_exchange("loopring"),
+                  is_secure=True,
+                  is_connect_key=True),
     "ethereum_wallet":
         ConfigVar(key="ethereum_wallet",
                   prompt="Enter your wallet private key >>> ",
