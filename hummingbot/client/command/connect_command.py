@@ -20,7 +20,8 @@ OPTIONS = {
     "kraken",
     "ethereum",
     "blocktane",
-    "celo"
+    "celo",
+    "loopring"
 }
 
 
