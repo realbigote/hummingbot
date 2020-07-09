@@ -32,6 +32,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         float mirrored_base_balance
         float mirrored_quote_balance
         bint two_sided_mirroring
+        float start_time
         float primary_best_bid
         float primary_best_ask
         float mirrored_best_bid
@@ -69,6 +70,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         int _failed_market_order_count
         int _last_failed_market_order_timestamp
         int cycle_number
+        float slack_update_period
 
     cdef c_process_market_pair(self, object market_pair)
     cdef bint c_ready_for_new_orders(self, list market_trading_pairs)

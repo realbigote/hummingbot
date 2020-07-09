@@ -29,6 +29,7 @@ def start(self):
     min_mirroring_amount = liquidity_mirroring_config_map.get("min_mirroring_amount").value
     slack_hook = global_config_map.get("SLACK_HOOK").value
     paper_trade_offset = liquidity_mirroring_config_map.get("paper_trade_offset").value
+    slack_update_period = liquidity_mirroring_config_map.get("slack_update_period").value
     
     bid_ratios_type = liquidity_mirroring_config_map.get("bid_amount_ratio_type").value
     if bid_ratios_type == "manual":
@@ -128,4 +129,5 @@ def start(self):
                                                min_primary_amount=min_primary_amount,
                                                min_mirroring_amount=min_mirroring_amount,
                                                slack_hook=slack_hook,
+                                               slack_update_period=slack_update_period,
                                                logging_options=LiquidityMirroringStrategy.OPTION_LOG_ALL)
