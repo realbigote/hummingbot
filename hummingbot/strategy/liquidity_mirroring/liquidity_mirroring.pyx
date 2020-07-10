@@ -25,7 +25,6 @@ from hummingbot.strategy import market_trading_pair_tuple
 from hummingbot.strategy.strategy_base import StrategyBase
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
 from hummingbot.strategy.liquidity_mirroring.liquidity_mirroring_market_pair import LiquidityMirroringMarketPair
-from hummingbot.core.utils.exchange_rate_conversion import ExchangeRateConversion
 
 NaN = float("nan")
 s_decimal_0 = Decimal(0)
