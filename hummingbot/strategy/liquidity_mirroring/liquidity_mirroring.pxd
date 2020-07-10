@@ -64,7 +64,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         set _sell_markets
         set _buy_markets
         int64_t _logging_options
-        object _exchange_rate_conversion
         int _failed_order_tolerance
         bint _cool_off_logged
         int _failed_market_order_count

@@ -392,7 +392,7 @@ class TradingPairFetcher:
                  self.fetch_bitcoin_com_trading_pairs(),
                  self.fetch_kraken_trading_pairs(),
                  self.fetch_radar_relay_trading_pairs(),
-                 self.fetch_blocktane_trading_pairs()]
+                 self.fetch_blocktane_trading_pairs(),
                  self.fetch_loopring_trading_pairs()]
 
         # Radar Relay has not yet been migrated to a new version
