@@ -30,6 +30,8 @@ def start(self):
     order_size_taker_balance_factor = Decimal(xemm_map.get("order_size_taker_balance_factor").value) / Decimal("100")
     order_size_portfolio_ratio_limit = Decimal(xemm_map.get("order_size_portfolio_ratio_limit").value) / Decimal("100")
     anti_hysteresis_duration = xemm_map.get("anti_hysteresis_duration").value
+    taker_to_maker_base_conversion_rate = xemm_map.get("taker_to_maker_base_conversion_rate").value
+    taker_to_maker_quote_conversion_rate = xemm_map.get("taker_to_maker_quote_conversion_rate").value
     paper_trade_offset = xemm_map.get("paper_trade_offset").value
 
     # check if top depth tolerance is a list or if trade size override exists
@@ -104,5 +106,8 @@ def start(self):
         order_size_taker_volume_factor=order_size_taker_volume_factor,
         order_size_taker_balance_factor=order_size_taker_balance_factor,
         order_size_portfolio_ratio_limit=order_size_portfolio_ratio_limit,
-        anti_hysteresis_duration=anti_hysteresis_duration
+        anti_hysteresis_duration=anti_hysteresis_duration,
+        taker_to_maker_base_conversion_rate=taker_to_maker_base_conversion_rate,
+        taker_to_maker_quote_conversion_rate=taker_to_maker_quote_conversion_rate,
+        hb_app_notification=True,
     )

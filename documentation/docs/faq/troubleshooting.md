@@ -255,7 +255,7 @@ Traceback (most recent call last):
 AttributeError: 'NoneType' object has no attribute 'actions'
 ```
 
-In this case, ZRX is not yet added to the list. See [this page](/operation/paper-trade/#account-balance) on how to add balances.
+In this case, ZRX is not yet added to the list. See [this page](https://docs.hummingbot.io/operation/commands/paper-trade/#account-balance) on how to add balances.
 
 ### Unable to convert token
 
@@ -282,6 +282,18 @@ This error occurs when the Binance API rate limit is reached. Causes include:
 * Running multiple instances of Hummingbot
 
 Weight/Request error in logs happens when it encountered a warning or error and Hummingbot repeatedly sends the request (fetching status updates, placing/canceling orders, etc.) which resulted to getting banned. This should be lifted after a couple of hours or up to a maximum of 24 hours.
+
+### [Kraken] 0 Balance error
+
+**Sample log error message**<br/>
+```
+Failed connections:                                                                                      |
+    kraken: {'error': {'error': []}}
+
+10:12:24 - kraken_market - Error received from https://api.kraken.com/0/private/Balance. Response is {'error': []}.
+```
+
+This error occurs when Kraken account is not verified and no current funds on the exchange. Get verified and fund your account to fix the error. For more info visit this [article](https://support.kraken.com/hc/en-us/articles/360001491786-API-Error-Codes).
 
 ## Miscellaneous
 
@@ -316,3 +328,15 @@ You can change the timezone on a Windows computer by doing the following:
 ![](/assets/img/windows-tz.png)
 
 Alternatively, you can also follow these steps in Windows Support article: [How to set your time and time zone](https://support.microsoft.com/en-ph/help/4026213/windows-how-to-set-your-time-and-time-zone)
+
+### How to Connect Metamask using Brave browser
+
+Normally, Brave browser should ask which crypto wallet to use when connecting to the miners app. However, this sometimes do not appear on the browser.
+
+Here are the steps to set you Brave browser to always use Metamask when connecting your crypto wallet with Hummingbots miners app. 
+1. Click the "three horizontal line" icon on the top right of the Brave Browser
+2. Select **Settings**
+3. Click on **Extensions**
+4. Click the dropdown for **Web3 provider for using Dapps** and select **Metamask** 
+
+![](/assets/img/brave_with_metamask.gif)
