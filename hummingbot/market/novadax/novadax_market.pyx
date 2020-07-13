@@ -7,9 +7,9 @@ from aiokafka import (
 )
 import asyncio
 from async_timeout import timeout
-from novadax.client import Client as novadaxClient
+from novadax import RequestClient as NovaClient
 from novadax import client as novadax_client_module
-from novadax.exceptions import novadaxAPIException
+from novadax.exceptions import NovadaxAPIException
 from decimal import Decimal
 from functools import partial
 import logging
@@ -78,17 +78,17 @@ BROKER_ID = "x-XEKWYICX"
 cdef str get_client_order_id(str order_side, object trading_pair):
     cdef:
         int64_t nonce = <int64_t> get_tracking_nonce()
-        object symbols = trading_pair.split("-")
+        object symbols = trading_pair.split("_")
         str base = symbols[0].upper()
         str quote = symbols[1].upper()
     return f"{BROKER_ID}-{order_side.upper()[0]}{base[0]}{base[-1]}{quote[0]}{quote[-1]}{nonce}"
 
 
-cdef class novadaxMarketTransactionTracker(TransactionTracker):
+cdef class NovadaxMarketTransactionTracker(TransactionTracker):
     cdef:
         novadaxMarket _owner
 
-    def __init__(self, owner: novadaxMarket):
+    def __init__(self, owner: NovadaxMarket):
         super().__init__()
         self._owner = owner
 
@@ -112,8 +112,8 @@ cdef class novadaxMarket(MarketBase):
     SHORT_POLL_INTERVAL = 5.0
     UPDATE_ORDER_STATUS_MIN_INTERVAL = 10.0
     LONG_POLL_INTERVAL = 120.0
-    novadax_TRADE_TOPIC_NAME = "novadax-trade.serialized"
-    novadax_USER_STREAM_TOPIC_NAME = "novadax-user-stream.serialized"
+    NOVADAX_TRADE_TOPIC_NAME = "novadax-trade.serialized"
+    NOVADAX_USER_STREAM_TOPIC_NAME = "novadax-user-stream.serialized"
 
     ORDER_NOT_EXIST_CONFIRMATION_COUNT = 3
 

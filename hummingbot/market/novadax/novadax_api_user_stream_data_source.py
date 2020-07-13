@@ -13,14 +13,14 @@ import ujson
 import websockets
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
 from hummingbot.core.utils.async_utils import safe_ensure_future
-from novadax.client import Client as novadaxClient
+from novadax import RequestClient as NovaClient
 from hummingbot.logger import HummingbotLogger
 
-novadax_API_ENDPOINT = "https://api.novadax.com/api/v1/"
-novadax_USER_STREAM_ENDPOINT = "userDataStream"
+NOVADAX_API_ENDPOINT = "wss://ws.novadax.com/socket.io/?EIO=3&transport=websocket"
+NOVADAX_USER_STREAM_ENDPOINT = "userDataStream"
 
 
-class novadaxAPIUserStreamDataSource(UserStreamTrackerDataSource):
+class NovadaxAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
     MESSAGE_TIMEOUT = 30.0
     PING_TIMEOUT = 10.0
@@ -33,37 +33,17 @@ class novadaxAPIUserStreamDataSource(UserStreamTrackerDataSource):
             cls._bausds_logger = logging.getLogger(__name__)
         return cls._bausds_logger
 
-    def __init__(self, novadax_client: novadaxClient):
-        self._novadax_client: novadaxClient = novadax_client
+    def __init__(self, novadax_client: NovaClient):
+        self._novadax_client: NovaClient = novadax_client
         self._current_listen_key = None
         self._listen_for_user_stream_task = None
         self._last_recv_time: float = 0
+        self._novadax_auth: NovadaxAuth = novadax_client 
         super().__init__()
 
     @property
     def last_recv_time(self) -> float:
         return self._last_recv_time
-
-    async def get_listen_key(self):
-        async with aiohttp.ClientSession() as client:
-            async with client.post(f"{novadax_API_ENDPOINT}{novadax_USER_STREAM_ENDPOINT}",
-                                   headers={"X-MBX-APIKEY": self._novadax_client.API_KEY}) as response:
-                response: aiohttp.ClientResponse = response
-                if response.status != 200:
-                    raise IOError(f"Error fetching novadax user stream listen key. HTTP status is {response.status}.")
-                data: Dict[str, str] = await response.json()
-                return data["listenKey"]
-
-    async def ping_listen_key(self, listen_key: str) -> bool:
-        async with aiohttp.ClientSession() as client:
-            async with client.put(f"{novadax_API_ENDPOINT}{novadax_USER_STREAM_ENDPOINT}",
-                                  headers={"X-MBX-APIKEY": self._novadax_client.API_KEY},
-                                  params={"listenKey": listen_key}) as response:
-                data: [str, any] = await response.json()
-                if "code" in data:
-                    self.logger().warning(f"Failed to refresh the listen key {listen_key}: {data}")
-                    return False
-                return True
 
     async def _inner_messages(self, ws: websockets.WebSocketClientProtocol) -> AsyncIterable[str]:
         # Terminate the recv() loop as soon as the next message timed out, so the outer loop can reconnect.
@@ -97,9 +77,10 @@ class novadaxAPIUserStreamDataSource(UserStreamTrackerDataSource):
             return
 
     async def get_ws_connection(self) -> websockets.WebSocketClientProtocol:
-        stream_url: str = f"wss://stream.novadax.com:9443/ws/{self._current_listen_key}"
+        stream_url: str = f"{NOVADAX_API_ENDPOINT}"
+        ws = await websockets.connect(stream_url)
         self.logger().info(f"Reconnecting to {stream_url}.")
-
+        # ws.send('''42["join", "api key", "api secret"]''')
         # Create the WS connection.
         return websockets.connect(stream_url)
 
