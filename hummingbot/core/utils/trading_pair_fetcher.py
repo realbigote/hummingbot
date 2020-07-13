@@ -24,6 +24,7 @@ LIQUID_ENDPOINT = "https://api.liquid.com/products"
 BITTREX_ENDPOINT = "https://api.bittrex.com/v3/markets"
 KUCOIN_ENDPOINT = "https://api.kucoin.com/api/v1/symbols"
 DOLOMITE_ENDPOINT = "https://exchange-api.dolomite.io/v1/markets"
+LOOPRING_ENDPOINT = "https://api.loopring.io/api/v2/exchange/markets"
 BITCOIN_COM_ENDPOINT = "https://api.exchange.bitcoin.com/api/2/public/symbol"
 KRAKEN_ENDPOINT = "https://api.kraken.com/0/public/AssetPairs"
 
@@ -284,26 +285,26 @@ class TradingPairFetcher:
 
     @staticmethod
     async def fetch_kraken_trading_pairs() -> List[str]:
-        async with aiohttp.ClientSession() as client:
-            async with client.get(KRAKEN_ENDPOINT, timeout=API_CALL_TIMEOUT) as response:
-                if response.status == 200:
-                    try:
+        try:
+            async with aiohttp.ClientSession() as client:
+                async with client.get(KRAKEN_ENDPOINT, timeout=API_CALL_TIMEOUT) as response:
+                    if response.status == 200:
                         from hummingbot.market.kraken.kraken_market import KrakenMarket
                         data: Dict[str, Any] = await response.json()
                         raw_pairs = data.get("result", [])
-
-                        def fix(pair):
-                            try: return KrakenMarket.convert_from_exchange_trading_pair(pair)
-                            except: return None
-
-                        converted_pairs = list(filter(None, [fix(pair)
-                                           for pair in raw_pairs
-                                           if ".d" not in pair]))
+                        converted_pairs: List[str] = []
+                        for pair, details in raw_pairs.items():
+                            if "." not in pair:
+                                try:
+                                    wsname = details["wsname"]  # pair in format BASE/QUOTE
+                                    converted_pairs.append(KrakenMarket.convert_from_exchange_trading_pair(wsname))
+                                except IOError:
+                                    pass
                         return [item for item in converted_pairs]
-                    except Exception:
-                        raise
-                        # Do nothing if the request fails -- there will be no autocomplete for kraken trading pairs
-                return []
+        except Exception:
+            pass
+            # Do nothing if the request fails -- there will be no autocomplete for kraken trading pairs
+        return []
 
     async def fetch_dolomite_trading_pairs(self) -> List[str]:
         try:
@@ -326,6 +327,31 @@ class TradingPairFetcher:
                     return trading_pair_list
         except Exception:
             # Do nothing if the request fails -- there will be no autocomplete for dolomite trading pairs
+            pass
+
+        return []
+    
+    async def fetch_loopring_trading_pairs(self) -> List[str]:
+        try:
+            from hummingbot.market.loopring.loopring_market import LoopringMarket
+            client: aiohttp.ClientSession = TradingPairFetcher.http_client()
+            async with client.get(LOOPRING_ENDPOINT, timeout=API_CALL_TIMEOUT) as response:
+                if response.status == 200:
+                    all_trading_pairs: Dict[str, Any] = await response.json()
+                    valid_trading_pairs: list = []
+                    for item in all_trading_pairs["data"]:
+                        valid_trading_pairs.append(item["market"])
+                    trading_pair_list: List[str] = []
+                    for raw_trading_pair in valid_trading_pairs:
+                        converted_trading_pair: Optional[str] = \
+                            LoopringMarket.convert_from_exchange_trading_pair(raw_trading_pair)
+                        if converted_trading_pair is not None:
+                            trading_pair_list.append(converted_trading_pair)
+                        else:
+                            self.logger().debug(f"Could not parse the trading pair {raw_trading_pair}, skipping it...")
+                    return trading_pair_list
+        except Exception:
+            # Do nothing if the request fails -- there will be no autocomplete for loopring trading pairs
             pass
 
         return []
@@ -366,7 +392,8 @@ class TradingPairFetcher:
                  self.fetch_bitcoin_com_trading_pairs(),
                  self.fetch_kraken_trading_pairs(),
                  self.fetch_radar_relay_trading_pairs(),
-                 self.fetch_blocktane_trading_pairs()]
+                 self.fetch_blocktane_trading_pairs(),
+                 self.fetch_loopring_trading_pairs()]
 
         # Radar Relay has not yet been migrated to a new version
         # Endpoint needs to be updated after migration
@@ -385,6 +412,7 @@ class TradingPairFetcher:
             "bitcoin_com": results[8],
             "kraken": results[9],
             "radar_relay": results[10],
-            "blocktane": results[11]
+            "blocktane": results[11],
+            "loopring": results[12]
         }
         self.ready = True

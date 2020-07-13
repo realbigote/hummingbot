@@ -140,6 +140,13 @@ liquidity_mirroring_config_map = {
         prompt="Enter the type of ask amount ratios you would like >>> ",
         prompt_on_new=True,
     ),
+    "slack_update_period": ConfigVar(
+        key="slack_update_period",
+        prompt="Enter the period of time between slack status updates (in hours) >>> ",
+        prompt_on_new=True,
+        default=1.0,
+        type_str="float"
+    ),
     "ask_amount_ratios": ConfigVar(
         key="ask_amount_ratios",
         prompt="Enter the ask amount ratios >>> ",
