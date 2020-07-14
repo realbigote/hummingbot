@@ -25,6 +25,7 @@ from hummingbot.market.radar_relay.radar_relay_market import RadarRelayMarket
 from hummingbot.market.bamboo_relay.bamboo_relay_market import BambooRelayMarket
 from hummingbot.market.dolomite.dolomite_market import DolomiteMarket
 from hummingbot.market.loopring.loopring_market import LoopringMarket
+from hummingbot.market.novadax.novadax_market import NovadaxMarket
 from hummingbot.market.bitcoin_com.bitcoin_com_market import BitcoinComMarket
 from hummingbot.market.kraken.kraken_market import KrakenMarket
 from hummingbot.model.sql_connection_manager import SQLConnectionManager
@@ -66,6 +67,7 @@ MARKET_CLASSES = {
     "kucoin": KucoinMarket,
     "bitcoin_com": BitcoinComMarket,
     "kraken": KrakenMarket,
+    "novadax": NovadaxMarket
 }
 
 
@@ -201,8 +203,10 @@ class HummingbotApplication(*commands):
 
     @staticmethod
     def _initialize_market_assets(market_name: str, trading_pairs: List[str]) -> List[Tuple[str, str]]:
+        print(trading_pairs)
         market_class: MarketBase = MARKET_CLASSES.get(market_name, MarketBase)
         market_trading_pairs: List[Tuple[str, str]] = [market_class.split_trading_pair(trading_pair) for trading_pair in trading_pairs]
+        print(market_trading_pairs)
         return market_trading_pairs
 
     @staticmethod

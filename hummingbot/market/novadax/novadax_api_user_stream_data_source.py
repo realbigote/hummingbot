@@ -33,12 +33,13 @@ class NovadaxAPIUserStreamDataSource(UserStreamTrackerDataSource):
             cls._bausds_logger = logging.getLogger(__name__)
         return cls._bausds_logger
 
-    def __init__(self, novadax_client: NovaClient):
+    def __init__(self, novadax_client: NovaClient, novadax_uid: str):
         self._novadax_client: NovaClient = novadax_client
         self._current_listen_key = None
         self._listen_for_user_stream_task = None
         self._last_recv_time: float = 0
-        self._novadax_auth: NovadaxAuth = novadax_client 
+        self._novadax_auth: NovadaxAuth = NovadaxAuth(self._novadax_client)
+        self._novadax_uid = novadax_uid
         super().__init__()
 
     @property
@@ -71,6 +72,7 @@ class NovadaxAPIUserStreamDataSource(UserStreamTrackerDataSource):
     async def messages(self) -> AsyncIterable[str]:
         try:
             async with (await self.get_ws_connection()) as ws:
+                ws.send(f'''42["login","{self._novadax_uid}","{self._novadax_auth.api_key()}"]''')
                 async for msg in self._inner_messages(ws):
                     yield msg
         except asyncio.CancelledError:

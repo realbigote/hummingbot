@@ -2,7 +2,7 @@ from hummingbot.market.market_base cimport MarketBase
 from hummingbot.core.data_type.transaction_tracker cimport TransactionTracker
 
 
-cdef class novadaxMarket(MarketBase):
+cdef class NovadaxMarket(MarketBase):
     cdef:
         object _user_stream_tracker
         object _novadax_client

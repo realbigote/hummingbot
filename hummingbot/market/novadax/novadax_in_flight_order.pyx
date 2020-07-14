@@ -9,13 +9,13 @@ from hummingbot.core.event.events import (
     OrderType,
     TradeType
 )
-from hummingbot.market.novadax.novadax_market import novadaxMarket
+from hummingbot.market.novadax.novadax_market import NovadaxMarket
 from hummingbot.market.in_flight_order_base import InFlightOrderBase
 
 s_decimal_0 = Decimal(0)
 
 
-cdef class novadaxInFlightOrder(InFlightOrderBase):
+cdef class NovadaxInFlightOrder(InFlightOrderBase):
     def __init__(self,
                  client_order_id: str,
                  exchange_order_id: str,
@@ -26,7 +26,7 @@ cdef class novadaxInFlightOrder(InFlightOrderBase):
                  amount: Decimal,
                  initial_state: str = "NEW"):
         super().__init__(
-            novadaxMarket,
+            NovadaxMarket,
             client_order_id,
             exchange_order_id,
             trading_pair,
@@ -53,7 +53,7 @@ cdef class novadaxInFlightOrder(InFlightOrderBase):
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> InFlightOrderBase:
         cdef:
-            novadaxInFlightOrder retval = novadaxInFlightOrder(
+            NovadaxInFlightOrder retval = NovadaxInFlightOrder(
                 client_order_id=data["client_order_id"],
                 exchange_order_id=data["exchange_order_id"],
                 trading_pair=data["trading_pair"],

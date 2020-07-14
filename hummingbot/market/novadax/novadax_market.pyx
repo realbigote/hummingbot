@@ -8,8 +8,6 @@ from aiokafka import (
 import asyncio
 from async_timeout import timeout
 from novadax import RequestClient as NovaClient
-from novadax import client as novadax_client_module
-from novadax.exceptions import NovadaxAPIException
 from decimal import Decimal
 from functools import partial
 import logging
@@ -35,7 +33,7 @@ from hummingbot.core.utils.async_utils import (
     safe_ensure_future,
     safe_gather,
 )
-from hummingbot.market.novadax.novadax_api_order_book_data_source import novadaxAPIOrderBookDataSource
+from hummingbot.market.novadax.novadax_api_order_book_data_source import NovadaxAPIOrderBookDataSource
 from hummingbot.logger import HummingbotLogger
 from hummingbot.core.event.events import (
     MarketEvent,
@@ -58,10 +56,9 @@ from hummingbot.market.market_base import (
 from hummingbot.core.network_iterator import NetworkStatus
 from hummingbot.core.data_type.order_book_tracker import OrderBookTrackerDataSourceType
 from hummingbot.core.data_type.order_book cimport OrderBook
-from hummingbot.market.novadax.novadax_order_book_tracker import novadaxOrderBookTracker
-from hummingbot.market.novadax.novadax_user_stream_tracker import novadaxUserStreamTracker
-from hummingbot.market.novadax.novadax_time import novadaxTime
-from hummingbot.market.novadax.novadax_in_flight_order import novadaxInFlightOrder
+from hummingbot.market.novadax.novadax_order_book_tracker import NovadaxOrderBookTracker
+from hummingbot.market.novadax.novadax_user_stream_tracker import NovadaxUserStreamTracker
+from hummingbot.market.novadax.novadax_in_flight_order import NovadaxInFlightOrder
 from hummingbot.core.data_type.user_stream_tracker import UserStreamTrackerDataSourceType
 from hummingbot.core.data_type.cancellation_result import CancellationResult
 from hummingbot.core.data_type.transaction_tracker import TransactionTracker
@@ -71,22 +68,10 @@ from hummingbot.client.config.fee_overrides_config_map import fee_overrides_conf
 
 s_logger = None
 s_decimal_0 = Decimal(0)
-TRADING_PAIR_SPLITTER = re.compile(r"^(\w+)(BTC|ETH|BNB|XRP|USDT|USDC|USDS|TUSD|PAX|TRX|BUSD|NGN|RUB|TRY|EUR|IDRT)$")
-BROKER_ID = "x-XEKWYICX"
-
-
-cdef str get_client_order_id(str order_side, object trading_pair):
-    cdef:
-        int64_t nonce = <int64_t> get_tracking_nonce()
-        object symbols = trading_pair.split("_")
-        str base = symbols[0].upper()
-        str quote = symbols[1].upper()
-    return f"{BROKER_ID}-{order_side.upper()[0]}{base[0]}{base[-1]}{quote[0]}{quote[-1]}{nonce}"
-
 
 cdef class NovadaxMarketTransactionTracker(TransactionTracker):
     cdef:
-        novadaxMarket _owner
+        NovadaxMarket _owner
 
     def __init__(self, owner: NovadaxMarket):
         super().__init__()
@@ -97,7 +82,7 @@ cdef class NovadaxMarketTransactionTracker(TransactionTracker):
         self._owner.c_did_timeout_tx(tx_id)
 
 
-cdef class novadaxMarket(MarketBase):
+cdef class NovadaxMarket(MarketBase):
     MARKET_RECEIVED_ASSET_EVENT_TAG = MarketEvent.ReceivedAsset.value
     MARKET_BUY_ORDER_COMPLETED_EVENT_TAG = MarketEvent.BuyOrderCompleted.value
     MARKET_SELL_ORDER_COMPLETED_EVENT_TAG = MarketEvent.SellOrderCompleted.value
@@ -134,20 +119,19 @@ cdef class novadaxMarket(MarketBase):
                  trading_pairs: Optional[List[str]] = None,
                  trading_required: bool = True):
 
-        self.monkey_patch_novadax_time()
         super().__init__()
         self._trading_required = trading_required
-        self._order_book_tracker = novadaxOrderBookTracker(data_source_type=order_book_tracker_data_source_type,
+        self._order_book_tracker = NovadaxOrderBookTracker(data_source_type=order_book_tracker_data_source_type,
                                                            trading_pairs=trading_pairs)
-        self._novadax_client = novadaxClient(novadax_api_key, novadax_api_secret)
-        self._user_stream_tracker = novadaxUserStreamTracker(
+        self._novadax_client = NovaClient(novadax_api_key, novadax_api_secret)
+        self._user_stream_tracker = NovadaxUserStreamTracker(
             data_source_type=user_stream_tracker_data_source_type, novadax_client=self._novadax_client)
         self._ev_loop = asyncio.get_event_loop()
         self._poll_notifier = asyncio.Event()
         self._last_timestamp = 0
         self._in_flight_orders = {}  # Dict[client_order_id:str, novadaxInFlightOrder]
         self._order_not_found_records = {}  # Dict[client_order_id:str, count:int]
-        self._tx_tracker = novadaxMarketTransactionTracker(self)
+        self._tx_tracker = NovadaxMarketTransactionTracker(self)
         self._trading_rules = {}  # Dict[trading_pair:str, TradingRule]
         self._trade_fees = {}  # Dict[trading_pair:str, (maker_fee_percent:Decimal, taken_fee_percent:Decimal)]
         self._last_update_trade_fees_timestamp = 0
@@ -162,24 +146,24 @@ cdef class novadaxMarket(MarketBase):
     @staticmethod
     def split_trading_pair(trading_pair: str) -> Optional[Tuple[str, str]]:
         try:
-            m = TRADING_PAIR_SPLITTER.match(trading_pair)
-            return m.group(1), m.group(2)
+            m = trading_pair.split("_")
+            return m[0], m[1]
         # Exceptions are now logged as warnings in trading pair fetcher
         except Exception as e:
             return None
 
     @staticmethod
     def convert_from_exchange_trading_pair(exchange_trading_pair: str) -> Optional[str]:
-        if novadaxMarket.split_trading_pair(exchange_trading_pair) is None:
+        if NovadaxMarket.split_trading_pair(exchange_trading_pair) is None:
             return None
         # novadax does not split BASEQUOTE (BTCUSDT)
-        base_asset, quote_asset = novadaxMarket.split_trading_pair(exchange_trading_pair)
+        base_asset, quote_asset = NovadaxMarket.split_trading_pair(exchange_trading_pair)
         return f"{base_asset}-{quote_asset}"
 
     @staticmethod
     def convert_to_exchange_trading_pair(hb_trading_pair: str) -> str:
         # novadax does not split BASEQUOTE (BTCUSDT)
-        return hb_trading_pair.replace("-", "")
+        return hb_trading_pair.replace("-", "_")
 
     @property
     def name(self) -> str:
@@ -190,7 +174,7 @@ cdef class novadaxMarket(MarketBase):
         return self._order_book_tracker.order_books
 
     @property
-    def novadax_client(self) -> novadaxClient:
+    def novadax_client(self) -> NovaClient:
         return self._novadax_client
 
     @property
@@ -198,7 +182,7 @@ cdef class novadaxMarket(MarketBase):
         return self._trading_rules
 
     @property
-    def in_flight_orders(self) -> Dict[str, novadaxInFlightOrder]:
+    def in_flight_orders(self) -> Dict[str, NovadaxInFlightOrder]:
         return self._in_flight_orders
 
     @property
@@ -216,26 +200,21 @@ cdef class novadaxMarket(MarketBase):
         }
 
     @property
-    def order_book_tracker(self) -> novadaxOrderBookTracker:
+    def order_book_tracker(self) -> NovadaxOrderBookTracker:
         return self._order_book_tracker
 
     @property
-    def user_stream_tracker(self) -> novadaxUserStreamTracker:
+    def user_stream_tracker(self) -> NovadaxUserStreamTracker:
         return self._user_stream_tracker
 
     def restore_tracking_states(self, saved_states: Dict[str, any]):
         self._in_flight_orders.update({
-            key: novadaxInFlightOrder.from_json(value)
+            key: NovadaxInFlightOrder.from_json(value)
             for key, value in saved_states.items()
         })
 
     async def get_active_exchange_markets(self) -> pd.DataFrame:
-        return await novadaxAPIOrderBookDataSource.get_active_exchange_markets()
-
-    def monkey_patch_novadax_time(self):
-        if novadax_client_module.time != novadaxTime.get_instance():
-            novadax_client_module.time = novadaxTime.get_instance()
-            novadaxTime.get_instance().start()
+        return await NovadaxAPIOrderBookDataSource.get_active_exchange_markets()
 
     async def schedule_async_call(
             self,
@@ -243,27 +222,6 @@ cdef class novadaxMarket(MarketBase):
             timeout_seconds: float,
             app_warning_msg: str = "novadax API call failed. Check API key and network connection.") -> any:
         return await self._async_scheduler.schedule_async_call(coro, timeout_seconds, app_warning_msg=app_warning_msg)
-
-    async def query_api(
-            self,
-            func,
-            *args,
-            app_warning_msg: str = "novadax API call failed. Check API key and network connection.",
-            request_weight: int = 1,
-            **kwargs) -> Dict[str, any]:
-        async with self._throttler.weighted_task(request_weight=request_weight):
-            try:
-                return await self._async_scheduler.call_async(partial(func, *args, **kwargs),
-                                                              timeout_seconds=self.API_CALL_TIMEOUT,
-                                                              app_warning_msg=app_warning_msg)
-            except Exception as ex:
-                if "Timestamp for this request" in str(ex):
-                    self.logger().warning("Got novadax timestamp error. "
-                                          "Going to force update novadax server time offset...")
-                    novadax_time = novadaxTime.get_instance()
-                    novadax_time.clear_time_offset_ms_samples()
-                    await novadax_time.schedule_update_server_time_offset()
-                raise ex
 
     async def query_url(self, url, request_weight: int = 1) -> any:
         async with self._throttler.weighted_task(request_weight=request_weight):
@@ -274,7 +232,7 @@ cdef class novadaxMarket(MarketBase):
                     data = await response.json()
                     return data
 
-    async def _update_balances(self):
+    def _update_balances(self):
         cdef:
             dict account_info
             list balances
@@ -283,13 +241,13 @@ cdef class novadaxMarket(MarketBase):
             set remote_asset_names = set()
             set asset_names_to_remove
 
-        account_info = await self.query_api(self._novadax_client.get_account)
-        balances = account_info["balances"]
-        for balance_entry in balances:
-            asset_name = balance_entry["asset"]
-            free_balance = Decimal(balance_entry["free"])
-            total_balance = Decimal(balance_entry["free"]) + Decimal(balance_entry["locked"])
-            self._account_available_balances[asset_name] = free_balance
+        account_balances = self._novadax_client.get_account_balance()
+
+        for balance_entry in account_balances["data"]:
+            asset_name = balance_entry["currency"]
+            available_balance = Decimal(balance_entry["available"])
+            total_balance = available_balance + Decimal(balance_entry["hold"]) 
+            self._account_available_balances[asset_name] = available_balance
             self._account_balances[asset_name] = total_balance
             remote_asset_names.add(asset_name)
 
@@ -297,24 +255,6 @@ cdef class novadaxMarket(MarketBase):
         for asset_name in asset_names_to_remove:
             del self._account_available_balances[asset_name]
             del self._account_balances[asset_name]
-
-    async def _update_trade_fees(self):
-        cdef:
-            double current_timestamp = self._current_timestamp
-
-        if current_timestamp - self._last_update_trade_fees_timestamp > 60.0 * 60.0 or len(self._trade_fees) < 1:
-            try:
-                res = await self.query_api(self._novadax_client.get_trade_fee)
-                for fee in res["tradeFee"]:
-                    self._trade_fees[fee["symbol"]] = (Decimal(fee["maker"]), Decimal(fee["taker"]))
-                self._last_update_trade_fees_timestamp = current_timestamp
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                self.logger().network("Error fetching novadax trade fees.", exc_info=True,
-                                      app_warning_msg=f"Could not fetch novadax trading fees. "
-                                                      f"Check network connection.")
-                raise
 
     cdef object c_get_fee(self,
                           str base_currency,
@@ -345,7 +285,7 @@ cdef class novadaxMarket(MarketBase):
             int64_t last_tick = <int64_t>(self._last_timestamp / 60.0)
             int64_t current_tick = <int64_t>(self._current_timestamp / 60.0)
         if current_tick > last_tick or len(self._trading_rules) < 1:
-            exchange_info = await self.query_api(self._novadax_client.get_exchange_info)
+            exchange_info = self._novadax_client.list_symbols()
             trading_rules_list = self._format_trading_rules(exchange_info)
             self._trading_rules.clear()
             for trading_rule in trading_rules_list:
@@ -355,108 +295,60 @@ cdef class novadaxMarket(MarketBase):
         """
         Example:
         {
-            "symbol": "ETHBTC",
-            "baseAssetPrecision": 8,
-            "quotePrecision": 8,
-            "orderTypes": ["LIMIT", "MARKET"],
-            "filters": [
-                {
-                    "filterType": "PRICE_FILTER",
-                    "minPrice": "0.00000100",
-                    "maxPrice": "100000.00000000",
-                    "tickSize": "0.00000100"
-                }, {
-                    "filterType": "LOT_SIZE",
-                    "minQty": "0.00100000",
-                    "maxQty": "100000.00000000",
-                    "stepSize": "0.00100000"
-                }, {
-                    "filterType": "MIN_NOTIONAL",
-                    "minNotional": "0.00100000"
-                }
-            ]
+          "code": "A10000",
+          "data": [
+              {
+                  "symbol": "BTC_BRL",
+                  "baseCurrency": "BTC",
+                  "quoteCurrency": "BRL",
+                  "amountPrecision": 4,
+                  "pricePrecision": 2,
+                  "valuePrecision": 4,
+                  "minOrderAmount": "0.001",
+                  "minOrderValue": "5",
+              },
+              {
+                  "symbol": "ETH_BRL",
+                  "baseCurrency": "ETH",
+                  "quoteCurrency": "BRL",
+                  "amountPrecision": 4,
+                  "pricePrecision": 2,
+                  "valuePrecision": 4,
+                  "minOrderAmount": "0.01",
+                  "minOrderValue": "5"
+              }
+          ],
+          "message": "Success"
         }
+
         """
         cdef:
-            list trading_pair_rules = exchange_info_dict.get("symbols", [])
+            list trading_pair_rules = exchange_info_dict.get("data", [])
             list retval = []
         for rule in trading_pair_rules:
             try:
                 trading_pair = rule.get("symbol")
-                filters = rule.get("filters")
-                price_filter = [f for f in filters if f.get("filterType") == "PRICE_FILTER"][0]
-                lot_size_filter = [f for f in filters if f.get("filterType") == "LOT_SIZE"][0]
-                min_notional_filter = [f for f in filters if f.get("filterType") == "MIN_NOTIONAL"][0]
 
-                min_order_size = Decimal(lot_size_filter.get("minQty"))
-                tick_size = price_filter.get("tickSize")
-                step_size = Decimal(lot_size_filter.get("stepSize"))
-                min_notional = Decimal(min_notional_filter.get("minNotional"))
+                min_order_size = Decimal(rule.get("minOrderAmount"))
+                min_price_increment = Decimal(f"1e-{rule.get('pricePrecision')}")
+                min_base_amount_increment=Decimal(f"1e-{rule.get('amountPrecision')}"),
+                min_notional = Decimal(rule.get("minOrderValue"))
 
                 retval.append(
-                    TradingRule(trading_pair,
-                                min_order_size=min_order_size,
-                                min_price_increment=Decimal(tick_size),
-                                min_base_amount_increment=Decimal(step_size),
-                                min_notional_size=Decimal(min_notional)))
+                     TradingRule(
+                        trading_pair=trading_pair,
+                        min_order_size = min_order_size,
+                        min_price_increment=min_price_increment,
+                        min_base_amount_increment=min_base_amount_increment,
+                        min_notional_size = min_notional,
+                        supports_limit_orders = True,
+                        supports_market_orders = False
+                    )
+                )
 
             except Exception:
                 self.logger().error(f"Error parsing the trading pair rule {rule}. Skipping.", exc_info=True)
         return retval
-
-    async def _update_order_fills_from_trades(self):
-        cdef:
-            # This is intended to be a backup measure to get filled events with trade ID for orders,
-            # in case novadax's user stream events are not working.
-            # This is separated from _update_order_status which only updates the order status without producing filled
-            # events, since novadax's get order endpoint does not return trade IDs.
-            # The minimum poll interval for order status is 10 seconds.
-            int64_t last_tick = <int64_t>(self._last_poll_timestamp / self.UPDATE_ORDER_STATUS_MIN_INTERVAL)
-            int64_t current_tick = <int64_t>(self._current_timestamp / self.UPDATE_ORDER_STATUS_MIN_INTERVAL)
-
-        if current_tick > last_tick and len(self._in_flight_orders) > 0:
-            trading_pairs_to_order_map = defaultdict(lambda: {})
-            for o in self._in_flight_orders.values():
-                trading_pairs_to_order_map[o.trading_pair][o.exchange_order_id] = o
-
-            trading_pairs = list(trading_pairs_to_order_map.keys())
-            tasks = [self.query_api(self._novadax_client.get_my_trades, symbol=trading_pair)
-                     for trading_pair in trading_pairs]
-            self.logger().debug("Polling for order fills of %d trading pairs.", len(tasks))
-            results = await safe_gather(*tasks, return_exceptions=True)
-            for trades, trading_pair in zip(results, trading_pairs):
-                order_map = trading_pairs_to_order_map[trading_pair]
-                if isinstance(trades, Exception):
-                    self.logger().network(
-                        f"Error fetching trades update for the order {trading_pair}: {trades}.",
-                        app_warning_msg=f"Failed to fetch trade update for {trading_pair}."
-                    )
-                    continue
-                for trade in trades:
-                    order_id = str(trade["orderId"])
-                    if order_id in order_map:
-                        tracked_order = order_map[order_id]
-                        order_type = OrderType.LIMIT if trade["isMaker"] else OrderType.MARKET
-                        applied_trade = order_map[order_id].update_with_trade_update(trade)
-                        if applied_trade:
-                            self.c_trigger_event(self.MARKET_ORDER_FILLED_EVENT_TAG,
-                                                 OrderFilledEvent(
-                                                     self._current_timestamp,
-                                                     tracked_order.client_order_id,
-                                                     tracked_order.trading_pair,
-                                                     tracked_order.trade_type,
-                                                     order_type,
-                                                     Decimal(trade["price"]),
-                                                     Decimal(trade["qty"]),
-                                                     self.c_get_fee(
-                                                         tracked_order.base_asset,
-                                                         tracked_order.quote_asset,
-                                                         order_type,
-                                                         tracked_order.trade_type,
-                                                         Decimal(trade["price"]),
-                                                         Decimal(trade["qty"])),
-                                                     exchange_trade_id=trade["id"]
-                                                 ))
 
     async def _update_order_status(self):
         cdef:
@@ -468,20 +360,18 @@ cdef class novadaxMarket(MarketBase):
 
         if current_tick > last_tick and len(self._in_flight_orders) > 0:
             tracked_orders = list(self._in_flight_orders.values())
-            tasks = [self.query_api(self._novadax_client.get_order,
-                                    symbol=o.trading_pair, origClientOrderId=o.client_order_id)
-                     for o in tracked_orders]
+            tasks = [self._novadax_client.get_order(o) for o in tracked_orders]
             self.logger().debug("Polling for order status updates of %d orders.", len(tasks))
             results = await safe_gather(*tasks, return_exceptions=True)
-            for order_update, tracked_order in zip(results, tracked_orders):
+            for order_details, tracked_order in zip(results, tracked_orders):
                 client_order_id = tracked_order.client_order_id
 
                 # If the order has already been cancelled or has failed do nothing
                 if client_order_id not in self._in_flight_orders:
                     continue
 
-                if isinstance(order_update, Exception):
-                    if order_update.code == 2013 or order_update.message == "Order does not exist.":
+                if isinstance(order_details, Exception):
+                    if order_details["message"] == "Order not found":
                         self._order_not_found_records[client_order_id] = \
                             self._order_not_found_records.get(client_order_id, 0) + 1
                         if self._order_not_found_records[client_order_id] < self.ORDER_NOT_EXIST_CONFIRMATION_COUNT:
@@ -495,16 +385,16 @@ cdef class novadaxMarket(MarketBase):
                         self.c_stop_tracking_order(client_order_id)
                     else:
                         self.logger().network(
-                            f"Error fetching status update for the order {client_order_id}: {order_update}.",
+                            f"Error fetching status update for the order {client_order_id}: {order_details}.",
                             app_warning_msg=f"Failed to fetch status update for the order {client_order_id}."
                         )
                     continue
 
                 # Update order execution status
-                tracked_order.last_state = order_update["status"]
-                order_type = OrderType.LIMIT if order_update["type"] == "LIMIT" else OrderType.MARKET
-                executed_amount_base = Decimal(order_update["executedQty"])
-                executed_amount_quote = Decimal(order_update["cummulativeQuoteQty"])
+                tracked_order.last_state = order_details["data"]["status"]
+                order_type = OrderType.LIMIT if order_details["data"]["type"] == "LIMIT" else OrderType.MARKET
+                executed_amount_base = Decimal(order_details["data"]["filledAmount"])
+                executed_amount_quote = Decimal(order_details["data"]["filledValue"])
 
                 if tracked_order.is_done:
                     if not tracked_order.is_failure:
@@ -710,7 +600,6 @@ cdef class novadaxMarket(MarketBase):
                 await self._poll_notifier.wait()
                 await safe_gather(
                     self._update_balances(),
-                    self._update_order_fills_from_trades(),
                     self._update_order_status(),
                 )
                 self._last_poll_timestamp = self._current_timestamp
@@ -726,8 +615,7 @@ cdef class novadaxMarket(MarketBase):
         while True:
             try:
                 await safe_gather(
-                    self._update_trading_rules(),
-                    self._update_trade_fees()
+                    self._update_trading_rules()
                 )
                 await asyncio.sleep(60)
             except asyncio.CancelledError:
@@ -755,8 +643,8 @@ cdef class novadaxMarket(MarketBase):
         """
         :return: The current server time in milliseconds since UNIX epoch.
         """
-        result = await self.query_api(self._novadax_client.get_server_time)
-        return result["serverTime"]
+        result = self._novadax_client.get_timestamp()
+        return result["data"]
 
     cdef c_start(self, Clock clock, double timestamp):
         self._tx_tracker.c_start(clock, timestamp)
@@ -792,7 +680,7 @@ cdef class novadaxMarket(MarketBase):
 
     async def check_network(self) -> NetworkStatus:
         try:
-            await self.query_api(self._novadax_client.ping)
+            self._novadax_client.get_timestamp()
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -822,9 +710,9 @@ cdef class novadaxMarket(MarketBase):
                           price: Optional[Decimal] = s_decimal_NaN):
         cdef:
             TradingRule trading_rule = self._trading_rules[trading_pair]
-            object m = TRADING_PAIR_SPLITTER.match(trading_pair)
-            str base_currency = m.group(1)
-            str quote_currency = m.group(2)
+            object m = trading_pair.split("_")
+            str base_currency = m[0]
+            str quote_currency = m[1]
             object buy_fee = self.c_get_fee(base_currency, quote_currency, order_type, TradeType.BUY, amount, price)
             double adjusted_amount
 
@@ -839,8 +727,8 @@ cdef class novadaxMarket(MarketBase):
         try:
             order_result = None
             order_decimal_amount = f"{decimal_amount:f}"
+            order_decimal_price = f"{decimal_price:f}"
             if order_type is OrderType.LIMIT:
-                order_decimal_price = f"{decimal_price:f}"
                 self.c_start_tracking_order(
                     order_id,
                     "",
@@ -850,11 +738,12 @@ cdef class novadaxMarket(MarketBase):
                     decimal_amount,
                     order_type
                 )
-                order_result = await self.query_api(self._novadax_client.order_limit_buy,
-                                                    symbol=trading_pair,
-                                                    quantity=order_decimal_amount,
-                                                    price=order_decimal_price,
-                                                    newClientOrderId=order_id)
+                order_result = self._novadax_client.create_order(
+                                                    trading_pair,
+                                                    "LIMIT",
+                                                    "BUY",
+                                                    order_decimal_price,
+                                                    order_decimal_amount)
             elif order_type is OrderType.MARKET:
                 self.c_start_tracking_order(
                     order_id,
@@ -865,14 +754,16 @@ cdef class novadaxMarket(MarketBase):
                     decimal_amount,
                     order_type
                 )
-                order_result = await self.query_api(self._novadax_client.order_market_buy,
-                                                    symbol=trading_pair,
-                                                    quantity=order_decimal_amount,
-                                                    newClientOrderId=order_id)
+                order_result = self._novadax_client.create_order(
+                                                    trading_pair,
+                                                    "MARKET",
+                                                    "BUY",
+                                                    order_decimal_price,
+                                                    order_decimal_amount)
             else:
                 raise ValueError(f"Invalid OrderType {order_type}. Aborting.")
 
-            exchange_order_id = str(order_result["orderId"])
+            exchange_order_id = str(order_result["id"])
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None:
                 self.logger().info(f"Created {order_type} buy order {order_id} for "
@@ -904,13 +795,14 @@ cdef class novadaxMarket(MarketBase):
             self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG,
                                  MarketOrderFailureEvent(self._current_timestamp, order_id, order_type))
 
-    cdef str c_buy(self, str trading_pair, object amount, object order_type=OrderType.MARKET, object price=s_decimal_NaN,
+    cdef str c_buy(self, str trading_pair, object amount, object order_type=OrderType.MARKET, object price=s_decimal_0,
                    dict kwargs={}):
         cdef:
-            str t_pair = novadaxMarket.convert_from_exchange_trading_pair(trading_pair)
-            str order_id = get_client_order_id("buy", t_pair)
-        safe_ensure_future(self.execute_buy(order_id, trading_pair, amount, order_type, price))
-        return order_id
+            int64_t tracking_nonce = <int64_t> get_tracking_nonce()
+            str client_order_id = str(f"buy-{trading_pair}-{tracking_nonce}")
+
+        safe_ensure_future(self.execute_buy(client_order_id, trading_pair, amount, order_type, price))
+        return client_order_id
 
     async def execute_sell(self,
                            order_id: str,
@@ -932,8 +824,8 @@ cdef class novadaxMarket(MarketBase):
         try:
             order_result = None
             order_decimal_amount = f"{decimal_amount:f}"
+            order_decimal_price = f"{decimal_price:f}"
             if order_type is OrderType.LIMIT:
-                order_decimal_price = f"{decimal_price:f}"
                 self.c_start_tracking_order(
                     order_id,
                     "",
@@ -943,11 +835,12 @@ cdef class novadaxMarket(MarketBase):
                     decimal_amount,
                     order_type
                 )
-                order_result = await self.query_api(self._novadax_client.order_limit_sell,
-                                                    symbol=trading_pair,
-                                                    quantity=order_decimal_amount,
-                                                    price=order_decimal_price,
-                                                    newClientOrderId=order_id)
+                order_result = self._novadax_client.create_order(
+                                                    trading_pair,
+                                                    "LIMIT",
+                                                    "SELL",
+                                                    order_decimal_price,
+                                                    order_decimal_amount)
             elif order_type is OrderType.MARKET:
                 self.c_start_tracking_order(
                     order_id,
@@ -958,14 +851,16 @@ cdef class novadaxMarket(MarketBase):
                     decimal_amount,
                     order_type
                 )
-                order_result = await self.query_api(self._novadax_client.order_market_sell,
-                                                    symbol=trading_pair,
-                                                    quantity=order_decimal_amount,
-                                                    newClientOrderId=order_id)
+                order_result = self._novadax_client.create_order(
+                                                    trading_pair,
+                                                    "MARKET",
+                                                    "SELL",
+                                                    order_decimal_price,
+                                                    order_decimal_amount)
             else:
                 raise ValueError(f"Invalid OrderType {order_type}. Aborting.")
 
-            exchange_order_id = str(order_result["orderId"])
+            exchange_order_id = str(order_result["id"])
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None:
                 self.logger().info(f"Created {order_type} sell order {order_id} for "
@@ -996,21 +891,21 @@ cdef class novadaxMarket(MarketBase):
             self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG,
                                  MarketOrderFailureEvent(self._current_timestamp, order_id, order_type))
 
-    cdef str c_sell(self, str trading_pair, object amount, object order_type=OrderType.MARKET, object price=s_decimal_NaN,
+    cdef str c_sell(self, str trading_pair, object amount, object order_type=OrderType.MARKET, object price=s_decimal_0,
                     dict kwargs={}):
+
         cdef:
-            str t_pair = novadaxMarket.convert_from_exchange_trading_pair(trading_pair)
-            str order_id = get_client_order_id("sell", t_pair)
-        safe_ensure_future(self.execute_sell(order_id, trading_pair, amount, order_type, price))
-        return order_id
+            int64_t tracking_nonce = <int64_t> get_tracking_nonce()
+            str client_order_id = str(f"sell-{trading_pair}-{tracking_nonce}")
+        safe_ensure_future(self.execute_sell(client_order_id, trading_pair, amount, order_type, price))
+        return client_order_id
 
     async def execute_cancel(self, trading_pair: str, order_id: str):
         try:
-            cancel_result = await self.query_api(self._novadax_client.cancel_order,
-                                                 symbol=trading_pair,
-                                                 origClientOrderId=order_id)
-        except novadaxAPIException as e:
-            if "Unknown order sent" in e.message or e.code == 2011:
+            cancel_order = self._novadax_client.cancle_order(order_id)
+            cancel_result = cancel_order
+        except Exception as e:
+            if cancel_result["message"] == "Order not found":
                 # The order was never there to begin with. So cancelling it is a no-op but semantically successful.
                 self.logger().debug(f"The order {order_id} does not exist on novadax. No cancellation needed.")
                 self.c_stop_tracking_order(order_id)
@@ -1023,7 +918,7 @@ cdef class novadaxMarket(MarketBase):
             else:
                 raise e
 
-        if isinstance(cancel_result, dict) and cancel_result.get("status") == "CANCELED":
+        if isinstance(cancel_result, dict) and cancel_result["message"] == "Success":
             self.logger().info(f"Successfully cancelled order {order_id}.")
             self.c_stop_tracking_order(order_id)
             self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
@@ -1044,7 +939,7 @@ cdef class novadaxMarket(MarketBase):
             async with timeout(timeout_seconds):
                 cancellation_results = await safe_gather(*tasks, return_exceptions=True)
                 for cr in cancellation_results:
-                    if isinstance(cr, novadaxAPIException):
+                    if isinstance(cr, Exception):
                         continue
                     if isinstance(cr, dict) and "origClientOrderId" in cr:
                         client_order_id = cr.get("origClientOrderId")
@@ -1080,7 +975,7 @@ cdef class novadaxMarket(MarketBase):
                                 object price,
                                 object amount,
                                 object order_type):
-        self._in_flight_orders[order_id] = novadaxInFlightOrder(
+        self._in_flight_orders[order_id] = NovadaxInFlightOrder(
             client_order_id=order_id,
             exchange_order_id=exchange_order_id,
             trading_pair=trading_pair,

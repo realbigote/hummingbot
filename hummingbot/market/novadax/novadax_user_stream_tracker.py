@@ -15,11 +15,11 @@ from hummingbot.core.utils.async_utils import (
     safe_ensure_future,
     safe_gather,
 )
-from hummingbot.market.novadax.novadax_api_user_stream_data_source import novadaxAPIUserStreamDataSource
+from hummingbot.market.novadax.novadax_api_user_stream_data_source import NovadaxAPIUserStreamDataSource
 from novadax import RequestClient as NovaClient
 
 
-class novadaxUserStreamTracker(UserStreamTracker):
+class NovadaxUserStreamTracker(UserStreamTracker):
     _bust_logger: Optional[HummingbotLogger] = None
 
     @classmethod
