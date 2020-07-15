@@ -203,10 +203,8 @@ class HummingbotApplication(*commands):
 
     @staticmethod
     def _initialize_market_assets(market_name: str, trading_pairs: List[str]) -> List[Tuple[str, str]]:
-        print(trading_pairs)
         market_class: MarketBase = MARKET_CLASSES.get(market_name, MarketBase)
         market_trading_pairs: List[Tuple[str, str]] = [market_class.split_trading_pair(trading_pair) for trading_pair in trading_pairs]
-        print(market_trading_pairs)
         return market_trading_pairs
 
     @staticmethod
@@ -350,6 +348,19 @@ class HummingbotApplication(*commands):
                     trading_pairs=trading_pairs,
                     trading_required=self._trading_required,
                     order_book_tracker_data_source_type=OrderBookTrackerDataSourceType.EXCHANGE_API
+                )
+            elif market_name == "novadax":
+                novadax_api_key : int = global_config_map.get("novadax_api_key").value
+                novadax_api_secret : int = global_config_map.get("novadax_api_secret").value
+                novadax_uid : str = global_config_map.get("novadax_uid").value
+                market = NovadaxMarket(
+                    novadax_api_key=novadax_api_key,
+                    novadax_api_secret=novadax_api_secret,
+                    novadax_uid=novadax_uid,
+                    order_book_tracker_data_source_type=OrderBookTrackerDataSourceType.EXCHANGE_API,
+                    user_stream_tracker_data_source_type=UserStreamTrackerDataSourceType.EXCHANGE_API,
+                    trading_pairs=trading_pairs,
+                    trading_required=self._trading_required,
                 )
             elif market_name == "bittrex":
                 bittrex_api_key = global_config_map.get("bittrex_api_key").value

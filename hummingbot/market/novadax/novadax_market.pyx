@@ -110,8 +110,9 @@ cdef class NovadaxMarket(MarketBase):
         return s_logger
 
     def __init__(self,
-                 novadax_api_key: str,
-                 novadax_api_secret: str,
+                 novadax_api_key: str = None,
+                 novadax_api_secret: str = None,
+                 novadax_uid: str = None,
                  order_book_tracker_data_source_type: OrderBookTrackerDataSourceType =
                  OrderBookTrackerDataSourceType.EXCHANGE_API,
                  user_stream_tracker_data_source_type: UserStreamTrackerDataSourceType =
@@ -125,7 +126,7 @@ cdef class NovadaxMarket(MarketBase):
                                                            trading_pairs=trading_pairs)
         self._novadax_client = NovaClient(novadax_api_key, novadax_api_secret)
         self._user_stream_tracker = NovadaxUserStreamTracker(
-            data_source_type=user_stream_tracker_data_source_type, novadax_client=self._novadax_client)
+            data_source_type=user_stream_tracker_data_source_type, novadax_client=self._novadax_client, novadax_uid=novadax_uid)
         self._ev_loop = asyncio.get_event_loop()
         self._poll_notifier = asyncio.Event()
         self._last_timestamp = 0
@@ -232,7 +233,7 @@ cdef class NovadaxMarket(MarketBase):
                     data = await response.json()
                     return data
 
-    def _update_balances(self):
+    async def _update_balances(self):
         cdef:
             dict account_info
             list balances
@@ -240,7 +241,6 @@ cdef class NovadaxMarket(MarketBase):
             set local_asset_names = set(self._account_balances.keys())
             set remote_asset_names = set()
             set asset_names_to_remove
-
         account_balances = self._novadax_client.get_account_balance()
 
         for balance_entry in account_balances["data"]:
@@ -631,8 +631,7 @@ cdef class NovadaxMarket(MarketBase):
         return {
             "order_books_initialized": self._order_book_tracker.ready,
             "account_balance": len(self._account_balances) > 0 if self._trading_required else True,
-            "trading_rule_initialized": len(self._trading_rules) > 0,
-            "trade_fees_initialized": len(self._trade_fees) > 0
+            "trading_rule_initialized": len(self._trading_rules) > 0
         }
 
     @property

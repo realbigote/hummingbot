@@ -15,6 +15,7 @@ from hummingbot.core.data_type.user_stream_tracker_data_source import UserStream
 from hummingbot.core.utils.async_utils import safe_ensure_future
 from novadax import RequestClient as NovaClient
 from hummingbot.logger import HummingbotLogger
+from hummingbot.market.novadax.novadax_auth import NovadaxAuth
 
 NOVADAX_API_ENDPOINT = "wss://ws.novadax.com/socket.io/?EIO=3&transport=websocket"
 NOVADAX_USER_STREAM_ENDPOINT = "userDataStream"
@@ -72,7 +73,10 @@ class NovadaxAPIUserStreamDataSource(UserStreamTrackerDataSource):
     async def messages(self) -> AsyncIterable[str]:
         try:
             async with (await self.get_ws_connection()) as ws:
-                ws.send(f'''42["login","{self._novadax_uid}","{self._novadax_auth.api_key()}"]''')
+                uid = self._novadax_uid
+                api_key = self._novadax_auth.api_key()
+                subscription = f'''42["login", "{uid}", "{api_key}"]'''
+                await ws.send(subscription)
                 async for msg in self._inner_messages(ws):
                     yield msg
         except asyncio.CancelledError:
@@ -80,31 +84,17 @@ class NovadaxAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
     async def get_ws_connection(self) -> websockets.WebSocketClientProtocol:
         stream_url: str = f"{NOVADAX_API_ENDPOINT}"
-        ws = await websockets.connect(stream_url)
-        self.logger().info(f"Reconnecting to {stream_url}.")
-        # ws.send('''42["join", "api key", "api secret"]''')
-        # Create the WS connection.
-        return websockets.connect(stream_url)
+        ws = websockets.connect(stream_url)
+        return ws
 
     async def listen_for_user_stream(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         while True:
             try:
                 if self._current_listen_key is None:
-                    self._current_listen_key = await self.get_listen_key()
-                    self.logger().debug(f"Obtained listen key {self._current_listen_key}.")
                     if self._listen_for_user_stream_task is not None:
                         self._listen_for_user_stream_task.cancel()
                     self._listen_for_user_stream_task = safe_ensure_future(self.log_user_stream(output))
                     await self.wait_til_next_tick(seconds=60.0)
-
-                success: bool = await self.ping_listen_key(self._current_listen_key)
-                if not success:
-                    self._current_listen_key = None
-                    if self._listen_for_user_stream_task is not None:
-                        self._listen_for_user_stream_task.cancel()
-                        self._listen_for_user_stream_task = None
-                    continue
-                self.logger().debug(f"Refreshed listen key {self._current_listen_key}.")
 
                 await self.wait_til_next_tick(seconds=60.0)
             except asyncio.CancelledError:
@@ -119,7 +109,7 @@ class NovadaxAPIUserStreamDataSource(UserStreamTrackerDataSource):
             try:
                 async for message in self.messages():
                     decoded: Dict[str, any] = ujson.loads(message)
-                    output.put_nowait(decoded)
+                    output.put_nowait(message)
             except asyncio.CancelledError:
                 raise
             except Exception:

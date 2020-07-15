@@ -287,8 +287,8 @@ global_config_map = {
                   required_if=using_exchange("novadax"),
                   is_secure=True,
                   is_connect_key=True),
-    "novadax_secret_key":
-        ConfigVar(key="novadax_secret_key",
+    "novadax_api_secret":
+        ConfigVar(key="novadax_api_secret",
                   prompt="Enter your Novadax secret key >>> ",
                   required_if=using_exchange("novadax"),
                   is_secure=True,
