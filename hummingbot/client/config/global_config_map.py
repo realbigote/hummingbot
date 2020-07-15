@@ -283,7 +283,7 @@ global_config_map = {
                   is_connect_key=True),
     "novadax_api_key":
         ConfigVar(key="novadax_api_key",
-                  prompt="Enter the Loopring api key >>> ",
+                  prompt="Enter the Novadax api key >>> ",
                   required_if=using_exchange("novadax"),
                   is_secure=True,
                   is_connect_key=True),
