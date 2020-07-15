@@ -281,6 +281,24 @@ global_config_map = {
                   required_if=using_exchange("loopring"),
                   is_secure=True,
                   is_connect_key=True),
+    "novadax_api_key":
+        ConfigVar(key="novadax_api_key",
+                  prompt="Enter the Loopring api key >>> ",
+                  required_if=using_exchange("novadax"),
+                  is_secure=True,
+                  is_connect_key=True),
+    "novadax_secret_key":
+        ConfigVar(key="novadax_secret_key",
+                  prompt="Enter your Novadax secret key >>> ",
+                  required_if=using_exchange("novadax"),
+                  is_secure=True,
+                  is_connect_key=True),
+    "novadax_uid":
+        ConfigVar(key="novadax_uid",
+                  prompt="Enter your Novadax uid >>> ",
+                  required_if=using_exchange("novadax"),
+                  is_secure=True,
+                  is_connect_key=True),
     "ethereum_wallet":
         ConfigVar(key="ethereum_wallet",
                   prompt="Enter your wallet private key >>> ",
