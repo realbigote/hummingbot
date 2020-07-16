@@ -251,8 +251,8 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         if ('ob-inc' in key):
                             pair = re.sub(r'\.ob-inc', '', key)
                             parsed_msg = {"pair": pair,
-                                          "bids": msg[key]["bids"],
-                                          "asks": msg[key]["asks"]}
+                                          "bids": msg[key]["bids"] if "bids" in msg[key] else [],
+                                          "asks": msg[key]["asks"] if "asks" in msg[key] else []}
                             order_book_message: OrderBookMessage = BlocktaneOrderBook.diff_message_from_exchange(parsed_msg, time.time())
                             output.put_nowait(order_book_message)
             except asyncio.CancelledError:
