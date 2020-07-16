@@ -49,7 +49,6 @@ cdef class BlocktaneOrderBook(OrderBook):
                                    metadata: Optional[Dict] = None) -> OrderBookMessage:
         if metadata:
             msg.update(metadata)
-        #print(msg)
         return OrderBookMessage(OrderBookMessageType.DIFF, {
             "trading_pair": msg["pair"],
             "update_id": timestamp,
