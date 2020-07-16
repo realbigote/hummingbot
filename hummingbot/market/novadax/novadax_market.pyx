@@ -364,7 +364,7 @@ cdef class NovadaxMarket(MarketBase):
                     continue
 
                 if isinstance(order_details, Exception):
-                    if order_details["message"] == "Order not found":
+                    if order_details.message == "Order not found":
                         self._order_not_found_records[client_order_id] = \
                             self._order_not_found_records.get(client_order_id, 0) + 1
                         if self._order_not_found_records[client_order_id] < self.ORDER_NOT_EXIST_CONFIRMATION_COUNT:
