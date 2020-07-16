@@ -54,7 +54,8 @@ class NovadaxAPIUserStreamDataSource(UserStreamTrackerDataSource):
                 try:
                     msg: str = await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)
                     self._last_recv_time = time.time()
-                    yield msg
+                    if msg[0:2] == '42':
+                        yield msg[2:]
                 except asyncio.TimeoutError:
                     try:
                         pong_waiter = await ws.ping()
@@ -108,7 +109,7 @@ class NovadaxAPIUserStreamDataSource(UserStreamTrackerDataSource):
         while True:
             try:
                 async for message in self.messages():
-                    decoded: Dict[str, any] = ujson.loads(message)
+                    decoded: List[any] = ujson.loads(message)
                     output.put_nowait(message)
             except asyncio.CancelledError:
                 raise

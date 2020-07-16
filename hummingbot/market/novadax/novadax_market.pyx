@@ -134,7 +134,6 @@ cdef class NovadaxMarket(MarketBase):
         self._order_not_found_records = {}  # Dict[client_order_id:str, count:int]
         self._tx_tracker = NovadaxMarketTransactionTracker(self)
         self._trading_rules = {}  # Dict[trading_pair:str, TradingRule]
-        self._trade_fees = {}  # Dict[trading_pair:str, (maker_fee_percent:Decimal, taken_fee_percent:Decimal)]
         self._last_update_trade_fees_timestamp = 0
         self._data_source_type = order_book_tracker_data_source_type
         self._status_polling_task = None
@@ -273,11 +272,6 @@ cdef class NovadaxMarket(MarketBase):
         if order_type is OrderType.MARKET and fee_overrides_config_map["novadax_taker_fee"].value is not None:
             return TradeFee(percent=fee_overrides_config_map["novadax_taker_fee"].value / Decimal("100"))
 
-        if trading_pair not in self._trade_fees:
-            # https://www.novadax.com/en/fee/schedule
-            self.logger().warning(f"Unable to find trade fee for {trading_pair}. Using default 0.1% maker/taker fee.")
-        else:
-            maker_trade_fee, taker_trade_fee = self._trade_fees.get(trading_pair)
         return TradeFee(percent=maker_trade_fee if order_type is OrderType.LIMIT else taker_trade_fee)
 
     async def _update_trading_rules(self):
@@ -331,7 +325,7 @@ cdef class NovadaxMarket(MarketBase):
 
                 min_order_size = Decimal(rule.get("minOrderAmount"))
                 min_price_increment = Decimal(f"1e-{rule.get('pricePrecision')}")
-                min_base_amount_increment=Decimal(f"1e-{rule.get('amountPrecision')}"),
+                min_base_amount_increment=Decimal(f"1e-{rule.get('amountPrecision')}")
                 min_notional = Decimal(rule.get("minOrderValue"))
 
                 retval.append(
@@ -360,9 +354,8 @@ cdef class NovadaxMarket(MarketBase):
 
         if current_tick > last_tick and len(self._in_flight_orders) > 0:
             tracked_orders = list(self._in_flight_orders.values())
-            tasks = [self._novadax_client.get_order(o) for o in tracked_orders]
-            self.logger().debug("Polling for order status updates of %d orders.", len(tasks))
-            results = await safe_gather(*tasks, return_exceptions=True)
+            self.logger().debug("Polling for order status updates of %d orders.", len(tracked_orders))
+            results = [self._novadax_client.get_order(o) for o in tracked_orders]
             for order_details, tracked_order in zip(results, tracked_orders):
                 client_order_id = tracked_order.client_order_id
 
@@ -486,35 +479,33 @@ cdef class NovadaxMarket(MarketBase):
     async def _user_stream_event_listener(self):
         async for event_message in self._iter_user_event_queue():
             try:
-                event_type = event_message.get("e")
-                # Refer to https://github.com/novadax-exchange/novadax-official-api-docs/blob/master/user-data-stream.md
-                # As per the order update section in novadax the ID of the order being cancelled is under the "C" key
-                if event_type == "executionReport":
-                    execution_type = event_message.get("x")
-                    if execution_type != "CANCELED":
-                        client_order_id = event_message.get("c")
-                    else:
-                        client_order_id = event_message.get("C")
+                event_type = event_message[0]
 
-                    tracked_order = self._in_flight_orders.get(client_order_id)
+                if event_type == "order":
+                    execution_type = event_message[1].get("status")
+                    exchange_id = event_message[1]["id"]
+                    tracked_order = None
+                    for o in self._in_flight_orders:
+                        if o.exchange_order_id == exchange_id:
+                            tracked_order = o
 
                     if tracked_order is None:
                         # Hiding the messages for now. Root cause to be investigated in later sprints.
-                        self.logger().debug(f"Unrecognized order ID from user stream: {client_order_id}.")
+                        self.logger().debug(f"Unrecognized order ID from user stream: {exchange_id}.")
                         self.logger().debug(f"Event: {event_message}")
                         continue
 
-                    tracked_order.update_with_execution_report(event_message)
+                    tracked_order.update_with_execution_report(event_message[1])
 
-                    if execution_type == "TRADE":
-                        order_filled_event = OrderFilledEvent.order_filled_event_from_novadax_execution_report(event_message)
+                    if execution_type == "trade":
+                        order_filled_event = OrderFilledEvent.order_filled_event_from_novadax_execution_report(event_message[1])
                         order_filled_event = order_filled_event._replace(trade_fee=self.c_get_fee(
                             tracked_order.base_asset,
                             tracked_order.quote_asset,
-                            OrderType.LIMIT if event_message["o"] == "LIMIT" else OrderType.MARKET,
-                            TradeType.BUY if event_message["S"] == "BUY" else TradeType.SELL,
-                            Decimal(event_message["l"]),
-                            Decimal(event_message["L"])
+                            OrderType.LIMIT if event_message[1]["type"] == "LIMIT" else OrderType.MARKET,
+                            TradeType.BUY if event_message[1]["side"] == "BUY" else TradeType.SELL,
+                            Decimal(event_message["price"]),
+                            Decimal(event_message["amount"])
                         ))
                         self.c_trigger_event(self.MARKET_ORDER_FILLED_EVENT_TAG, order_filled_event)
 
@@ -569,23 +560,6 @@ cdef class NovadaxMarket(MarketBase):
                                                          tracked_order.order_type
                                                      ))
                         self.c_stop_tracking_order(tracked_order.client_order_id)
-
-                elif event_type == "outboundAccountInfo":
-                    local_asset_names = set(self._account_balances.keys())
-                    remote_asset_names = set()
-                    balances = event_message["B"]
-                    for balance_entry in balances:
-                        asset_name = balance_entry["a"]
-                        free_balance = Decimal(balance_entry["f"])
-                        total_balance = Decimal(balance_entry["f"]) + Decimal(balance_entry["l"])
-                        self._account_available_balances[asset_name] = free_balance
-                        self._account_balances[asset_name] = total_balance
-                        remote_asset_names.add(asset_name)
-
-                    asset_names_to_remove = local_asset_names.difference(remote_asset_names)
-                    for asset_name in asset_names_to_remove:
-                        del self._account_available_balances[asset_name]
-                        del self._account_balances[asset_name]
 
             except asyncio.CancelledError:
                 raise
@@ -762,7 +736,7 @@ cdef class NovadaxMarket(MarketBase):
             else:
                 raise ValueError(f"Invalid OrderType {order_type}. Aborting.")
 
-            exchange_order_id = str(order_result["id"])
+            exchange_order_id = str(order_result["data"]["id"])
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None:
                 self.logger().info(f"Created {order_type} buy order {order_id} for "
@@ -859,7 +833,7 @@ cdef class NovadaxMarket(MarketBase):
             else:
                 raise ValueError(f"Invalid OrderType {order_type}. Aborting.")
 
-            exchange_order_id = str(order_result["id"])
+            exchange_order_id = str(order_result["data"]["id"])
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None:
                 self.logger().info(f"Created {order_type} sell order {order_id} for "
@@ -901,10 +875,12 @@ cdef class NovadaxMarket(MarketBase):
 
     async def execute_cancel(self, trading_pair: str, order_id: str):
         try:
-            cancel_order = self._novadax_client.cancle_order(order_id)
-            cancel_result = cancel_order
+            o = self._in_flight_orders[order_id]
+            #this is the spelling they use: -------\/
+            cancel_result = self._novadax_client.cancle_order(o.exchange_order_id)
+            
         except Exception as e:
-            if cancel_result["message"] == "Order not found":
+            if e.message == "Order not found":
                 # The order was never there to begin with. So cancelling it is a no-op but semantically successful.
                 self.logger().debug(f"The order {order_id} does not exist on novadax. No cancellation needed.")
                 self.c_stop_tracking_order(order_id)
@@ -922,6 +898,7 @@ cdef class NovadaxMarket(MarketBase):
             self.c_stop_tracking_order(order_id)
             self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
                                  OrderCancelledEvent(self._current_timestamp, order_id))
+            cancel_result["client_order_id"] = order_id
         return cancel_result
 
     cdef c_cancel(self, str trading_pair, str order_id):
@@ -940,8 +917,8 @@ cdef class NovadaxMarket(MarketBase):
                 for cr in cancellation_results:
                     if isinstance(cr, Exception):
                         continue
-                    if isinstance(cr, dict) and "origClientOrderId" in cr:
-                        client_order_id = cr.get("origClientOrderId")
+                    else:
+                        client_order_id = cr.get("client_order_id")
                         order_id_set.remove(client_order_id)
                         successful_cancellations.append(CancellationResult(client_order_id, True))
         except Exception:
