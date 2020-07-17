@@ -28,11 +28,9 @@ from hummingbot.market.ftx.ftx_order_book_tracker_entry import FtxOrderBookTrack
 
 EXCHANGE_NAME = "ftx"
 
-FTX_REST_URL = "https://api.ftx.com/v3"
+FTX_REST_URL = "https://ftx.com/api"
 FTX_EXCHANGE_INFO_PATH = "/markets"
-FTX_MARKET_SUMMARY_PATH = "/markets/summaries"
-FTX_TICKER_PATH = "/markets/tickers"
-FTX_WS_FEED = "https://socket.ftx.com/signalr"
+FTX_WS_FEED = "wss://ftx.com/ws/"
 
 MAX_RETRIES = 20
 MESSAGE_TIMEOUT = 30.0
@@ -65,73 +63,31 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
         Returned data frame should have trading pair as index and include USDVolume, baseAsset and quoteAsset
         """
         market_path_url = f"{FTX_REST_URL}{FTX_EXCHANGE_INFO_PATH}"
-        summary_path_url = f"{FTX_REST_URL}{FTX_MARKET_SUMMARY_PATH}"
-        ticker_path_url = f"{FTX_REST_URL}{FTX_TICKER_PATH}"
 
         async with aiohttp.ClientSession() as client:
 
-            market_response, ticker_response, summary_response = await safe_gather(
-                client.get(market_path_url), client.get(ticker_path_url), client.get(summary_path_url)
-            )
+            market_response = await client.get(market_path_url)
 
             market_response: aiohttp.ClientResponse = market_response
-            ticker_response: aiohttp.ClientResponse = ticker_response
-            summary_response: aiohttp.ClientResponse = summary_response
 
             if market_response.status != 200:
                 raise IOError(
                     f"Error fetching active ftx markets information. " f"HTTP status is {market_response.status}."
                 )
-            if ticker_response.status != 200:
-                raise IOError(
-                    f"Error fetching active ftx market tickers. " f"HTTP status is {ticker_response.status}."
-                )
-            if summary_response.status != 200:
-                raise IOError(
-                    f"Error fetching active ftx market summaries. " f"HTTP status is {summary_response.status}."
-                )
 
-            market_data, ticker_data, summary_data = await safe_gather(
-                market_response.json(), ticker_response.json(), summary_response.json()
-            )
+            raw_market_data = market_response.json()
 
-            ticker_data: Dict[str, Any] = {item["symbol"]: item for item in ticker_data}
-            summary_data: Dict[str, Any] = {item["symbol"]: item for item in summary_data}
+            market_data = [data for data in raw_market_data if raw_market_data["type"] == "spot"]
 
-            market_data: List[Dict[str, Any]] = [
-                {**item, **ticker_data[item["symbol"]], **summary_data[item["symbol"]]}
-                for item in market_data
-                if item["symbol"] in ticker_data and item["symbol"] in summary_data
-            ]
-
-            all_markets: pd.DataFrame = pd.DataFrame.from_records(data=market_data, index="symbol")
+            all_markets: pd.DataFrame = pd.DataFrame.from_records(data=market_data, index="name")
             all_markets.rename(
-                {"baseCurrencySymbol": "baseAsset", "quoteCurrencySymbol": "quoteAsset"}, axis="columns", inplace=True
+                {"baseCurrency": "baseAsset", "quoteCurrency": "quoteAsset", "volumeUsd24h": "USDVolume"}, axis="columns", inplace=True
             )
 
             btc_usd_price: float = float(all_markets.loc["BTC-USD"].lastTradeRate)
             eth_usd_price: float = float(all_markets.loc["ETH-USD"].lastTradeRate)
 
-            usd_volume: List[float] = [
-                (
-                    volume * quote_price if trading_pair.endswith(("USD", "USDT")) else
-                    volume * quote_price * btc_usd_price if trading_pair.endswith("BTC") else
-                    volume * quote_price * eth_usd_price if trading_pair.endswith("ETH") else
-                    volume
-                )
-                for trading_pair, volume, quote_price in zip(all_markets.index,
-                                                             all_markets.volume.astype("float"),
-                                                             all_markets.lastTradeRate.astype("float"))
-            ]
-            old_trading_pairs: List[str] = [
-                (
-                    f"{quoteAsset}-{baseAsset}"
-                )
-                for baseAsset, quoteAsset in zip(all_markets.baseAsset, all_markets.quoteAsset)
-            ]
-
-            all_markets.loc[:, "USDVolume"] = usd_volume
-            all_markets.loc[:, "old_trading_pair"] = old_trading_pairs
+            
             await client.close()
             return all_markets.sort_values("USDVolume", ascending=False)
 
@@ -153,14 +109,11 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
         if self._websocket_connection and self._websocket_hub:
             return self._websocket_connection, self._websocket_hub
 
-        self._websocket_connection = signalr_aio.Connection(_WS_FEED, session=None)
-        self._websocket_hub = self._websocket_connection.register_hub("c2")
+        self._websocket_connection = signalr_aio.Connection(FTX_WS_FEED, session=None)
 
         trading_pairs = await self.get_trading_pairs()
         for trading_pair in trading_pairs:
-            # TODO: Refactor accordingly when V3 WebSocket API is released
-            # WebSocket API requires trading_pair to be in 'Quote-Base' format
-            trading_pair = f"{trading_pair.split('-')[1]}-{trading_pair.split('-')[0]}"
+            trading_pair = f"{trading_pair.split('/')[1]}-{trading_pair.split('/')[0]}"
             self.logger().info(f"Subscribed to {trading_pair} deltas")
             self._websocket_hub.server.invoke("SubscribeToExchangeDeltas", trading_pair)
 
@@ -182,72 +135,48 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
         except asyncio.TimeoutError:
             raise
 
-    async def get_snapshot(self, trading_pair: str) -> OrderBookMessage:
+    async def get_snapshot(client: aiohttp.ClientSession, trading_pair: str, limit: int = 1000) -> Dict[str, Any]:
+        params: Dict = {"limit": str(limit), "symbol": trading_pair} if limit != 0 else {"symbol": trading_pair}
+        async with client.get(SNAPSHOT_REST_URL, params=params) as response:
+            response: aiohttp.ClientResponse = response
+            if response.status != 200:
+                raise IOError(f"Error fetching Binance market snapshot for {trading_pair}. "
+                              f"HTTP status is {response.status}.")
+            data: Dict[str, Any] = await response.json()
 
-        # TODO: Refactor accordingly when V3 WebSocket API is released
-        temp_trading_pair = f"{trading_pair.split('-')[1]}-{trading_pair.split('-')[0]}"
+            # Need to add the symbol into the snapshot message for the Kafka message queue.
+            # Because otherwise, there'd be no way for the receiver to know which market the
+            # snapshot belongs to.
 
-        get_snapshot_attempts = 0
-        while get_snapshot_attempts < MAX_RETRIES:
-            get_snapshot_attempts += 1
+            return data
 
-            # Creates/Reuses connection to obtain a single snapshot of the trading_pair
-            connection, hub = await self.websocket_connection()
-            hub.server.invoke("queryExchangeState", trading_pair)
-            invoke_timestamp = int(time.time())
-            self.logger().info(f"Query {trading_pair} snapshot[{invoke_timestamp}]. "
-                               f"{get_snapshot_attempts}/{MAX_RETRIES}")
+   async def get_tracking_pairs(self) -> Dict[str, OrderBookTrackerEntry]:
+        # Get the currently active markets
+        async with aiohttp.ClientSession() as client:
+            trading_pairs: List[str] = await self.get_trading_pairs()
+            retval: Dict[str, OrderBookTrackerEntry] = {}
 
-            try:
-                return await self.wait_for_snapshot(temp_trading_pair, invoke_timestamp)
-            except asyncio.TimeoutError:
-                self.logger().warning("Snapshot query timed out. Retrying...")
-            except Exception:
-                self.logger().error(f"Unexpected error occurred when retrieving {trading_pair} snapshot. "
-                                    f"Retrying...",
-                                    exc_info=True)
-            await asyncio.sleep(0.5)
-
-        raise IOError
-
-    async def get_tracking_pairs(self) -> Dict[str, OrderBookTrackerEntry]:
-        # Get the current active markets
-        trading_pairs: List[str] = await self.get_trading_pairs()
-        retval: Dict[str, OrderBookTrackerEntry] = {}
-
-        number_of_pairs: int = len(trading_pairs)
-        for index, trading_pair in enumerate(trading_pairs):
-
-            # TODO: Refactor accordingly when V3 WebSocket API is released
-            # get_snapshot() utilizes WebSocket API. Requires market trading pairs in 'Quote-Base' format
-            # Code below converts 'Base-Quote' -> 'Quote-Base'
-            temp_trading_pair = f"{trading_pair.split('-')[1]}-{trading_pair.split('-')[0]}"
-
-            try:
-                snapshot: OrderBookMessage = await self.get_snapshot(temp_trading_pair)
-
-                order_book: OrderBook = self.order_book_create_function()
-                active_order_tracker: FtxActiveOrderTracker = FtxActiveOrderTracker()
-
-                bids, asks = active_order_tracker.convert_snapshot_message_to_order_book_row(snapshot)
-                order_book.apply_snapshot(bids, asks, snapshot.update_id)
-                retval[trading_pair] = FtxOrderBookTrackerEntry(
-                    trading_pair, snapshot.timestamp, order_book, active_order_tracker
-                )
-                self.logger().info(
-                    f"Initialized order book for {trading_pair}. " f"{index + 1}/{number_of_pairs} completed."
-                )
-                await asyncio.sleep(0.5)
-            except (IOError, OSError):
-                self.logger().network(
-                    f"Max retries met fetching snapshot for {trading_pair}.",
-                    exc_info=True,
-                    app_warning_msg=f"Error getting snapshot for {trading_pair}. Check network connection.",
-                )
-            except Exception:
-                self.logger().error(f"Error initiailizing order book for {trading_pair}. ", exc_info=True)
-                await asyncio.sleep(5.0)
-        return retval
+            number_of_pairs: int = len(trading_pairs)
+            for index, trading_pair in enumerate(trading_pairs):
+                try:
+                    snapshot: Dict[str, Any] = await self.get_snapshot(client, trading_pair, 1000)
+                    snapshot_timestamp: float = time.time()
+                    snapshot_msg: OrderBookMessage = BinanceOrderBook.snapshot_message_from_exchange(
+                        snapshot,
+                        snapshot_timestamp,
+                        metadata={"trading_pair": trading_pair}
+                    )
+                    order_book: OrderBook = self.order_book_create_function()
+                    order_book.apply_snapshot(snapshot_msg.bids, snapshot_msg.asks, snapshot_msg.update_id)
+                    retval[trading_pair] = OrderBookTrackerEntry(trading_pair, snapshot_timestamp, order_book)
+                    self.logger().info(f"Initialized order book for {trading_pair}. "
+                                       f"{index+1}/{number_of_pairs} completed.")
+                    # Each 1000 limit snapshot costs 10 requests and Binance rate limit is 20 requests per second.
+                    await asyncio.sleep(1.0)
+                except Exception:
+                    self.logger().error(f"Error getting snapshot for {trading_pair}. ", exc_info=True)
+                    await asyncio.sleep(5)
+            return retval
 
     async def listen_for_trades(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         # Trade messages are received as Orderbook Deltas and handled by listen_for_order_book_stream()
