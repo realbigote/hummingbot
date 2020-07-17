@@ -305,6 +305,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.amount_to_offset += float(order_filled_event.amount)
                         self.primary_base_balance += float(order_filled_event.amount)
                         self.primary_base_total_balance += float(order_filled_event.amount)
+                        self.primary_quote_total_balance -= float(order_filled_event.amount * order_filled_event.price)
                         self.has_been_offset.append(order_id)
                         self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(order_filled_event.amount), float(order_filled_event.price), True)
                     else:
@@ -320,6 +321,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.offset_quote_exposure -= float(order_filled_event.amount)
                         self.mirrored_base_balance += float(order_filled_event.amount) 
                         self.mirrored_base_total_balance += float(order_filled_event.amount)
+                        self.mirrored_quote_total_balance -= float(order_filled_event.price * order_filled_event.amount)
                         self.has_been_offset.append(order_id)
                         self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, float(order_filled_event.amount), float(order_filled_event.price), True)
                     else:
@@ -337,6 +339,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.amount_to_offset -= float(order_filled_event.amount)
                         self.primary_quote_balance += float(order_filled_event.price * order_filled_event.amount)
                         self.primary_quote_total_balance += float(order_filled_event.price * order_filled_event.amount)
+                        self.primary_base_total_balance -= float(order_filled_event.amount)
                         self.has_been_offset.append(order_id)
                         self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(order_filled_event.amount), float(order_filled_event.price), False)
                     else:
@@ -352,6 +355,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.offset_base_exposure -= float(order_filled_event.amount)
                         self.mirrored_quote_balance += float(order_filled_event.price * order_filled_event.amount)
                         self.mirrored_quote_total_balance += float(order_filled_event.price * order_filled_event.amount)
+                        self.mirrored_base_total_balance -= float(order_filled_event.amount)
                         self.has_been_offset.append(order_id)
                         self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, float(order_filled_event.amount), float(order_filled_event.price), False)
                     else:
@@ -406,6 +410,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.amount_to_offset += float(buy_order_completed_event.base_asset_amount)
                     self.primary_base_balance += float(buy_order_completed_event.base_asset_amount)
                     self.primary_base_total_balance += float(buy_order_completed_event.base_asset_amount)
+                    self.primary_quote_total_balance -= float(buy_order_completed_event.quote_asset_amount)
                     self.has_been_offset.append(f"{order_id}COMPLETE")
                     price = float(buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount)
                     self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(buy_order_completed_event.base_asset_amount), price, True)
@@ -422,6 +427,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.offset_quote_exposure -= float(buy_order_completed_event.quote_asset_amount)
                     self.mirrored_base_balance += float(buy_order_completed_event.base_asset_amount)
                     self.mirrored_base_total_balance += float(buy_order_completed_event.base_asset_amount)
+                    self.mirrored_quote_total_balance -= float(buy_order_completed_event.quote_asset_amount)
                     self.has_been_offset.append(f"{order_id}COMPLETE")
                     price = float(buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount)
                     self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(buy_order_completed_event.base_asset_amount), price, True)
@@ -452,6 +458,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
                     self.primary_quote_balance += float(sell_order_completed_event.quote_asset_amount)
                     self.primary_quote_total_balance += float(sell_order_completed_event.quote_asset_amount)
+                    self.primary_base_total_balance -= float(sell_order_completed_event.base_asset_amount)
                     self.has_been_offset.append(f"{order_id}COMPLETE")
                     price = float(sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount)
                     self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(sell_order_completed_event.base_asset_amount), price, False)
@@ -468,6 +475,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.offset_base_exposure -= float(sell_order_completed_event.quote_asset_amount)
                     self.mirrored_quote_balance += float(sell_order_completed_event.quote_asset_amount)
                     self.mirrored_quote_total_balance += float(sell_order_completed_event.quote_asset_amount)
+                    self.mirrored_base_total_balance -= float(sell_order_completed_event.base_asset_amount)
                     self.has_been_offset.append(f"{order_id}COMPLETE")
                     price = float(sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount)
                     self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, float(sell_order_completed_event.base_asset_amount), price, False)
