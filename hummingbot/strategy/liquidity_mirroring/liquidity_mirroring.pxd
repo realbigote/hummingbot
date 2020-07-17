@@ -31,6 +31,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         float mirrored_quote_total_balance
         bint two_sided_mirroring
         float start_time
+        float start_wallet_check_time
         float primary_best_bid
         float primary_best_ask
         float mirrored_best_bid
@@ -42,6 +43,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         float max_total_loss
         float total_trading_volume
         float trades_executed
+        float trades_ao_last_minute
         float offset_base_exposure
         float offset_quote_exposure
         float min_primary_amount
