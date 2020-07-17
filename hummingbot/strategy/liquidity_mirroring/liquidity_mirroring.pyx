@@ -148,7 +148,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.min_mirroring_amount = min_mirroring_amount
         self.total_trading_volume = 0
         self.trades_executed = 0
-        self.trades_ao_last_minute = 0
 
         self.marked_for_deletion = []
         self.has_been_offset = []
@@ -618,35 +617,29 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         return covered
 
     def check_calculations(self):
-        recent_trades = self.trades_executed - self.trades_ao_last_minute
-        self.trades_ao_last_minute = self.trades_executed
-        self.logger().warning(f"Trades executed in the last minute: {recent_trades}")
-        if (recent_trades > 10):
-            SlackPusher(self.slack_url, "High frequency of trades")
-        else:
-            primary_market = self.primary_market_pairs[0].market
-            mirrored_market = self.mirrored_market_pairs[0].market
-            primary_base_asset = self.primary_market_pairs[0].base_asset
-            primary_quote_asset = self.primary_market_pairs[0].quote_asset
-            mirrored_base_asset = self.mirrored_market_pairs[0].base_asset
-            mirrored_quote_asset = self.mirrored_market_pairs[0].quote_asset
-            primary_base_balance = float(primary_market.get_balance(primary_base_asset))
-            primary_quote_balance = float(primary_market.get_balance(primary_quote_asset))
-            mirrored_base_balance = float(mirrored_market.get_balance(mirrored_base_asset))  
-            mirrored_quote_balance = float(mirrored_market.get_balance(mirrored_quote_asset))
+        primary_market = self.primary_market_pairs[0].market
+        mirrored_market = self.mirrored_market_pairs[0].market
+        primary_base_asset = self.primary_market_pairs[0].base_asset
+        primary_quote_asset = self.primary_market_pairs[0].quote_asset
+        mirrored_base_asset = self.mirrored_market_pairs[0].base_asset
+        mirrored_quote_asset = self.mirrored_market_pairs[0].quote_asset
+        primary_base_balance = float(primary_market.get_balance(primary_base_asset))
+        primary_quote_balance = float(primary_market.get_balance(primary_quote_asset))
+        mirrored_base_balance = float(mirrored_market.get_balance(mirrored_base_asset))  
+        mirrored_quote_balance = float(mirrored_market.get_balance(mirrored_quote_asset))
 
-            if (abs(primary_base_balance - self.primary_base_total_balance) > 0.01):
-                self.primary_base_total_balance = primary_base_balance
-                SlackPusher(self.slack_hook,"BALANCE DISCREPANCY")
-            if (abs(primary_quote_balance - self.primary_quote_total_balance) > 0.01):
-                self.primary_quote_total_balance = primary_quote_balance
-                SlackPusher(self.slack_hook,"BALANCE DISCREPANCY")
-            if (abs(mirrored_base_balance - self.mirrored_base_total_balance) > 0.01):
-                self.mirrored_base_total_balance = mirrored_base_balance
-                SlackPusher(self.slack_hook,"BALANCE DISCREPANCY")
-            if (abs(mirrored_quote_balance - self.mirrored_quote_total_balance) > 0.01):
-                self.mirrored_quote_total_balance = mirrored_quote_balance
-                SlackPusher(self.slack_hook,"BALANCE DISCREPANCY")
+        if (abs(primary_base_balance - self.primary_base_total_balance) > 0.001):
+            self.primary_base_total_balance = primary_base_balance
+            SlackPusher(self.slack_hook,f"BALANCE DISCREPANCY on {primary_market} for {primary_base_asset}")
+        if (abs(primary_quote_balance - self.primary_quote_total_balance) > 0.001):
+            self.primary_quote_total_balance = primary_quote_balance
+            SlackPusher(self.slack_hook,f"BALANCE DISCREPANCY on {primary_market} for {primary_quote_asset}")
+        if (abs(mirrored_base_balance - self.mirrored_base_total_balance) > 0.001):
+            self.mirrored_base_total_balance = mirrored_base_balance
+            SlackPusher(self.slack_hook,f"BALANCE DISCREPANCY on {mirrored_market} for {mirrored_base_asset}")
+        if (abs(mirrored_quote_balance - self.mirrored_quote_total_balance) > 0.001):
+            self.mirrored_quote_total_balance = mirrored_quote_balance
+            SlackPusher(self.slack_hook,f"BALANCE DISCREPANCY on {mirrored_market} for {mirrored_quote_asset}")
 
     cdef c_process_market_pair(self, object market_pair):
         primary_market_pair = self.primary_market_pairs[0]

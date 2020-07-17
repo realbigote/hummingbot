@@ -43,7 +43,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         float max_total_loss
         float total_trading_volume
         float trades_executed
-        float trades_ao_last_minute
         float offset_base_exposure
         float offset_quote_exposure
         float min_primary_amount
