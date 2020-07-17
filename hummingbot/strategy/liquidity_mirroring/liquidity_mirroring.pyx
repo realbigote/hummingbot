@@ -135,12 +135,13 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.offset_quote_exposure = 0
 
         self.primary_base_balance = 0
-
+        self.primary_base_total_balance = 0
         self.primary_quote_balance = 0
-
+        self.primary_quote_total_balance = 0
         self.mirrored_base_balance = 0
-
+        self.mirrored_base_total_balance = 0
         self.mirrored_quote_balance = 0
+        self.mirrored_quote_total_balance = 0
         self.balances_set = False     
 
         self.min_primary_amount = min_primary_amount
@@ -161,6 +162,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.slack_url = slack_hook
         self.cycle_number = 0
         self.start_time = datetime.timestamp(datetime.now())
+        self.start_wallet_check_time = self.start_time
         self.slack_update_period = slack_update_period
 
     @property
@@ -258,12 +260,16 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 mirrored_quote_asset = self.mirrored_market_pairs[0].quote_asset
                 while self.primary_base_balance == 0:
                     self.primary_base_balance = primary_market.get_available_balance(primary_base_asset)
+                    self.primary_base_total_balance = primary_market.get_balance(primary_base_asset)
                 while self.primary_quote_balance == 0:
                     self.primary_quote_balance = primary_market.get_available_balance(primary_quote_asset)
+                    self.primary_quote_total_balance = primary_market.get_balance(primary_quote_asset)
                 while self.mirrored_base_balance == 0:
                     self.mirrored_base_balance = mirrored_market.get_available_balance(mirrored_base_asset)
+                    self.mirrored_base_total_balance = mirrored_market.get_balance(mirrored_base_asset)
                 while self.mirrored_quote_balance == 0:
                     self.mirrored_quote_balance = mirrored_market.get_available_balance(mirrored_quote_asset)
+                    self.mirrored_quote_total_balance = mirrored_market.get_balance(mirrored_quote_asset)
                 assets_df = self.wallet_balance_data_frame([self.mirrored_market_pairs[0]])
                 total_balance = assets_df['Total Balance']
                 assets_df = self.wallet_balance_data_frame([self.primary_market_pairs[0]])
@@ -299,6 +305,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.avg_buy_price[1] += float(order_filled_event.amount)
                         self.amount_to_offset += float(order_filled_event.amount)
                         self.primary_base_balance += float(order_filled_event.amount)
+                        self.primary_base_total_balance += float(order_filled_event.amount)
+                        self.primary_quote_total_balance -= float(order_filled_event.amount * order_filled_event.price)
                         self.has_been_offset.append(order_id)
                         self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(order_filled_event.amount), float(order_filled_event.price), True)
                     else:
@@ -313,6 +321,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.amount_to_offset += float(order_filled_event.amount)
                         self.offset_quote_exposure -= float(order_filled_event.amount)
                         self.mirrored_base_balance += float(order_filled_event.amount) 
+                        self.mirrored_base_total_balance += float(order_filled_event.amount)
+                        self.mirrored_quote_total_balance -= float(order_filled_event.price * order_filled_event.amount)
                         self.has_been_offset.append(order_id)
                         self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, float(order_filled_event.amount), float(order_filled_event.price), True)
                     else:
@@ -329,6 +339,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.avg_sell_price[1] += float(order_filled_event.amount)
                         self.amount_to_offset -= float(order_filled_event.amount)
                         self.primary_quote_balance += float(order_filled_event.price * order_filled_event.amount)
+                        self.primary_quote_total_balance += float(order_filled_event.price * order_filled_event.amount)
+                        self.primary_base_total_balance -= float(order_filled_event.amount)
                         self.has_been_offset.append(order_id)
                         self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(order_filled_event.amount), float(order_filled_event.price), False)
                     else:
@@ -343,6 +355,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.amount_to_offset -= float(order_filled_event.amount)
                         self.offset_base_exposure -= float(order_filled_event.amount)
                         self.mirrored_quote_balance += float(order_filled_event.price * order_filled_event.amount)
+                        self.mirrored_quote_total_balance += float(order_filled_event.price * order_filled_event.amount)
+                        self.mirrored_base_total_balance -= float(order_filled_event.amount)
                         self.has_been_offset.append(order_id)
                         self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, float(order_filled_event.amount), float(order_filled_event.price), False)
                     else:
@@ -396,6 +410,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.avg_buy_price[1] += float(buy_order_completed_event.base_asset_amount)
                     self.amount_to_offset += float(buy_order_completed_event.base_asset_amount)
                     self.primary_base_balance += float(buy_order_completed_event.base_asset_amount)
+                    self.primary_base_total_balance += float(buy_order_completed_event.base_asset_amount)
+                    self.primary_quote_total_balance -= float(buy_order_completed_event.quote_asset_amount)
                     self.has_been_offset.append(f"{order_id}COMPLETE")
                     price = float(buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount)
                     self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(buy_order_completed_event.base_asset_amount), price, True)
@@ -411,6 +427,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.amount_to_offset += float(buy_order_completed_event.base_asset_amount)
                     self.offset_quote_exposure -= float(buy_order_completed_event.quote_asset_amount)
                     self.mirrored_base_balance += float(buy_order_completed_event.base_asset_amount)
+                    self.mirrored_base_total_balance += float(buy_order_completed_event.base_asset_amount)
+                    self.mirrored_quote_total_balance -= float(buy_order_completed_event.quote_asset_amount)
                     self.has_been_offset.append(f"{order_id}COMPLETE")
                     price = float(buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount)
                     self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(buy_order_completed_event.base_asset_amount), price, True)
@@ -440,6 +458,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.avg_sell_price[1] += float(sell_order_completed_event.base_asset_amount)
                     self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
                     self.primary_quote_balance += float(sell_order_completed_event.quote_asset_amount)
+                    self.primary_quote_total_balance += float(sell_order_completed_event.quote_asset_amount)
+                    self.primary_base_total_balance -= float(sell_order_completed_event.base_asset_amount)
                     self.has_been_offset.append(f"{order_id}COMPLETE")
                     price = float(sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount)
                     self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(sell_order_completed_event.base_asset_amount), price, False)
@@ -455,6 +475,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
                     self.offset_base_exposure -= float(sell_order_completed_event.quote_asset_amount)
                     self.mirrored_quote_balance += float(sell_order_completed_event.quote_asset_amount)
+                    self.mirrored_quote_total_balance += float(sell_order_completed_event.quote_asset_amount)
+                    self.mirrored_base_total_balance -= float(sell_order_completed_event.base_asset_amount)
                     self.has_been_offset.append(f"{order_id}COMPLETE")
                     price = float(sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount)
                     self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, float(sell_order_completed_event.base_asset_amount), price, False)
@@ -594,6 +616,31 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 break
         return covered
 
+    def check_calculations(self):
+        primary_market = self.primary_market_pairs[0].market
+        mirrored_market = self.mirrored_market_pairs[0].market
+        primary_base_asset = self.primary_market_pairs[0].base_asset
+        primary_quote_asset = self.primary_market_pairs[0].quote_asset
+        mirrored_base_asset = self.mirrored_market_pairs[0].base_asset
+        mirrored_quote_asset = self.mirrored_market_pairs[0].quote_asset
+        primary_base_balance = float(primary_market.get_balance(primary_base_asset))
+        primary_quote_balance = float(primary_market.get_balance(primary_quote_asset))
+        mirrored_base_balance = float(mirrored_market.get_balance(mirrored_base_asset))  
+        mirrored_quote_balance = float(mirrored_market.get_balance(mirrored_quote_asset))
+
+        if (abs(primary_base_balance - self.primary_base_total_balance) > 0.001):
+            self.primary_base_total_balance = primary_base_balance
+            SlackPusher(self.slack_hook,f"BALANCE DISCREPANCY on {primary_market} for {primary_base_asset}")
+        if (abs(primary_quote_balance - self.primary_quote_total_balance) > 0.001):
+            self.primary_quote_total_balance = primary_quote_balance
+            SlackPusher(self.slack_hook,f"BALANCE DISCREPANCY on {primary_market} for {primary_quote_asset}")
+        if (abs(mirrored_base_balance - self.mirrored_base_total_balance) > 0.001):
+            self.mirrored_base_total_balance = mirrored_base_balance
+            SlackPusher(self.slack_hook,f"BALANCE DISCREPANCY on {mirrored_market} for {mirrored_base_asset}")
+        if (abs(mirrored_quote_balance - self.mirrored_quote_total_balance) > 0.001):
+            self.mirrored_quote_total_balance = mirrored_quote_balance
+            SlackPusher(self.slack_hook,f"BALANCE DISCREPANCY on {mirrored_market} for {mirrored_quote_asset}")
+
     cdef c_process_market_pair(self, object market_pair):
         primary_market_pair = self.primary_market_pairs[0]
 
@@ -640,6 +687,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if self.cycle_number == 8:
             current_time = datetime.timestamp(datetime.now())
             time_elapsed = current_time - self.start_time
+            wallet_check_time_elapsed = current_time - self.start_wallet_check_time
+            if (wallet_check_time_elapsed > 60):
+                self.start_wallet_check_time = current_time
+                self.check_calculations()
             if (time_elapsed > (3600 * self.slack_update_period)):
                 self.start_time = current_time
                 SlackPusher(self.slack_url, self.format_status())
