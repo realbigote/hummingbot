@@ -312,14 +312,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.avg_buy_price[1] += float(order_filled_event.amount)
                         self.amount_to_offset += float(order_filled_event.amount)
                         self.primary_base_balance += float(order_filled_event.amount)
-<<<<<<< HEAD
                         if order_id in self.marked_for_deletion.keys():
                             order = self.marked_for_deletion[order_id]
                             self.buys_to_replace.append(order["rank"])
-=======
                         self.primary_base_total_balance += float(order_filled_event.amount)
                         self.primary_quote_total_balance -= float(order_filled_event.amount * order_filled_event.price)
->>>>>>> 64862fe0b901a5e68e85648cb9b1be36ac607849
                         self.has_been_offset.append(order_id)
                         self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(order_filled_event.amount), float(order_filled_event.price), True)
                     else:
@@ -352,14 +349,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.avg_sell_price[1] += float(order_filled_event.amount)
                         self.amount_to_offset -= float(order_filled_event.amount)
                         self.primary_quote_balance += float(order_filled_event.price * order_filled_event.amount)
-<<<<<<< HEAD
                         if order_id in self.marked_for_deletion.keys():
                             order = self.marked_for_deletion[order_id]
                             self.sells_to_replace.append(order["rank"])
-=======
                         self.primary_quote_total_balance += float(order_filled_event.price * order_filled_event.amount)
                         self.primary_base_total_balance -= float(order_filled_event.amount)
->>>>>>> 64862fe0b901a5e68e85648cb9b1be36ac607849
                         self.has_been_offset.append(order_id)
                         self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(order_filled_event.amount), float(order_filled_event.price), False)
                     else:
@@ -431,14 +425,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.avg_buy_price[1] += float(buy_order_completed_event.base_asset_amount)
                     self.amount_to_offset += float(buy_order_completed_event.base_asset_amount)
                     self.primary_base_balance += float(buy_order_completed_event.base_asset_amount)
-<<<<<<< HEAD
                     if order_id in self.marked_for_deletion.keys():
                         order = self.marked_for_deletion[order_id]
                         self.buys_to_replace.append(order["rank"])
-=======
                     self.primary_base_total_balance += float(buy_order_completed_event.base_asset_amount)
                     self.primary_quote_total_balance -= float(buy_order_completed_event.quote_asset_amount)
->>>>>>> 64862fe0b901a5e68e85648cb9b1be36ac607849
                     self.has_been_offset.append(f"{order_id}COMPLETE")
                     price = float(buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount)
                     self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(buy_order_completed_event.base_asset_amount), price, True)
@@ -483,14 +474,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.avg_sell_price[1] += float(sell_order_completed_event.base_asset_amount)
                     self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
                     self.primary_quote_balance += float(sell_order_completed_event.quote_asset_amount)
-<<<<<<< HEAD
                     if order_id in self.marked_for_deletion.keys():
                         order = self.marked_for_deletion[order_id]
                         self.sells_to_replace.append(order["rank"])
-=======
                     self.primary_quote_total_balance += float(sell_order_completed_event.quote_asset_amount)
                     self.primary_base_total_balance -= float(sell_order_completed_event.base_asset_amount)
->>>>>>> 64862fe0b901a5e68e85648cb9b1be36ac607849
                     self.has_been_offset.append(f"{order_id}COMPLETE")
                     price = float(sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount)
                     self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(sell_order_completed_event.base_asset_amount), price, False)
