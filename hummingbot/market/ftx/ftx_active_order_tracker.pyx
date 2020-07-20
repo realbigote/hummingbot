@@ -45,13 +45,13 @@ cdef class FtxActiveOrderTracker:
         return sum([float(msg["remaining_size"]) for msg in self._active_bids[price].values()])
 
     def get_rates_and_quantities(self, entry) -> tuple:
-        return entry["R"], entry["Q"]
+        return float(entry[0]), float(entry[1])
 
     cdef tuple c_convert_diff_message_to_np_arrays(self, object message):
         cdef:
             dict content = message.content
-            list bid_entries = content["Z"]
-            list ask_entries = content["S"]
+            list bid_entries = content["bids"]
+            list ask_entries = content["asks"]
             str order_id
             str order_side
             str price_raw
@@ -68,7 +68,7 @@ cdef class FtxActiveOrderTracker:
                 [[timestamp,
                   float(price),
                   float(quantity),
-                  message.update_id]
+                  timestamp]
                  for price, quantity in [self.get_rates_and_quantities(entry) for entry in bid_entries]],
                 dtype="float64",
                 ndmin=2
@@ -79,7 +79,7 @@ cdef class FtxActiveOrderTracker:
                 [[timestamp,
                   float(price),
                   float(quantity),
-                  message.update_id]
+                  timestamp]
                  for price, quantity in [self.get_rates_and_quantities(entry) for entry in ask_entries]],
                 dtype="float64",
                 ndmin=2
@@ -89,55 +89,41 @@ cdef class FtxActiveOrderTracker:
 
     cdef tuple c_convert_snapshot_message_to_np_arrays(self, object message):
         cdef:
-            object price
+            dict content = message.content
+            list bid_entries = content["bids"]
+            list ask_entries = content["asks"]
             str order_id
-            str amount
+            str order_side
+            str price_raw
+            object price
             dict order_dict
+            double timestamp = message.timestamp
+            double quantity = 0
 
-        # Refresh all order tracking.
-        self._active_bids.clear()
-        self._active_asks.clear()
-        timestamp = message.timestamp
+        bids = s_empty_diff
+        asks = s_empty_diff
 
-        for snapshot_orders, active_orders in [(message.content["Z"], self._active_bids),
-                                              (message.content["S"], self.active_asks)]:
-
-            for order in snapshot_orders:
-                price = order["R"]
-                amount = str(order["Q"])
-                order_dict = {
-                    "order_id": timestamp,
-                    "quantity": amount
-                }
-
-                if price in active_orders:
-                    active_orders[price][timestamp] = order_dict
-                else:
-                    active_orders[price] = {
-                        timestamp: order_dict
-                    }
-
-        cdef:
-            np.ndarray[np.float64_t, ndim=2] bids = np.array(
-                [[message.timestamp,
+        if len(bid_entries) > 0:
+            bids = np.array(
+                [[timestamp,
                   float(price),
-                  sum([float(order_dict["quantity"])
-                       for order_dict in self._active_bids[price].values()]),
-                  message.update_id]
-                 for price in sorted(self._active_bids.keys(), reverse=True)], dtype="float64", ndmin=2)
-            np.ndarray[np.float64_t, ndim=2] asks = np.array(
-                [[message.timestamp,
-                  float(price),
-                  sum([float(order_dict["quantity"])
-                       for order_dict in self.active_asks[price].values()]),
-                  message.update_id]
-                 for price in sorted(self.active_asks.keys(), reverse=True)], dtype="float64", ndmin=2
+                  float(quantity),
+                  timestamp]
+                 for price, quantity in [self.get_rates_and_quantities(entry) for entry in bid_entries]],
+                dtype="float64",
+                ndmin=2
             )
 
-        if bids.shape[1] != 4:
-            bids = bids.reshape((0, 4))
-        if asks.shape[1] != 4:
-            asks = asks.reshape((0, 4))
+        if len(ask_entries) > 0:
+            asks = np.array(
+                [[timestamp,
+                  float(price),
+                  float(quantity),
+                  timestamp]
+                 for price, quantity in [self.get_rates_and_quantities(entry) for entry in ask_entries]],
+                dtype="float64",
+                ndmin=2
+            )
 
         return bids, asks
 

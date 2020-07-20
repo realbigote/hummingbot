@@ -5,6 +5,8 @@ import time
 from base64 import b64decode
 from typing import Optional, List, Dict, AsyncIterable, Any
 from zlib import decompress, MAX_WBITS
+import websockets
+from websockets.exceptions import ConnectionClosed
 
 import aiohttp
 import pandas as pd
@@ -39,6 +41,7 @@ NaN = float("nan")
 
 
 class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
+    MESSAGE_TIMEOUT = 30.0
     PING_TIMEOUT = 10.0
 
     _ftxaobds_logger: Optional[HummingbotLogger] = None
@@ -100,18 +103,14 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 )
         return self._trading_pairs
 
-    async def get_snapshot(client: aiohttp.ClientSession, trading_pair: str, limit: int = 1000) -> Dict[str, Any]:
-        params: Dict = {"limit": str(limit), "symbol": trading_pair} if limit != 0 else {"symbol": trading_pair}
-        async with client.get(SNAPSHOT_REST_URL, params=params) as response:
+    async def get_snapshot(self, client: aiohttp.ClientSession, trading_pair: str, limit: int = 1000) -> Dict[str, Any]:
+        
+        async with client.get(f"{FTX_REST_URL}{FTX_EXCHANGE_INFO_PATH}/{trading_pair}/orderbook") as response:
             response: aiohttp.ClientResponse = response
             if response.status != 200:
                 raise IOError(f"Error fetching FTX market snapshot for {trading_pair}. "
                               f"HTTP status is {response.status}.")
             data: Dict[str, Any] = await response.json()
-
-            # Need to add the symbol into the snapshot message for the Kafka message queue.
-            # Because otherwise, there'd be no way for the receiver to know which market the
-            # snapshot belongs to.
 
             return data
 
@@ -125,15 +124,17 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
             for index, trading_pair in enumerate(trading_pairs):
                 try:
                     snapshot: Dict[str, Any] = await self.get_snapshot(client, trading_pair, 1000)
+                    snapshot["data"] = snapshot["result"]
                     snapshot_timestamp: float = time.time()
                     snapshot_msg: OrderBookMessage = FtxOrderBook.snapshot_message_from_exchange(
                         snapshot,
                         snapshot_timestamp,
-                        metadata={"trading_pair": trading_pair}
+                        metadata={"market": trading_pair}
                     )
                     order_book: OrderBook = self.order_book_create_function()
                     order_book.apply_snapshot(snapshot_msg.bids, snapshot_msg.asks, snapshot_msg.update_id)
-                    retval[trading_pair] = OrderBookTrackerEntry(trading_pair, snapshot_timestamp, order_book)
+                    active_order_tracker: FtxActiveOrderTracker = FtxActiveOrderTracker()
+                    retval[trading_pair] = FtxOrderBookTrackerEntry(trading_pair, snapshot_timestamp, order_book, active_order_tracker)
                     self.logger().info(f"Initialized order book for {trading_pair}. "
                                        f"{index+1}/{number_of_pairs} completed.")
                     await asyncio.sleep(1.0)
@@ -168,22 +169,24 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
         while True:
             try:
                 trading_pairs: List[str] = await self.get_trading_pairs()
-                stream_url: str = f"{DIFF_STREAM_URL}"
+                stream_url: str = f"{FTX_WS_FEED}"
 
                 async with websockets.connect(stream_url) as ws:
                     ws: websockets.WebSocketClientProtocol = ws
                     for pair in trading_pairs:
                         subscribe_request: Dict[str, Any] = {
                             "op": "subscribe",
-                            "channel": "trade",
+                            "channel": "trades",
                             "market": pair
                         }
                         await ws.send(ujson.dumps(subscribe_request))
                     async for raw_msg in self._inner_messages(ws):
                         msg = ujson.loads(raw_msg)
-                        if msg["channel"] == "trades" and msg["type"] == "update":
-                            trade_msg: OrderBookMessage = FtxOrderBook.trade_message_from_exchange(msg)
-                            output.put_nowait(trade_msg)
+                        if "channel" in msg:
+                            if msg["channel"] == "trades" and msg["type"] == "update":
+                                for trade in msg["data"]:
+                                    trade_msg: OrderBookMessage = FtxOrderBook.trade_message_from_exchange(msg, trade)
+                                    output.put_nowait(trade_msg)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -195,7 +198,7 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
         while True:
             try:
                 trading_pairs: List[str] = await self.get_trading_pairs()
-                stream_url: str = f"{DIFF_STREAM_URL}"
+                stream_url: str = f"{FTX_WS_FEED}"
 
                 async with websockets.connect(stream_url) as ws:
                     ws: websockets.WebSocketClientProtocol = ws
@@ -208,9 +211,10 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         await ws.send(ujson.dumps(subscribe_request))
                     async for raw_msg in self._inner_messages(ws):
                         msg = ujson.loads(raw_msg)
-                        if msg["channel"] == "orderbook" and msg["type"] == "update":
-                            order_book_message: OrderBookMessage = FtxOrderBook.diff_message_from_exchange(msg)
-                            output.put_nowait(order_book_message)
+                        if "channel" in msg:
+                            if msg["channel"] == "orderbook" and msg["type"] == "update":
+                                order_book_message: OrderBookMessage = FtxOrderBook.diff_message_from_exchange(msg, msg["data"]["time"])
+                                output.put_nowait(order_book_message)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -222,7 +226,7 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
         while True:
             try:
                 trading_pairs: List[str] = await self.get_trading_pairs()
-                stream_url: str = f"{DIFF_STREAM_URL}"
+                stream_url: str = f"{FTX_WS_FEED}"
 
                 async with websockets.connect(stream_url) as ws:
                     ws: websockets.WebSocketClientProtocol = ws
@@ -235,9 +239,10 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         await ws.send(ujson.dumps(subscribe_request))
                     async for raw_msg in self._inner_messages(ws):
                         msg = ujson.loads(raw_msg)
-                        if msg["channel"] == "orderbook" and msg["type"] == "partial":
-                            order_book_message: OrderBookMessage = FtxOrderBook.diff_message_from_exchange(msg)
-                            output.put_nowait(order_book_message)
+                        if "channel" in msg:
+                            if msg["channel"] == "orderbook" and msg["type"] == "partial":
+                                order_book_message: OrderBookMessage = FtxOrderBook.snapshot_message_from_exchange(msg, msg["data"]["time"])
+                                output.put_nowait(order_book_message)
             except asyncio.CancelledError:
                 raise
             except Exception:

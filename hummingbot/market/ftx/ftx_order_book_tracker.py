@@ -100,152 +100,50 @@ class FtxOrderBookTracker(OrderBookTracker):
             del self._tracking_message_queues[trading_pair]
             self.logger().info(f"Stopped order book tracking for {trading_pair}.")
 
-    async def _order_book_diff_router(self):
-        """
-        Route the real-time order book diff messages to the correct order book.
-        """
-        last_message_timestamp: float = time.time()
-        message_queued: int = 0
-        message_accepted: int = 0
-        message_rejected: int = 0
-        while True:
-            try:
-                ob_message: FtxOrderBookMessage = await self._order_book_diff_stream.get()
-                trading_pair: str = ob_message.trading_pair
-                if trading_pair not in self._tracking_message_queues:
-                    message_queued += 1
-                    # Save diff messages received before snaphsots are ready
-                    self._saved_message_queues[trading_pair].append(ob_message)
-                    continue
-                message_queue: asyncio.Queue = self._tracking_message_queues[trading_pair]
-                # Check the order book's initial update ID. If it's larger, don't bother.
-                order_book: FtxOrderBook = self._order_books[trading_pair]
-
-                if order_book.snapshot_uid > ob_message.update_id:
-                    message_rejected += 1
-                    continue
-                await message_queue.put(ob_message)
-                message_accepted += 1
-
-                if len(ob_message.content["f"]) != 0:
-                    for trade in ob_message.content["f"]:
-                        trade_type = float(TradeType.SELL.value) if trade["OT"].upper() == "SELL" \
-                            else float(TradeType.BUY.value)
-                        self._order_book_trade_stream.put_nowait(OrderBookMessage(OrderBookMessageType.TRADE, {
-                            "trading_pair": ob_message.trading_pair,
-                            "trade_type": trade_type,
-                            "trade_id": trade["FI"],
-                            "update_id": trade["T"],
-                            "price": trade["R"],
-                            "amount": trade["Q"]
-                        }, timestamp=trade["T"]))
-
-                # Log some statistics
-                now: float = time.time()
-                if int(now / 60.0) > int(last_message_timestamp / 60.0):
-                    self.logger().debug(
-                        f"Diff message processed: "
-                        f"{message_accepted}, "
-                        f"rejected: {message_rejected}, "
-                        f"queued: {message_queue}"
-                    )
-                    message_accepted = 0
-                    message_rejected = 0
-                    message_queued = 0
-
-                last_message_timestamp = now
-
-            except asyncio.CancelledError:
-                raise
-
-            except Exception:
-                self.logger().network(
-                    f"Unexpected error routing order book messages.",
-                    exc_info=True,
-                    app_warning_msg=f"Unexpected error routing order book messages. Retrying after 5 seconds.",
-                )
-                await asyncio.sleep(5.0)
-
     async def _track_single_book(self, trading_pair: str):
-        past_diffs_window: Deque[FtxOrderBookMessage] = deque()
+        past_diffs_window: Deque[OrderBookMessage] = deque()
         self._past_diffs_windows[trading_pair] = past_diffs_window
 
         message_queue: asyncio.Queue = self._tracking_message_queues[trading_pair]
-        order_book: FtxOrderBook = self._order_books[trading_pair]
-        active_order_tracker: FtxActiveOrderTracker = self._active_order_trackers[trading_pair]
-
-        last_message_timestamp = order_book.snapshot_uid
-        diff_message_accepted: int = 0
+        order_book: OrderBook = self._order_books[trading_pair]
+        last_message_timestamp: float = time.time()
+        diff_messages_accepted: int = 0
 
         while True:
             try:
-                message: FtxOrderBookMessage = None
-                save_messages: Deque[FtxOrderBookMessage] = self._saved_message_queues[trading_pair]
+                message: OrderBookMessage = None
+                saved_messages: Deque[OrderBookMessage] = self._saved_message_queues[trading_pair]
+                active_order_tracker = self._active_order_trackers[trading_pair]
                 # Process saved messages first if there are any
-                if len(save_messages) > 0:
-                    message = save_messages.popleft()
-                elif message_queue.qsize() > 0:
-                    message = await message_queue.get()
+                if len(saved_messages) > 0:
+                    message = saved_messages.popleft()
                 else:
-                    # Waits to received some diff messages
-                    await asyncio.sleep(3)
-                    continue
-
-                # Processes diff stream
+                    message = await message_queue.get()
                 if message.type is OrderBookMessageType.DIFF:
-
                     bids, asks = active_order_tracker.convert_diff_message_to_order_book_row(message)
-                    order_book.apply_diffs(bids, asks, message.update_id)
+                    order_book.apply_diffs(bids, asks, message.timestamp)
                     past_diffs_window.append(message)
                     while len(past_diffs_window) > self.PAST_DIFF_WINDOW_SIZE:
                         past_diffs_window.popleft()
-                    diff_message_accepted += 1
+                    diff_messages_accepted += 1
 
                     # Output some statistics periodically.
-                    now: float = message.update_id
-                    if now > last_message_timestamp:
-                        self.logger().debug(f"Processed {diff_message_accepted} order book diffs for {trading_pair}")
-                        diff_message_accepted = 0
+                    now: float = time.time()
+                    if int(now / 60.0) > int(last_message_timestamp / 60.0):
+                        self.logger().debug("Processed %d order book diffs for %s.",
+                                            diff_messages_accepted, trading_pair)
+                        diff_messages_accepted = 0
                     last_message_timestamp = now
-                # Processes snapshot stream
                 elif message.type is OrderBookMessageType.SNAPSHOT:
-                    past_diffs: List[FtxOrderBookMessage] = list(past_diffs_window)
-                    # only replay diffs later than snapshot, first update active order with snapshot then replay diffs
-                    replay_position = bisect.bisect_right(past_diffs, message)
-                    replay_diffs = past_diffs[replay_position:]
-                    s_bids, s_asks = active_order_tracker.convert_snapshot_message_to_order_book_row(message)
-                    order_book.apply_snapshot(s_bids, s_asks, message.update_id)
-                    for diff_message in replay_diffs:
-                        d_bids, d_asks = active_order_tracker.convert_diff_message_to_order_book_row(diff_message)
-                        order_book.apply_diffs(d_bids, d_asks, diff_message.update_id)
-
+                    bids, asks = active_order_tracker.convert_snapshot_message_to_order_book_row(message)
+                    order_book.apply_snapshot(bids, asks, message.timestamp)
                     self.logger().debug("Processed order book snapshot for %s.", trading_pair)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 self.logger().network(
-                    f"Unexpected error processing order book messages for {trading_pair}.",
+                    f"Unexpected error tracking order book for {trading_pair}.",
                     exc_info=True,
-                    app_warning_msg=f"Unexpected error processing order book messages. Retrying after 5 seconds.",
+                    app_warning_msg=f"Unexpected error tracking order book. Retrying after 5 seconds."
                 )
                 await asyncio.sleep(5.0)
-
-    def start(self):
-        self.stop()
-        self._order_book_snapshot_listener_task = safe_ensure_future(
-            self.data_source.listen_for_order_book_snapshots(self._ev_loop, self._order_book_snapshot_stream)
-        )
-        self._order_book_diff_listener_task = safe_ensure_future(
-            self.data_source.listen_for_order_book_stream(self._ev_loop,
-                                                          self._order_book_snapshot_stream,
-                                                          self._order_book_diff_stream)
-        )
-        self._refresh_tracking_task = safe_ensure_future(
-            self._refresh_tracking_loop()
-        )
-        self._order_book_diff_router_task = safe_ensure_future(
-            self._order_book_diff_router()
-        )
-        self._order_book_snapshot_router_task = safe_ensure_future(
-            self._order_book_snapshot_router()
-        )
