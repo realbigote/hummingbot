@@ -1,27 +1,22 @@
 #!/usr/bin/env python
 
 import asyncio
-import hashlib
-import hmac
+import aiohttp
 import logging
 import time
-from base64 import b64decode
-from typing import AsyncIterable, Dict, Optional, List, Any
-from zlib import decompress, MAX_WBITS
-
-import signalr_aio
+from typing import (
+    AsyncIterable,
+    Dict,
+    Optional
+)
 import ujson
-from async_timeout import timeout
+import websockets
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
-from hummingbot.market.ftx.ftx_auth import FtxAuth
+from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.logger import HummingbotLogger
-from hummingbot.core.data_type.order_book_message import OrderBookMessage
-from hummingbot.market.ftx.ftx_order_book import FtxOrderBook
 
-FTX_WS_FEED = "https://socket.ftx.com/signalr"
-MAX_RETRIES = 20
-MESSAGE_TIMEOUT = 30.0
-NaN = float("nan")
+FTX_API_ENDPOINT = "wss://ftx.com/ws/"
+FTX_USER_STREAM_ENDPOINT = "userDataStream"
 
 
 class FtxAPIUserStreamDataSource(UserStreamTrackerDataSource):
@@ -29,124 +24,90 @@ class FtxAPIUserStreamDataSource(UserStreamTrackerDataSource):
     MESSAGE_TIMEOUT = 30.0
     PING_TIMEOUT = 10.0
 
-    _btausds_logger: Optional[HummingbotLogger] = None
+    _bausds_logger: Optional[HummingbotLogger] = None
 
     @classmethod
     def logger(cls) -> HummingbotLogger:
-        if cls._btausds_logger is None:
-            cls._btausds_logger = logging.getLogger(__name__)
-        return cls._btausds_logger
+        if cls._bausds_logger is None:
+            cls._bausds_logger = logging.getLogger(__name__)
+        return cls._bausds_logger
 
-    def __init__(self, ftx_auth: FtxAuth, trading_pairs: Optional[List[str]] = []):
-        self._ftx_auth: FtxAuth = ftx_auth
-        self._trading_pairs = trading_pairs
-        self._current_listen_key = None
+    def __init__(self, ftx_auth: FtxAuth):
         self._listen_for_user_stream_task = None
+        self._ftx_auth: FtxAuth = ftx_auth
+        self._current_listen_key = None
         self._last_recv_time: float = 0
-        self._websocket_connection: Optional[signalr_aio.Connection] = None
         super().__init__()
-
-    @property
-    def order_book_class(self):
-        return FtxOrderBook
 
     @property
     def last_recv_time(self) -> float:
         return self._last_recv_time
 
-    async def _socket_user_stream(self, conn: signalr_aio.Connection) -> AsyncIterable[str]:
+    async def _inner_messages(self, ws: websockets.WebSocketClientProtocol) -> AsyncIterable[str]:
+        # Terminate the recv() loop as soon as the next message timed out, so the outer loop can reconnect.
         try:
             while True:
-                async with timeout(MESSAGE_TIMEOUT):
-                    msg = await conn.msg_queue.get()
+                try:
+                    msg: str = await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)
                     self._last_recv_time = time.time()
                     yield msg
+                except asyncio.TimeoutError:
+                    try:
+                        pong_waiter = await ws.ping()
+                        await asyncio.wait_for(pong_waiter, timeout=self.PING_TIMEOUT)
+                        self._last_recv_time = time.time()
+                    except asyncio.TimeoutError:
+                        raise
         except asyncio.TimeoutError:
-            self.logger().warning(f"Message recv() timed out. Reconnecting to ftx SignalR WebSocket... ")
+            self.logger().warning("WebSocket ping timed out. Going to reconnect...")
+            return
+        except websockets.exceptions.ConnectionClosed:
+            return
+        finally:
+            await ws.close()
 
-    def _transform_raw_message(self, msg) -> Dict[str, Any]:
+    async def messages(self) -> AsyncIterable[str]:
+        async with (await self.get_ws_connection()) as ws:
+            subscribe = json.dumps(self._ftx_auth.generate_websocket_subscription())
+            await ws.send(subscribe)
+            await ws.send('''{'op': 'subscribe', 'channel': 'fills'}''')
+            await ws.send('''{'op': 'subscribe', 'channel': 'orders'}''')
+            async for msg in self._inner_messages(ws):
+                yield msg
 
-        timestamp_patten = "%Y-%m-%dT%H:%M:%S"
+    async def get_ws_connection(self) -> websockets.WebSocketClientProtocol:
+        stream_url: str = f"{FTX_API_ENDPOINT}"
 
-        def _decode_message(raw_message: bytes) -> Dict[str, Any]:
-            try:
-                decode_msg: bytes = decompress(b64decode(raw_message, validate=True), -MAX_WBITS)
-            except SyntaxError:
-                decode_msg: bytes = decompress(b64decode(raw_message, validate=True))
-            except Exception:
-                self.logger().error(f"Error decoding message", exc_info=True)
-                return {"error": "Error decoding message"}
-
-            return ujson.loads(decode_msg.decode(), precise_float=True)
-
-        def _is_auth_context(msg):
-            return "R" in msg and type(msg["R"]) is not bool and msg["I"] == str(0)
-
-        def _is_order_delta(msg) -> bool:
-            return len(msg.get("M", [])) > 0 and type(msg["M"][0]) == dict and msg["M"][0].get("M", None) == "uO"
-
-        def _is_balance_delta(msg) -> bool:
-            return len(msg.get("M", [])) > 0 and type(msg["M"][0]) == dict and msg["M"][0].get("M", None) == "uB"
-
-        def _get_signed_challenge(api_secret: str, challenge: str):
-            return hmac.new(api_secret.encode(), challenge.encode(), hashlib.sha512).hexdigest()
-
-        output: Dict[str, Any] = {"event_type": None, "content": None, "error": None}
-        msg: Dict[str, Any] = ujson.loads(msg)
-
-        if _is_auth_context(msg):
-            output["event_type"] = "auth"
-            output["content"] = {"signature": _get_signed_challenge(self._ftx_auth.secret_key, msg["R"])}
-        elif _is_balance_delta(msg):
-            output["event_type"] = "uB"
-            output["content"] = _decode_message(msg["M"][0]["A"][0])
-            output["time"] = time.strftime(timestamp_patten, time.gmtime(output["content"]['d']['u'] / 1000))
-
-        elif _is_order_delta(msg):
-            output["event_type"] = "uO"
-            output["content"] = _decode_message(msg["M"][0]["A"][0])
-            output["time"] = time.strftime(timestamp_patten, time.gmtime(output["content"]['o']['u'] / 1000))
-
-            # TODO: Refactor accordingly when V3 WebSocket API is released
-            # WebSocket API returns market trading_pairs in 'Quote-Base' format
-            # Code below converts 'Quote-Base' -> 'Base-Quote'
-            output["content"]["o"].update({
-                "E": f"{output['content']['o']['E'].split('-')[1]}-{output['content']['o']['E'].split('-')[0]}"
-            })
-
-        return output
+        # Create the WS connection.
+        return websockets.connect(stream_url)
 
     async def listen_for_user_stream(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
+        try:
+            while True:
+                try:
+                    self._listen_for_user_stream_task = safe_ensure_future(self.log_user_stream(output))
+                    await self.wait_til_next_tick(seconds=60.0)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    self.logger().error("Unexpected error while maintaining the user event listen key. Retrying after "
+                                        "5 seconds...", exc_info=True)
+                    await asyncio.sleep(5)
+        finally:
+            # Make sure no background task is leaked.
+            if self._listen_for_user_stream_task is not None:
+                self._listen_for_user_stream_task.cancel()
+                self._listen_for_user_stream_task = None
+            self._current_listen_key = None
+
+    async def log_user_stream(self, output: asyncio.Queue):
         while True:
             try:
-                self._websocket_connection = signalr_aio.Connection(FTX_WS_FEED, session=None)
-                hub = self._websocket_connection.register_hub("c2")
-
-                self.logger().info("Invoked GetAuthContext")
-                hub.server.invoke("GetAuthContext", self._ftx_auth.api_key)
-                self._websocket_connection.start()
-
-                async for raw_message in self._socket_user_stream(self._websocket_connection):
-                    decode: Dict[str, Any] = self._transform_raw_message(raw_message)
-                    if decode.get("error") is not None:
-                        self.logger().error(decode["error"])
-                        continue
-
-                    if decode.get("content") is not None:
-                        signature = decode["content"].get("signature")
-                        content_type = decode["event_type"]
-                        if signature is not None:
-                            hub.server.invoke("Authenticate", self._ftx_auth.api_key, signature)
-                            continue
-
-                        if content_type in ["uO", "uB"]:  # uB: Balance Delta, uO: Order Delta
-                            order_delta: OrderBookMessage = self.order_book_class.diff_message_from_exchange(decode)
-                            output.put_nowait(order_delta)
-
+                async for message in self.messages():
+                    decoded: Dict[str, any] = ujson.loads(message)
+                    output.put_nowait(decoded)
             except asyncio.CancelledError:
                 raise
             except Exception:
-                self.logger().error(
-                    "Unexpected error with ftx WebSocket connection. " "Retrying after 30 seconds...", exc_info=True
-                )
-                await asyncio.sleep(30.0)
+                self.logger().error("Unexpected error. Retrying after 5 seconds...", exc_info=True)
+                await asyncio.sleep(5.0)

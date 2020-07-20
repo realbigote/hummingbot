@@ -18,49 +18,36 @@ class FtxAuth:
         url: str,
         params: Dict[str, Any] = None,
         body: Dict[str, Any] = None,
-        subaccount_id: str = "",
     ) -> Dict[str, any]:
-        """
-        Generates the url and the valid signature to authenticate with the API endpoint.
-        :param http_method: String representing the HTTP method in use ['GET', 'POST', 'DELETE'].
-        :param url: String representing the API endpoint.
-        :param params: Dictionary of url parameters to be included in the api request. USED ONLY IN SOME CASES
-        :param body: Dictionary representing the values in a request body.
-        :param subaccount_id: String value of subaccount id.
-        :return: Dictionary containing the final 'params' and its corresponding 'signature'.
-        """
 
-        # Appends params the url
-        def append_params_to_url(url: str, params: Dict[str, any] = {}) -> str:
-            if params:
-                param_str = urllib.parse.urlencode(params)
-                return f"{url}?{param_str}"
-            return url
-
-        def construct_content_hash(body: Dict[str, any] = {}) -> Tuple[str, bytes]:
-            json_byte: bytes = "".encode()
-            if body:
-                json_byte = ujson.dumps(body).encode()
-                return hashlib.sha512(json_byte).hexdigest(), json_byte
-            return hashlib.sha512(json_byte).hexdigest(), json_byte
-
-        timestamp = str(int(time.time() * 1000))
-        url = append_params_to_url(url, params)
-        content_hash, content_bytes = construct_content_hash(body)
-        content_to_sign = "".join([timestamp, url, http_method, content_hash, subaccount_id])
-        signature = hmac.new(self.secret_key.encode(), content_to_sign.encode(), hashlib.sha512).hexdigest()
+        ts = str(int(time.time() * 1000))
+        if http_method == "GET":
+            req_body = ""
+        else:
+            req_body = json.dumps(body)
+        content_to_sign = "".join([timestamp, http_method, url, req_body])
+        signature = hmac.new(self.secret_key.encode(), content_to_sign.encode(), hashlib.sha256).hexdigest()
 
         # V3 Authentication headers
         headers = {
-            "Api-Key": self.api_key,
-            "Api-Timestamp": timestamp,
-            "Api-Content-Hash": content_hash,
+            "FTX-KEY": self.api_key,
+            "FTX-SIGN": signature,
+            "FTX-TS": ts,
             "Api-Signature": signature,
-            "Content-Type": "application/json",
-            "Accept": "application/json",
         }
 
-        if subaccount_id:
-            headers.update({"Api-Subaccount-Id": subaccount_id})
+        return headers
 
-        return {"headers": headers, "body": content_bytes, "url": url}
+    def generate_websocket_subscription(self):
+        ts = str(int(1000*time.time()))
+        presign = f"{ts}websocket_login"
+        sign = hmac.new(self.secret_key.encode(),presign.encode(),hashlib.sha256).hexdigest()
+        subscribe = {
+          "args": {
+            "key": self.api_key,
+            "sign": sign,
+            "time": ts  
+          },
+          "op": "login"
+        }
+        return subscribe
