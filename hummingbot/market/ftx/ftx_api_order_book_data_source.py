@@ -53,7 +53,6 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
         super().__init__()
         self._trading_pairs: Optional[List[str]] = trading_pairs
         self._websocket_connection: Optional[Connection] = None
-        self._websocket_hub: Optional[Hub] = None
         self._snapshot_msg: Dict[str, any] = {}
 
     @classmethod
@@ -83,10 +82,6 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
             all_markets.rename(
                 {"baseCurrency": "baseAsset", "quoteCurrency": "quoteAsset", "volumeUsd24h": "USDVolume"}, axis="columns", inplace=True
             )
-
-            btc_usd_price: float = float(all_markets.loc["BTC-USD"].lastTradeRate)
-            eth_usd_price: float = float(all_markets.loc["ETH-USD"].lastTradeRate)
-
             
             await client.close()
             return all_markets.sort_values("USDVolume", ascending=False)
@@ -105,42 +100,12 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 )
         return self._trading_pairs
 
-    async def websocket_connection(self) -> (signalr_aio.Connection, signalr_aio.hubs.Hub):
-        if self._websocket_connection and self._websocket_hub:
-            return self._websocket_connection, self._websocket_hub
-
-        self._websocket_connection = signalr_aio.Connection(FTX_WS_FEED, session=None)
-
-        trading_pairs = await self.get_trading_pairs()
-        for trading_pair in trading_pairs:
-            trading_pair = f"{trading_pair.split('/')[1]}-{trading_pair.split('/')[0]}"
-            self.logger().info(f"Subscribed to {trading_pair} deltas")
-            self._websocket_hub.server.invoke("SubscribeToExchangeDeltas", trading_pair)
-
-            self.logger().info(f"Query {trading_pair} snapshot.")
-            self._websocket_hub.server.invoke("queryExchangeState", trading_pair)
-
-        self._websocket_connection.start()
-
-        return self._websocket_connection, self._websocket_hub
-
-    async def wait_for_snapshot(self, trading_pair: str, invoke_timestamp: int) -> Optional[OrderBookMessage]:
-        try:
-            async with timeout(SNAPSHOT_TIMEOUT):
-                while True:
-                    msg: Dict[str, any] = self._snapshot_msg.pop(trading_pair, None)
-                    if msg and msg["timestamp"] >= invoke_timestamp:
-                        return msg["content"]
-                    await asyncio.sleep(1)
-        except asyncio.TimeoutError:
-            raise
-
     async def get_snapshot(client: aiohttp.ClientSession, trading_pair: str, limit: int = 1000) -> Dict[str, Any]:
         params: Dict = {"limit": str(limit), "symbol": trading_pair} if limit != 0 else {"symbol": trading_pair}
         async with client.get(SNAPSHOT_REST_URL, params=params) as response:
             response: aiohttp.ClientResponse = response
             if response.status != 200:
-                raise IOError(f"Error fetching Binance market snapshot for {trading_pair}. "
+                raise IOError(f"Error fetching FTX market snapshot for {trading_pair}. "
                               f"HTTP status is {response.status}.")
             data: Dict[str, Any] = await response.json()
 
@@ -150,7 +115,7 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
             return data
 
-   async def get_tracking_pairs(self) -> Dict[str, OrderBookTrackerEntry]:
+    async def get_tracking_pairs(self) -> Dict[str, OrderBookTrackerEntry]:
         # Get the currently active markets
         async with aiohttp.ClientSession() as client:
             trading_pairs: List[str] = await self.get_trading_pairs()
@@ -161,7 +126,7 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 try:
                     snapshot: Dict[str, Any] = await self.get_snapshot(client, trading_pair, 1000)
                     snapshot_timestamp: float = time.time()
-                    snapshot_msg: OrderBookMessage = BinanceOrderBook.snapshot_message_from_exchange(
+                    snapshot_msg: OrderBookMessage = FtxOrderBook.snapshot_message_from_exchange(
                         snapshot,
                         snapshot_timestamp,
                         metadata={"trading_pair": trading_pair}
@@ -171,139 +136,113 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     retval[trading_pair] = OrderBookTrackerEntry(trading_pair, snapshot_timestamp, order_book)
                     self.logger().info(f"Initialized order book for {trading_pair}. "
                                        f"{index+1}/{number_of_pairs} completed.")
-                    # Each 1000 limit snapshot costs 10 requests and Binance rate limit is 20 requests per second.
                     await asyncio.sleep(1.0)
                 except Exception:
                     self.logger().error(f"Error getting snapshot for {trading_pair}. ", exc_info=True)
                     await asyncio.sleep(5)
             return retval
 
-    async def listen_for_trades(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
-        # Trade messages are received as Orderbook Deltas and handled by listen_for_order_book_stream()
-        pass
-
-    async def listen_for_order_book_diffs(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
-        # Orderbooks Deltas and Snapshots are handled by listen_for_order_book_stream()
-        pass
-
-    async def _socket_stream(self) -> AsyncIterable[str]:
+    async def _inner_messages(self,
+                              ws: websockets.WebSocketClientProtocol) -> AsyncIterable[str]:
+        # Terminate the recv() loop as soon as the next message timed out, so the outer loop can reconnect.
         try:
             while True:
-                async with timeout(MESSAGE_TIMEOUT):  # Timeouts if not receiving any messages for 10 seconds(ping)
-                    conn: signalr_aio.Connection = (await self.websocket_connection())[0]
-                    yield await conn.msg_queue.get()
+                try:
+                    msg: str = await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)
+                    yield msg
+                except asyncio.TimeoutError:
+                    try:
+                        pong_waiter = await ws.ping()
+                        await asyncio.wait_for(pong_waiter, timeout=self.PING_TIMEOUT)
+                    except asyncio.TimeoutError:
+                        raise
         except asyncio.TimeoutError:
-            self.logger().warning("Message recv() timed out. Going to reconnect...")
+            self.logger().warning("WebSocket ping timed out. Going to reconnect...")
             return
+        except ConnectionClosed:
+            return
+        finally:
+            await ws.close()
 
-    def _transform_raw_message(self, msg) -> Dict[str, Any]:
-        def _decode_message(raw_message: bytes) -> Dict[str, Any]:
+    async def listen_for_trades(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
+        while True:
             try:
-                decoded_msg: bytes = decompress(b64decode(raw_message, validate=True), -MAX_WBITS)
-            except SyntaxError:
-                decoded_msg: bytes = decompress(b64decode(raw_message, validate=True))
+                trading_pairs: List[str] = await self.get_trading_pairs()
+                stream_url: str = f"{DIFF_STREAM_URL}"
+
+                async with websockets.connect(stream_url) as ws:
+                    ws: websockets.WebSocketClientProtocol = ws
+                    for pair in trading_pairs:
+                        subscribe_request: Dict[str, Any] = {
+                            "op": "subscribe",
+                            "channel": "trade",
+                            "market": pair
+                        }
+                        await ws.send(ujson.dumps(subscribe_request))
+                    async for raw_msg in self._inner_messages(ws):
+                        msg = ujson.loads(raw_msg)
+                        if msg["channel"] == "trades" and msg["type"] == "update":
+                            trade_msg: OrderBookMessage = FtxOrderBook.trade_message_from_exchange(msg)
+                            output.put_nowait(trade_msg)
+            except asyncio.CancelledError:
+                raise
             except Exception:
-                return {}
+                self.logger().error("Unexpected error with WebSocket connection. Retrying after 30 seconds...",
+                                    exc_info=True)
+                await asyncio.sleep(30.0)
 
-            return ujson.loads(decoded_msg.decode())
+    async def listen_for_order_book_diffs(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
+        while True:
+            try:
+                trading_pairs: List[str] = await self.get_trading_pairs()
+                stream_url: str = f"{DIFF_STREAM_URL}"
 
-        def _is_snapshot(msg) -> bool:
-            return type(msg.get("R", False)) is not bool
-
-        def _is_market_delta(msg) -> bool:
-            return len(msg.get("M", [])) > 0 and type(msg["M"][0]) == dict and msg["M"][0].get("M", None) == "uE"
-
-        output: Dict[str, Any] = {"nonce": None, "type": None, "results": {}}
-        msg: Dict[str, Any] = ujson.loads(msg)
-
-        if _is_snapshot(msg):
-            output["results"] = _decode_message(msg["R"])
-
-            # TODO: Refactor accordingly when V3 WebSocket API is released
-            # WebSocket API returns market trading pairs in 'Quote-Base' format
-            # Code below converts 'Quote-Base' -> 'Base-Quote'
-            output["results"].update({
-                "M": f"{output['results']['M'].split('-')[1]}-{output['results']['M'].split('-')[0]}"
-            })
-
-            output["type"] = "snapshot"
-            output["nonce"] = output["results"]["N"]
-
-        elif _is_market_delta(msg):
-            output["results"] = _decode_message(msg["M"][0]["A"][0])
-
-            # TODO: Refactor accordingly when V3 WebSocket API is released
-            # WebSocket API returns market trading pairs in 'Quote-Base' format
-            # Code below converts 'Quote-Base' -> 'Base-Quote'
-            output["results"].update({
-                "M": f"{output['results']['M'].split('-')[1]}-{output['results']['M'].split('-')[0]}"
-            })
-
-            output["type"] = "update"
-            output["nonce"] = output["results"]["N"]
-
-        return output
+                async with websockets.connect(stream_url) as ws:
+                    ws: websockets.WebSocketClientProtocol = ws
+                    for pair in trading_pairs:
+                        subscribe_request: Dict[str, Any] = {
+                            "op": "subscribe",
+                            "channel": "orderbook",
+                            "market": pair
+                        }
+                        await ws.send(ujson.dumps(subscribe_request))
+                    async for raw_msg in self._inner_messages(ws):
+                        msg = ujson.loads(raw_msg)
+                        if msg["channel"] == "orderbook" and msg["type"] == "update":
+                            order_book_message: OrderBookMessage = FtxOrderBook.diff_message_from_exchange(msg)
+                            output.put_nowait(order_book_message)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.logger().error("Unexpected error with WebSocket connection. Retrying after 30 seconds...",
+                                    exc_info=True)
+                await asyncio.sleep(30.0)
 
     async def listen_for_order_book_snapshots(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
-        # Technically this does not listen for snapshot, Instead it periodically queries for snapshots.
         while True:
             try:
-                connection, hub = await self.websocket_connection()
-                trading_pairs = await self.get_trading_pairs()  # Symbols of trading pair in V3 format i.e. 'Base-Quote'
-                for trading_pair in trading_pairs:
-                    # TODO: Refactor accordingly when V3 WebSocket API is released
-                    # WebSocket API requires trading_pair to be in 'Quote-Base' format
-                    trading_pair = f"{trading_pair.split('-')[1]}-{trading_pair.split('-')[0]}"
-                    hub.server.invoke("queryExchangeState", trading_pair)
-                    self.logger().info(f"Query {trading_pair} snapshots.[Scheduled]")
+                trading_pairs: List[str] = await self.get_trading_pairs()
+                stream_url: str = f"{DIFF_STREAM_URL}"
 
-                # Waits for delta amount of time before getting new snapshots
-                this_hour: pd.Timestamp = pd.Timestamp.utcnow().replace(minute=0, second=0, microsecond=0)
-                next_hour: pd.Timestamp = this_hour + pd.Timedelta(hours=1)
-                delta: float = next_hour.timestamp() - time.time()
-                await asyncio.sleep(delta)
-            except Exception:
-                self.logger().error("Unexpected error occurred invoking queryExchangeState", exc_info=True)
-
-    async def listen_for_order_book_stream(self,
-                                           ev_loop: asyncio.BaseEventLoop,
-                                           snapshot_queue: asyncio.Queue,
-                                           diff_queue: asyncio.Queue):
-        while True:
-            connection, hub = await self.websocket_connection()
-            try:
-                async for raw_message in self._socket_stream():
-                    decoded: Dict[str, Any] = self._transform_raw_message(raw_message)
-                    trading_pair: str = decoded["results"].get("M")
-
-                    if not trading_pair:  # Ignores any other websocket response messages
-                        continue
-
-                    # Processes snapshot messages
-                    if decoded["type"] == "snapshot":
-                        snapshot: Dict[str, any] = decoded
-                        snapshot_timestamp = snapshot["nonce"]
-                        snapshot_msg: OrderBookMessage = FtxOrderBook.snapshot_message_from_exchange(
-                            snapshot["results"], snapshot_timestamp
-                        )
-                        snapshot_queue.put_nowait(snapshot_msg)
-                        self._snapshot_msg[trading_pair] = {
-                            "timestamp": int(time.time()),
-                            "content": snapshot_msg
+                async with websockets.connect(stream_url) as ws:
+                    ws: websockets.WebSocketClientProtocol = ws
+                    for pair in trading_pairs:
+                        subscribe_request: Dict[str, Any] = {
+                            "op": "subscribe",
+                            "channel": "orderbook",
+                            "market": pair
                         }
-
-                    # Processes diff messages
-                    if decoded["type"] == "update":
-                        diff: Dict[str, any] = decoded
-                        diff_timestamp = diff["nonce"]
-                        diff_msg: OrderBookMessage = FtxOrderBook.diff_message_from_exchange(
-                            diff["results"], diff_timestamp
-                        )
-                        diff_queue.put_nowait(diff_msg)
-
+                        await ws.send(ujson.dumps(subscribe_request))
+                    async for raw_msg in self._inner_messages(ws):
+                        msg = ujson.loads(raw_msg)
+                        if msg["channel"] == "orderbook" and msg["type"] == "partial":
+                            order_book_message: OrderBookMessage = FtxOrderBook.diff_message_from_exchange(msg)
+                            output.put_nowait(order_book_message)
+            except asyncio.CancelledError:
+                raise
             except Exception:
-                self.logger().error("Unexpected error when listening on socket stream.", exc_info=True)
-            finally:
-                connection.close()
-                self._websocket_connection = self._websocket_hub = None
-                self.logger().info("Reinitializing websocket connection...")
+                self.logger().error("Unexpected error with WebSocket connection. Retrying after 30 seconds...",
+                                    exc_info=True)
+                await asyncio.sleep(30.0)
+
+
