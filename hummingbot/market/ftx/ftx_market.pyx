@@ -69,7 +69,7 @@ cdef class FtxMarket(MarketBase):
     UPDATE_ORDERS_INTERVAL = 10.0
     ORDER_NOT_EXIST_CONFIRMATION_COUNT = 3
 
-    FTX_API_ENDPOINT = "https://api.ftx.com/v3"
+    FTX_API_ENDPOINT = "https://ftx.com/api"
 
     @classmethod
     def logger(cls) -> HummingbotLogger:
@@ -208,12 +208,12 @@ cdef class FtxMarket(MarketBase):
             set remote_asset_names = set()
             set asset_names_to_remove
 
-        path_url = "/balances"
+        path_url = "/wallet/balances"
         account_balances = await self._api_request("GET", path_url=path_url)
 
-        for balance_entry in account_balances:
-            asset_name = balance_entry["currencySymbol"]
-            available_balance = Decimal(balance_entry["available"])
+        for balance_entry in account_balances["result"]:
+            asset_name = balance_entry["coin"]
+            available_balance = Decimal(balance_entry["free"])
             total_balance = Decimal(balance_entry["total"])
             self._account_available_balances[asset_name] = available_balance
             self._account_balances[asset_name] = total_balance
@@ -227,42 +227,23 @@ cdef class FtxMarket(MarketBase):
     def _format_trading_rules(self, market_dict: Dict[str, Any]) -> List[TradingRule]:
         cdef:
             list retval = []
-            object min_btc_value = Decimal("0.0005")
-
-            object eth_btc_price = Decimal(market_dict["ETH-BTC"]["lastTradeRate"])
-            object btc_usd_price = Decimal(market_dict["BTC-USD"]["lastTradeRate"])
-            object btc_usdt_price = Decimal(market_dict["BTC-USDT"]["lastTradeRate"])
 
         for market in market_dict.values():
             try:
-                trading_pair = market.get("symbol")
-                min_trade_size = market.get("minTradeSize")
-                precision = market.get("precision")
-                last_trade_rate = Decimal(market.get("lastTradeRate"))
+                trading_pair = market.get("name")
+                min_trade_size = market.get("minProvideSize")
+                price_increment = Decimal(market.get("priceIncrement"))
+                size_increment = Decimal(market.get("sizeIncrement"))
+                min_quote_amount_increment = price_increment * size_increment
 
-                # skip offline trading pair
-                if market.get("status") != "OFFLINE" :
-
-                    # min_order_value is the base asset value corresponding to 50,000 Satoshis(~0.0005BTC)
-                    # https://ftx.zendesk.com/hc/en-us/articles/360001473863-ftx-Trading-Rules
-                    min_order_value = (
-                        min_btc_value / last_trade_rate if market.get("quoteCurrencySymbol") == "BTC" else
-                        min_btc_value / eth_btc_price / last_trade_rate if market.get("quoteCurrencySymbol") == "ETH" else
-                        min_btc_value * btc_usd_price / last_trade_rate if market.get("quoteCurrencySymbol") == "USD" else
-                        min_btc_value * btc_usdt_price / last_trade_rate if market.get("quoteCurrencySymbol") == "USDT" else
-                        min_btc_value
-                    ) * Decimal("1.01")  # Compensates for possible fluctuations
-
-                    # Trading Rules info from ftx API response
-                    retval.append(TradingRule(trading_pair,
-                                            min_order_size=Decimal(min_trade_size),
-                                            min_price_increment=Decimal(f"1e-{precision}"),
-                                            min_base_amount_increment=Decimal(f"1e-{precision}"),
-                                            min_quote_amount_increment=Decimal(f"1e-{precision}"),
-                                            min_order_value=Decimal(min_order_value),
-                                            ))
-                    # https://ftx.zendesk.com/hc/en-us/articles/360001473863-ftx-Trading-Rules
-                    # "No maximum, but the user must have sufficient funds to cover the order at the time it is placed."
+                # Trading Rules info from ftx API response
+                retval.append(TradingRule(trading_pair,
+                                        min_order_size=Decimal(min_trade_size),
+                                        min_price_increment=Decimal(price_increment),
+                                        min_base_amount_increment=size_increment,
+                                        min_quote_amount_increment=min_quote_amount_increment,
+                                        min_order_value=Decimal(min_order_value),
+                                        ))
             except Exception:
                 self.logger().error(f"Error parsing the trading pair rule {market}. Skipping.", exc_info=True)
         return retval
@@ -278,20 +259,7 @@ cdef class FtxMarket(MarketBase):
 
             market_list = await self._api_request("GET", path_url=market_path_url)
 
-            ticker_list = await self._api_request("GET", path_url=ticker_path_url)
-            # A temp fix, ftx refers to CELO as CGLD on their tickers end point, but CELO on markets end point.
-            # I think this will be rectified by ftx soon.
-            for item in ticker_list:
-                item["symbol"] = item["symbol"].replace("CGLD-", "CELO-")
-            ticker_data = {item["symbol"]: item for item in ticker_list}
-
-            result_list = [
-                {**market, **ticker_data[market["symbol"]]}
-                for market in market_list
-                if market["symbol"] in ticker_data
-            ]
-
-            result_list = {market["symbol"]: market for market in result_list}
+            result_list = {market["name"]: market for market in market_list["result"] if market["type"] == "spot"}
 
             trading_rules_list = self._format_trading_rules(result_list)
             self._trading_rules.clear()
@@ -303,31 +271,32 @@ cdef class FtxMarket(MarketBase):
         Only a list of all currently open orders(does not include filled orders)
         :returns json response
         i.e.
-        Result = [
-              {
-                "id": "string (uuid)",
-                "marketSymbol": "string",
-                "direction": "string",
-                "type": "string",
-                "quantity": "number (double)",
-                "limit": "number (double)",
-                "ceiling": "number (double)",
-                "timeInForce": "string",
-                "expiresAt": "string (date-time)",
-                "clientOrderId": "string (uuid)",
-                "fillQuantity": "number (double)",
-                "commission": "number (double)",
-                "proceeds": "number (double)",
-                "status": "string",
-                "createdAt": "string (date-time)",
-                "updatedAt": "string (date-time)",
-                "closedAt": "string (date-time)"
-              }
-              ...
-            ]
+        {
+          "success": true,
+          "result": [
+            {
+              "createdAt": "2019-03-05T09:56:55.728933+00:00",
+              "filledSize": 10,
+              "future": "XRP-PERP",
+              "id": 9596912,
+              "market": "XRP-PERP",
+              "price": 0.306525,
+              "avgFillPrice": 0.306526,
+              "remainingSize": 31421,
+              "side": "sell",
+              "size": 31431,
+              "status": "open",
+              "type": "limit",
+              "reduceOnly": false,
+              "ioc": false,
+              "postOnly": false,
+              "clientId": null
+            }
+          ]
+        }
 
         """
-        path_url = "/orders/open"
+        path_url = "/orders"
 
         result = await self._api_request("GET", path_url=path_url)
         return result
@@ -345,7 +314,7 @@ cdef class FtxMarket(MarketBase):
 
             tracked_orders = list(self._in_flight_orders.values())
             open_orders = await self.list_orders()
-            open_orders = dict((entry["id"], entry) for entry in open_orders)
+            open_orders = dict((entry["id"], entry) for entry in open_orders if entry["status"] == "open")
 
             for tracked_order in tracked_orders:
                 exchange_order_id = await tracked_order.get_exchange_order_id()
@@ -385,10 +354,10 @@ cdef class FtxMarket(MarketBase):
                 trade_type = "BUY" if tracked_order.trade_type is TradeType.BUY else "SELL"
                 order_type_description = tracked_order.order_type_description
 
-                executed_price = Decimal(order["limit"])
+                executed_price = Decimal(order["avgFillPrice"])
                 executed_amount_diff = s_decimal_0
 
-                remaining_size = Decimal(order["quantity"]) - Decimal(order["fillQuantity"])
+                remaining_size = Decimal(order["remainingSize"])
                 new_confirmed_amount = tracked_order.amount - remaining_size
                 executed_amount_diff = new_confirmed_amount - tracked_order.executed_amount_base
                 tracked_order.executed_amount_base = new_confirmed_amount
@@ -416,8 +385,8 @@ cdef class FtxMarket(MarketBase):
                                              )
                                          ))
 
-                if order_state == "CLOSED":
-                    if order["quantity"] == order["fillQuantity"]:  # Order COMPLETED
+                if order_state == "closed":
+                    if order["size"] == order["filledSize"]:  # Order COMPLETED
                         tracked_order.last_state = "CLOSED"
                         self.logger().info(f"The {order_type}-{trade_type} "
                                            f"{client_order_id} has completed according to ftx order status API.")
@@ -531,7 +500,7 @@ cdef class FtxMarket(MarketBase):
 
                     if order_status == 2:  # FILL(COMPLETE)
                         # trade_type = TradeType.BUY if content["OT"] == "LIMIT_BUY" else TradeType.SELL
-                        tracked_order.last_state = "done"
+                        tracked_order.last_state = "DONE"
                         if tracked_order.trade_type is TradeType.BUY:
                             self.logger().info(f"The LIMIT_BUY order {tracked_order.client_order_id} has completed "
                                                f"according to order delta websocket API.")
@@ -566,7 +535,7 @@ cdef class FtxMarket(MarketBase):
                         continue
 
                     if order_status == 3:  # CANCEL
-                        tracked_order.last_state = "cancelled"
+                        tracked_order.last_state = "CANCELLED"
                         self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
                                              OrderCancelledEvent(self._current_timestamp,
                                                                  tracked_order.client_order_id))
@@ -693,25 +662,29 @@ cdef class FtxMarket(MarketBase):
         path_url = "/orders"
 
         body = {}
-        if order_type is OrderType.LIMIT:  # ftx supports CEILING_LIMIT & CEILING_MARKET
+        if order_type is OrderType.LIMIT:
             body = {
-                "marketSymbol": str(trading_pair),
-                "direction": "BUY" if is_buy else "SELL",
-                "type": "LIMIT",
-                "quantity": f"{amount:f}",
-                "limit": f"{price:f}",
-                "timeInForce": "GOOD_TIL_CANCELLED"
-                # Available options [GOOD_TIL_CANCELLED, IMMEDIATE_OR_CANCEL,
-                # FILL_OR_KILL, POST_ONLY_GOOD_TIL_CANCELLED]
+                "market": str(trading_pair),
+                "side": "buy" if is_buy else "sell",
+                "price": f"{price:f}"
+                "type": "limit",
+                "size": f"{amount:f}",
+                "reduceOnly": false,
+                "ioc": false,
+                "postOnly": false,
+                "clientId": order_id
             }
         elif order_type is OrderType.MARKET:
             body = {
-                "marketSymbol": str(trading_pair),
-                "direction": "BUY" if is_buy else "SELL",
-                "type": "MARKET",
-                "quantity": str(amount),
-                "timeInForce": "IMMEDIATE_OR_CANCEL"
-                # Available options [IMMEDIATE_OR_CANCEL, FILL_OR_KILL]
+                "market": str(trading_pair),
+                "side": "buy" if is_buy else "sell",
+                "price": f"{price:f}"
+                "type": "market",
+                "size": f"{amount:f}",
+                "reduceOnly": false,
+                "ioc": false,
+                "postOnly": false,
+                "clientId": order_id
             }
 
         api_response = await self._api_request("POST", path_url=path_url, body=body)
@@ -933,7 +906,7 @@ cdef class FtxMarket(MarketBase):
             path_url = f"/orders/{tracked_order.exchange_order_id}"
 
             cancel_result = await self._api_request("DELETE", path_url=path_url)
-            if cancel_result["status"] == "CLOSED":
+            if cancel_result["success"] == "true":
                 self.logger().info(f"Successfully cancelled order {order_id}.")
                 tracked_order.last_state = "CANCELLED"
                 self.c_stop_tracking_order(order_id)
@@ -994,25 +967,17 @@ cdef class FtxMarket(MarketBase):
                            http_method: str,
                            path_url: str = None,
                            params: Dict[str, any] = None,
-                           body: Dict[str, any] = None,
-                           subaccount_id: str = '') -> Dict[str, Any]:
+                           body: Dict[str, any] = None) -> Dict[str, Any]:
         assert path_url is not None
 
         url = f"{self.FTX_API_ENDPOINT}{path_url}"
 
-        auth_dict = self.ftx_auth.generate_auth_dict(http_method, url, params, body, subaccount_id)
-
-        # Updates the headers and params accordingly
-        headers = auth_dict["headers"]
-
-        if body:
-            body = auth_dict["body"]  # Ensures the body is the same as that signed in Api-Content-Hash
+        headers = self.ftx_auth.generate_auth_dict(http_method, url, params, body)
 
         client = await self._http_client()
         async with client.request(http_method,
                                   url=url,
                                   headers=headers,
-                                  params=params,
                                   data=body,
                                   timeout=self.API_CALL_TIMEOUT) as response:
             data = await response.json()
@@ -1023,7 +988,7 @@ cdef class FtxMarket(MarketBase):
 
     async def check_network(self) -> NetworkStatus:
         try:
-            await self._api_request("GET", path_url="/ping")
+            await self._api_request("GET", path_url="/subaccounts")
         except asyncio.CancelledError:
             raise
         except Exception:
