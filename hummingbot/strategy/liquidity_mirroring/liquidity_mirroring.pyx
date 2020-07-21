@@ -58,6 +58,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                  spread_percent: float,
                  max_exposure_base: float,
                  max_exposure_quote: float,
+                 max_offsetting_exposure: float,
                  max_loss: float,
                  max_total_loss: float,
                  equivalent_tokens: list,
@@ -112,6 +113,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.spread_percent = spread_percent
         self.max_exposure_base = max_exposure_base
         self.max_exposure_quote = max_exposure_quote
+        self.max_offsetting_exposure = max_offsetting_exposure
 
         self.bid_amount_percents = bid_amount_percents
         self.ask_amount_percents = ask_amount_percents
@@ -282,7 +284,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 if should_report_warnings:
                     self.logger().warning(f"Markets are not all online. No trading is permitted.")
                 return
-            if (self.current_total_offset_loss < self.max_total_loss):
+            if (abs(self.amount_to_offset) > self.max_offsetting_exposure):
+                SlackPusher(self.slack_url, "Too much offsetting exposure")
+            elif (self.current_total_offset_loss < self.max_total_loss):
                 for market_pair in self.mirrored_market_pairs:
                     self.c_process_market_pair(market_pair)
             else:

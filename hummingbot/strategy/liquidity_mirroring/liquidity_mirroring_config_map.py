@@ -100,6 +100,12 @@ liquidity_mirroring_config_map = {
         prompt_on_new=True,
         type_str="float"
     ),
+    "max_offsetting_exposure": ConfigVar(
+        key="max_offsetting_exposure",
+        prompt="Enter the maximum allowable outstanding amount to offset >>> ",
+        prompt_on_new=True,
+        type_str="float"
+    ),
     "max_offset_loss": ConfigVar(
         key="max_offset_loss",
         prompt="Enter your maximum tolerated one-time offset loss (in quote currency) >>> ",
