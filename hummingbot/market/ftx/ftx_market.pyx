@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 from decimal import Decimal
-from typing import Optional, List, Dict, Any, AsyncIterable
+from typing import Optional, List, Dict, Any, AsyncIterable, Tuple
 
 import aiohttp
 import pandas as pd
@@ -79,8 +79,8 @@ cdef class FtxMarket(MarketBase):
         return bm_logger
 
     def __init__(self,
-                 ftx_api_key: str,
                  ftx_secret_key: str,
+                 ftx_api_key: str,
                  poll_interval: float = 5.0,
                  order_book_tracker_data_source_type: OrderBookTrackerDataSourceType =
                  OrderBookTrackerDataSourceType.EXCHANGE_API,
@@ -157,6 +157,27 @@ cdef class FtxMarket(MarketBase):
             for key, value in saved_states.items()
         })
 
+    @staticmethod
+    def split_trading_pair(trading_pair: str) -> Optional[Tuple[str, str]]:
+        try:
+            m = trading_pair.split("/")
+            return m[0], m[1]
+        # Exceptions are now logged as warnings in trading pair fetcher
+        except Exception as e:
+            return None
+
+    @staticmethod
+    def convert_from_exchange_trading_pair(exchange_trading_pair: str) -> Optional[str]:
+        if FtxMarket.split_trading_pair(exchange_trading_pair) is None:
+            return None
+        # Blocktane does not split BASEQUOTE (fthusd)
+        base_asset, quote_asset = FtxMarket.split_trading_pair(exchange_trading_pair)
+        return f"{base_asset}-{quote_asset}".upper()
+    
+    @staticmethod
+    def convert_to_exchange_trading_pair(hb_trading_pair: str) -> str:
+        return hb_trading_pair.replace("-","/")
+
     async def get_active_exchange_markets(self) -> pd.DataFrame:
         return await FtxAPIOrderBookDataSource.get_active_exchange_markets()
 
@@ -183,21 +204,16 @@ cdef class FtxMarket(MarketBase):
                           object order_side,
                           object amount,
                           object price):
-        # There is no API for checking fee
-        # Fee info from https://ftx.zendesk.com/hc/en-us/articles/115003684371
-        """
+        # Fee info from https://bolsa.tokamaktech.net/api/v2/peatio/public/trading_fees
         cdef:
-            object maker_fee = Decimal(0.0025)
-            object taker_fee = Decimal(0.0025)
+            object maker_fee = Decimal(0.002)
+            object taker_fee = Decimal(0.002)
         if order_type is OrderType.LIMIT and fee_overrides_config_map["ftx_maker_fee"].value is not None:
-            return TradeFee(percent=fee_overrides_config_map["ftx_maker_fee"].value / Decimal("100"))
+            return TradeFee(percent=fee_overrides_config_map["ftx_maker_fee"].value)
         if order_type is OrderType.MARKET and fee_overrides_config_map["ftx_taker_fee"].value is not None:
-            return TradeFee(percent=fee_overrides_config_map["ftx_taker_fee"].value / Decimal("100"))
+            return TradeFee(percent=fee_overrides_config_map["ftx_taker_fee"].value)
 
         return TradeFee(percent=maker_fee if order_type is OrderType.LIMIT else taker_fee)
-        """
-        is_maker = order_type is OrderType.LIMIT
-        return estimate_fee("ftx", is_maker)
 
     async def _update_balances(self):
         cdef:
@@ -231,10 +247,11 @@ cdef class FtxMarket(MarketBase):
         for market in market_dict.values():
             try:
                 trading_pair = market.get("name")
-                min_trade_size = market.get("minProvideSize")
+                min_trade_size = Decimal(market.get("minProvideSize"))
                 price_increment = Decimal(market.get("priceIncrement"))
                 size_increment = Decimal(market.get("sizeIncrement"))
                 min_quote_amount_increment = price_increment * size_increment
+                min_order_value = min_trade_size * price_increment
 
                 # Trading Rules info from ftx API response
                 retval.append(TradingRule(trading_pair,
@@ -440,20 +457,13 @@ cdef class FtxMarket(MarketBase):
     async def _user_stream_event_listener(self):
         async for stream_message in self._iter_user_stream_queue():
             try:
-                content = stream_message.content.get("content")
-                event_type = stream_message.content.get("event_type")
-
-                if event_type == "uB":  # Updates total balance and available balance of specified currency
-                    balance_delta = content["d"]
-                    asset_name = balance_delta["c"]
-                    total_balance = Decimal(balance_delta["b"])
-                    available_balance = Decimal(balance_delta["a"])
-                    self._account_available_balances[asset_name] = available_balance
-                    self._account_balances[asset_name] = total_balance
-                elif event_type == "uO":  # Updates track order status
-                    order = content["o"]
-                    order_status = content["TY"]
-                    order_id = order["OU"]
+                channel = stream_message.get("channel")
+                data = stream_message.get("data")
+                event_type = stream_message.get("type")
+    
+                if (channel == "orders") and (event_type == "update"):  # Updates track order status
+                    order_status = data["status"]
+                    order_id = data["id"]
 
                     tracked_order = None
                     for o in self._in_flight_orders.values():
@@ -465,11 +475,10 @@ cdef class FtxMarket(MarketBase):
                         continue
 
                     order_type_description = tracked_order.order_type_description
-                    execute_price = Decimal(order["PU"])
+                    execute_price = Decimal(data["avgFillPrice"])
                     execute_amount_diff = s_decimal_0
-                    tracked_order.fee_paid = Decimal(order["n"])
 
-                    remaining_size = Decimal(str(order["q"]))
+                    remaining_size = Decimal(str(data["remainingSize"]))
 
                     new_confirmed_amount = Decimal(tracked_order.amount - remaining_size)
                     execute_amount_diff = Decimal(new_confirmed_amount - tracked_order.executed_amount_base)
@@ -498,7 +507,7 @@ cdef class FtxMarket(MarketBase):
                                                  )
                                              ))
 
-                    if order_status == 2:  # FILL(COMPLETE)
+                    if order_status == "complete":  # FILL(COMPLETE)
                         # trade_type = TradeType.BUY if content["OT"] == "LIMIT_BUY" else TradeType.SELL
                         tracked_order.last_state = "DONE"
                         if tracked_order.trade_type is TradeType.BUY:
@@ -534,7 +543,7 @@ cdef class FtxMarket(MarketBase):
                         self.c_stop_tracking_order(tracked_order.client_order_id)
                         continue
 
-                    if order_status == 3:  # CANCEL
+                    if order_status == "closed":  # CANCEL
                         tracked_order.last_state = "CANCELLED"
                         self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
                                              OrderCancelledEvent(self._current_timestamp,
@@ -666,24 +675,24 @@ cdef class FtxMarket(MarketBase):
             body = {
                 "market": str(trading_pair),
                 "side": "buy" if is_buy else "sell",
-                "price": f"{price:f}"
+                "price": f"{price:f}",
                 "type": "limit",
                 "size": f"{amount:f}",
-                "reduceOnly": false,
-                "ioc": false,
-                "postOnly": false,
+                "reduceOnly": False,
+                "ioc": False,
+                "postOnly": False,
                 "clientId": order_id
             }
         elif order_type is OrderType.MARKET:
             body = {
                 "market": str(trading_pair),
                 "side": "buy" if is_buy else "sell",
-                "price": f"{price:f}"
+                "price": f"{price:f}",
                 "type": "market",
                 "size": f"{amount:f}",
-                "reduceOnly": false,
-                "ioc": false,
-                "postOnly": false,
+                "reduceOnly": False,
+                "ioc": False,
+                "postOnly": False,
                 "clientId": order_id
             }
 

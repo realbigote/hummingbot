@@ -3,6 +3,7 @@ import hmac
 import hashlib
 import urllib
 from typing import Dict, Any, Tuple
+from requests import Request
 
 import ujson
 
@@ -20,33 +21,34 @@ class FtxAuth:
         body: Dict[str, Any] = None,
     ) -> Dict[str, any]:
 
-        ts = str(int(time.time() * 1000))
+        ts = int(time.time() * 1000)
         if http_method == "GET":
             req_body = ""
         else:
             req_body = json.dumps(body)
-        content_to_sign = "".join([timestamp, http_method, url, req_body])
+        request = Request(http_method, url)
+        prepared = request.prepare()
+        content_to_sign = "".join([str(ts), prepared.method, prepared.path_url, req_body])
         signature = hmac.new(self.secret_key.encode(), content_to_sign.encode(), hashlib.sha256).hexdigest()
 
         # V3 Authentication headers
         headers = {
             "FTX-KEY": self.api_key,
             "FTX-SIGN": signature,
-            "FTX-TS": ts,
-            "Api-Signature": signature,
+            "FTX-TS": str(ts)
         }
 
         return headers
 
     def generate_websocket_subscription(self):
-        ts = str(int(1000*time.time()))
+        ts = int(1000*time.time())
         presign = f"{ts}websocket_login"
-        sign = hmac.new(self.secret_key.encode(),presign.encode(),hashlib.sha256).hexdigest()
+        sign = hmac.new(self.secret_key.encode(),presign.encode(),'sha256').hexdigest()
         subscribe = {
           "args": {
             "key": self.api_key,
             "sign": sign,
-            "time": ts  
+            "time": ts,  
           },
           "op": "login"
         }

@@ -9,11 +9,13 @@ from typing import (
     Dict,
     Optional
 )
+import json
 import ujson
 import websockets
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
 from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.logger import HummingbotLogger
+from hummingbot.market.ftx.ftx_auth import FtxAuth
 
 FTX_API_ENDPOINT = "wss://ftx.com/ws/"
 FTX_USER_STREAM_ENDPOINT = "userDataStream"
@@ -70,8 +72,10 @@ class FtxAPIUserStreamDataSource(UserStreamTrackerDataSource):
         async with (await self.get_ws_connection()) as ws:
             subscribe = json.dumps(self._ftx_auth.generate_websocket_subscription())
             await ws.send(subscribe)
-            await ws.send('''{'op': 'subscribe', 'channel': 'fills'}''')
-            await ws.send('''{'op': 'subscribe', 'channel': 'orders'}''')
+
+            orders = json.dumps({"op": "subscribe", "channel": "orders"})
+            await ws.send(orders)
+            
             async for msg in self._inner_messages(ws):
                 yield msg
 

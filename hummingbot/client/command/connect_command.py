@@ -21,7 +21,8 @@ OPTIONS = {
     "ethereum",
     "blocktane",
     "celo",
-    "loopring"
+    "loopring",
+    "ftx"
 }
 
 

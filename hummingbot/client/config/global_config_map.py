@@ -281,6 +281,18 @@ global_config_map = {
                   required_if=using_exchange("loopring"),
                   is_secure=True,
                   is_connect_key=True),
+    "ftx_secret_key":
+        ConfigVar(key="ftx_secret_key",
+                  prompt="Enter your ftx secret key >>> ",
+                  required_if=using_exchange("ftx"),
+                  is_secure=True,
+                  is_connect_key=True),
+    "ftx_api_key":
+        ConfigVar(key="ftx_api_key",
+                  prompt="Enter your ftx api key >>> ",
+                  required_if=using_exchange("ftx"),
+                  is_secure=True,
+                  is_connect_key=True),
     "ethereum_wallet":
         ConfigVar(key="ethereum_wallet",
                   prompt="Enter your wallet private key >>> ",

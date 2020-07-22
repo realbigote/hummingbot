@@ -37,7 +37,7 @@ class FtxUserStreamTracker(UserStreamTracker):
         if not self._data_source:
             if self._data_source_type is UserStreamTrackerDataSourceType.EXCHANGE_API:
                 self._data_source = FtxAPIUserStreamDataSource(
-                    ftx_auth=self._ftx_auth, trading_pairs=self._trading_pairs
+                    ftx_auth=self._ftx_auth
                 )
             else:
                 raise ValueError(f"data_source_type {self._data_source_type} is not supported.")
