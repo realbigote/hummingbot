@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Optional, List, Dict, Any, AsyncIterable, Tuple
 
 import aiohttp
+import ujson
 import pandas as pd
 from async_timeout import timeout
 from libc.stdint cimport int64_t
@@ -675,25 +676,25 @@ cdef class FtxMarket(MarketBase):
             body = {
                 "market": str(trading_pair),
                 "side": "buy" if is_buy else "sell",
-                "price": f"{price:f}",
+                "price": float(price),
+                "size": float(amount),
                 "type": "limit",
-                "size": f"{amount:f}",
                 "reduceOnly": False,
                 "ioc": False,
                 "postOnly": False,
-                "clientId": order_id
+                "clientId": str(order_id),
             }
         elif order_type is OrderType.MARKET:
             body = {
                 "market": str(trading_pair),
                 "side": "buy" if is_buy else "sell",
-                "price": f"{price:f}",
+                "price": None,
                 "type": "market",
-                "size": f"{amount:f}",
+                "size": float(amount),
                 "reduceOnly": False,
                 "ioc": False,
                 "postOnly": False,
-                "clientId": order_id
+                "clientId": str(order_id),
             }
 
         api_response = await self._api_request("POST", path_url=path_url, body=body)

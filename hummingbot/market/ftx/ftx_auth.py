@@ -5,7 +5,7 @@ import urllib
 from typing import Dict, Any, Tuple
 from requests import Request
 
-import ujson
+import json
 
 
 class FtxAuth:
@@ -21,14 +21,17 @@ class FtxAuth:
         body: Dict[str, Any] = None,
     ) -> Dict[str, any]:
 
-        ts = int(time.time() * 1000)
         if http_method == "GET":
             req_body = ""
         else:
             req_body = json.dumps(body)
-        request = Request(http_method, url)
+        request = Request(http_method, url, data=req_body)
         prepared = request.prepare()
-        content_to_sign = "".join([str(ts), prepared.method, prepared.path_url, req_body])
+        ts = int(time.time() * 1000)
+        content_to_sign = f'{str(ts)}{prepared.method}{prepared.path_url}'
+        if prepared.body:
+            content_to_sign += prepared.body
+
         signature = hmac.new(self.secret_key.encode(), content_to_sign.encode(), hashlib.sha256).hexdigest()
 
         # V3 Authentication headers
