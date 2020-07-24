@@ -229,14 +229,10 @@ cdef class FtxMarket(MarketBase):
 
         #path_url = "/orders"
         #orders = await self._api_request("GET", path_url=path_url)
+#
         #for order in orders["result"]:
-        #    await self.execute_cancel(order["market"],str(order["id"]))
+        #    await self.execute_cancel("ETH/USDT", str(order["clientId"]))
 
-        path_url = "/orders"
-        orders = await self._api_request("GET", path_url=path_url)
-        for order in orders["result"]:
-            thing = await self.execute_cancel("ETH/USDT", str(order["id"]))
-            print(thing)
         path_url = "/wallet/balances"
         account_balances = await self._api_request("GET", path_url=path_url)
 
@@ -346,26 +342,26 @@ cdef class FtxMarket(MarketBase):
             tracked_orders = list(self._in_flight_orders.values())
 
             open_orders = await self.list_orders()
-            open_orders = dict((entry["id"], entry) for entry in open_orders["result"])
+            open_orders = dict((str(entry["id"]), entry) for entry in open_orders["result"])
 
             for tracked_order in tracked_orders:
 
-                exchange_order_id = await tracked_order.get_exchange_order_id()
+                exchange_order_id = str(await tracked_order.get_exchange_order_id())
                 client_order_id = tracked_order.client_order_id
-                order = open_orders.get(exchange_order_id)
+                order = open_orders[exchange_order_id]
 
                 # Do nothing, if the order has already been cancelled or has failed
                 if client_order_id not in self._in_flight_orders:
                     continue
 
                 if order is None:  # Handles order that are currently tracked but no longer open in exchange
-                    self._order_not_found_records[client_order_id] = \
-                        self._order_not_found_records.get(client_order_id, 0) + 1
-
-                    if self._order_not_found_records[client_order_id] < self.ORDER_NOT_EXIST_CONFIRMATION_COUNT:
-                        # Wait until the order not found error have repeated for a few times before actually treating
-                        # it as a fail. See: https://github.com/CoinAlpha/hummingbot/issues/601
-                        continue
+                   # self._order_not_found_records[client_order_id] = \
+                   #     self._order_not_found_records.get(client_order_id, 0) + 1
+#
+                   # if self._order_not_found_records[client_order_id] < self.ORDER_NOT_EXIST_CONFIRMATION_COUNT:
+                   #     # Wait until the order not found error have repeated for a few times before actually treating
+                   #     # it as a fail. See: https://github.com/CoinAlpha/hummingbot/issues/601
+                   #     continue
                     tracked_order.last_state = "CLOSED"
                     self.c_trigger_event(
                         self.MARKET_ORDER_FAILURE_EVENT_TAG,
@@ -476,7 +472,7 @@ cdef class FtxMarket(MarketBase):
                 channel = stream_message.get("channel")
                 data = stream_message.get("data")
                 event_type = stream_message.get("type")
-    
+
                 if (channel == "orders") and (event_type == "update"):  # Updates track order status
                     order_status = data["status"]
                     order_id = data["id"]
@@ -922,44 +918,33 @@ cdef class FtxMarket(MarketBase):
         return order_id
 
     async def execute_cancel(self, trading_pair: str, order_id: str):
-        try:
-            #tracked_order = self._in_flight_orders.get(order_id)
-#
-            #if tracked_order is None:
-            #    self.logger().error(f"The order {order_id} is not tracked. ")
-            #    raise ValueError
-            path_url = f"/orders/{order_id}"
+        tracked_order = self._in_flight_orders.get(order_id)
 
-            cancel_result = await self._api_request("DELETE", path_url=path_url)
+        if tracked_order is None:
+            self.logger().error(f"The order {order_id} is not tracked. ")
+            raise ValueError
+        path_url = f"/orders/{tracked_order.exchange_order_id}"
 
-            if cancel_result["success"] == "true":
-                self.logger().info(f"Successfully cancelled order {order_id}.")
-                #tracked_order.last_state = "CANCELLED"
-                self.c_stop_tracking_order(order_id)
-                self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
-                                     OrderCancelledEvent(self._current_timestamp, order_id))
-                return order_id
-            elif (cancel_result["success"] == False) and (cancel_result['error'] == 'Order already closed'):
-                #tracked_order.last_state = "CANCELLED"
-                self.c_stop_tracking_order(order_id)
-                return order_id
-        except asyncio.CancelledError:
-            raise
-        except Exception as err:
-            if "NOT_FOUND" in str(err):
-                # The order was never there to begin with. So cancelling it is a no-op but semantically successful.
-                self.logger().info(f"The order {order_id} does not exist on ftx. No cancellation needed.")
-                self.c_stop_tracking_order(order_id)
-                self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
-                                     OrderCancelledEvent(self._current_timestamp, order_id))
-                return order_id
+        cancel_result = await self._api_request("DELETE", path_url=path_url)
 
-            self.logger().network(
-                f"Failed to cancel order {order_id}: {str(err)}.",
-                exc_info=True,
-                app_warning_msg=f"Failed to cancel the order {order_id} on ftx. "
-                                f"Check API key and network connection."
-            )
+        if cancel_result["success"] == True:
+            self.logger().info(f"Successfully cancelled order {order_id}.")
+            tracked_order.last_state = "CANCELLED"
+            self.c_stop_tracking_order(order_id)
+            self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
+                                 OrderCancelledEvent(self._current_timestamp, order_id))
+            return order_id
+        if (cancel_result["success"] == False) and (cancel_result['error'] == 'Order already closed'):
+            tracked_order.last_state = "CANCELLED"
+            self.c_stop_tracking_order(order_id)
+            return order_id
+
+        self.logger().network(
+            f"Failed to cancel order {order_id}.",
+            exc_info=True,
+            app_warning_msg=f"Failed to cancel the order {order_id} on ftx. "
+                            f"Check API key and network connection."
+        )
         return None
 
     cdef c_cancel(self, str trading_pair, str order_id):
@@ -1016,6 +1001,7 @@ cdef class FtxMarket(MarketBase):
                                       data=body,
                                       timeout=self.API_CALL_TIMEOUT) as response:
                 data = await response.json()
+                print(data)
                 if response.status not in [200, 201]:  # HTTP Response code of 20X generally means it is successful
                     raise IOError(f"Error fetching response from {http_method}-{url}. HTTP Status Code {response.status}: "
                                   f"{data}")
