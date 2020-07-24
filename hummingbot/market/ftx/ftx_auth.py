@@ -20,19 +20,20 @@ class FtxAuth:
         params: Dict[str, Any] = None,
         body: Dict[str, Any] = None,
     ) -> Dict[str, any]:
-
-        if http_method == "GET":
-            req_body = ""
-        else:
-            req_body = json.dumps(body)
-        request = Request(http_method, url, data=req_body)
-        prepared = request.prepare()
-        ts = int(time.time() * 1000)
-        content_to_sign = f'{str(ts)}{prepared.method}{prepared.path_url}'
-        if prepared.body:
+        
+        if http_method == "POST":
+            request = Request(http_method, url, json=body)
+            prepared = request.prepare()
+            ts = int(time.time() * 1000)
+            content_to_sign = f'{ts}{prepared.method}{prepared.path_url}'.encode()
             content_to_sign += prepared.body
+        else:
+            request = Request(http_method, url)
+            prepared = request.prepare()
+            ts = int(time.time() * 1000)
+            content_to_sign = f'{ts}{prepared.method}{prepared.path_url}'.encode()
 
-        signature = hmac.new(self.secret_key.encode(), content_to_sign.encode(), hashlib.sha256).hexdigest()
+        signature = hmac.new(self.secret_key.encode(), content_to_sign, 'sha256').hexdigest()
 
         # V3 Authentication headers
         headers = {

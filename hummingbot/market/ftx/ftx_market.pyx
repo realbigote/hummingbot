@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import time
+import requests
+from requests import Request
 from decimal import Decimal
 from typing import Optional, List, Dict, Any, AsyncIterable, Tuple
 
@@ -225,6 +227,16 @@ cdef class FtxMarket(MarketBase):
             set remote_asset_names = set()
             set asset_names_to_remove
 
+        #path_url = "/orders"
+        #orders = await self._api_request("GET", path_url=path_url)
+        #for order in orders["result"]:
+        #    await self.execute_cancel(order["market"],str(order["id"]))
+
+        path_url = "/orders"
+        orders = await self._api_request("GET", path_url=path_url)
+        for order in orders["result"]:
+            thing = await self.execute_cancel("ETH/USDT", str(order["id"]))
+            print(thing)
         path_url = "/wallet/balances"
         account_balances = await self._api_request("GET", path_url=path_url)
 
@@ -317,6 +329,7 @@ cdef class FtxMarket(MarketBase):
         path_url = "/orders"
 
         result = await self._api_request("GET", path_url=path_url)
+
         return result
 
     async def _update_order_status(self):
@@ -331,10 +344,12 @@ cdef class FtxMarket(MarketBase):
         if current_tick > last_tick and len(self._in_flight_orders) > 0:
 
             tracked_orders = list(self._in_flight_orders.values())
+
             open_orders = await self.list_orders()
-            open_orders = dict((entry["id"], entry) for entry in open_orders if entry["status"] == "open")
+            open_orders = dict((entry["id"], entry) for entry in open_orders["result"])
 
             for tracked_order in tracked_orders:
+
                 exchange_order_id = await tracked_order.get_exchange_order_id()
                 client_order_id = tracked_order.client_order_id
                 order = open_orders.get(exchange_order_id)
@@ -510,7 +525,7 @@ cdef class FtxMarket(MarketBase):
 
                     if order_status == "complete":  # FILL(COMPLETE)
                         # trade_type = TradeType.BUY if content["OT"] == "LIMIT_BUY" else TradeType.SELL
-                        tracked_order.last_state = "DONE"
+                        tracked_order.last_state = "CLOSED"
                         if tracked_order.trade_type is TradeType.BUY:
                             self.logger().info(f"The LIMIT_BUY order {tracked_order.client_order_id} has completed "
                                                f"according to order delta websocket API.")
@@ -545,7 +560,7 @@ cdef class FtxMarket(MarketBase):
                         continue
 
                     if order_status == "closed":  # CANCEL
-                        tracked_order.last_state = "CANCELLED"
+                        tracked_order.last_state = "CLOSED"
                         self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
                                              OrderCancelledEvent(self._current_timestamp,
                                                                  tracked_order.client_order_id))
@@ -755,7 +770,7 @@ cdef class FtxMarket(MarketBase):
             else:
                 raise ValueError(f"Invalid OrderType {order_type}. Aborting.")
 
-            exchange_order_id = order_result["id"]
+            exchange_order_id = str(order_result["result"]["id"])
 
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None and exchange_order_id:
@@ -860,7 +875,7 @@ cdef class FtxMarket(MarketBase):
             else:
                 raise ValueError(f"Invalid OrderType {order_type}. Aborting.")
 
-            exchange_order_id = order_result["id"]
+            exchange_order_id = str(order_result["result"]["id"])
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None and exchange_order_id:
                 tracked_order.update_exchange_order_id(exchange_order_id)
@@ -908,20 +923,25 @@ cdef class FtxMarket(MarketBase):
 
     async def execute_cancel(self, trading_pair: str, order_id: str):
         try:
-            tracked_order = self._in_flight_orders.get(order_id)
-
-            if tracked_order is None:
-                self.logger().error(f"The order {order_id} is not tracked. ")
-                raise ValueError
-            path_url = f"/orders/{tracked_order.exchange_order_id}"
+            #tracked_order = self._in_flight_orders.get(order_id)
+#
+            #if tracked_order is None:
+            #    self.logger().error(f"The order {order_id} is not tracked. ")
+            #    raise ValueError
+            path_url = f"/orders/{order_id}"
 
             cancel_result = await self._api_request("DELETE", path_url=path_url)
+
             if cancel_result["success"] == "true":
                 self.logger().info(f"Successfully cancelled order {order_id}.")
-                tracked_order.last_state = "CANCELLED"
+                #tracked_order.last_state = "CANCELLED"
                 self.c_stop_tracking_order(order_id)
                 self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
                                      OrderCancelledEvent(self._current_timestamp, order_id))
+                return order_id
+            elif (cancel_result["success"] == False) and (cancel_result['error'] == 'Order already closed'):
+                #tracked_order.last_state = "CANCELLED"
+                self.c_stop_tracking_order(order_id)
                 return order_id
         except asyncio.CancelledError:
             raise
@@ -948,6 +968,7 @@ cdef class FtxMarket(MarketBase):
 
     async def cancel_all(self, timeout_seconds: float) -> List[CancellationResult]:
         incomplete_orders = [order for order in self._in_flight_orders.values() if not order.is_done]
+
         tasks = [self.execute_cancel(o.trading_pair, o.client_order_id) for o in incomplete_orders]
         order_id_set = set([o.client_order_id for o in incomplete_orders])
         successful_cancellation = []
@@ -984,17 +1005,21 @@ cdef class FtxMarket(MarketBase):
 
         headers = self.ftx_auth.generate_auth_dict(http_method, url, params, body)
 
-        client = await self._http_client()
-        async with client.request(http_method,
-                                  url=url,
-                                  headers=headers,
-                                  data=body,
-                                  timeout=self.API_CALL_TIMEOUT) as response:
-            data = await response.json()
-            if response.status not in [200, 201]:  # HTTP Response code of 20X generally means it is successful
-                raise IOError(f"Error fetching response from {http_method}-{url}. HTTP Status Code {response.status}: "
-                              f"{data}")
-            return data
+        if http_method == 'POST':
+            res = requests.post(url, json=body, headers=headers)
+            return res.json()
+        else:
+            client = await self._http_client()
+            async with client.request(http_method,
+                                      url=url,
+                                      headers=headers,
+                                      data=body,
+                                      timeout=self.API_CALL_TIMEOUT) as response:
+                data = await response.json()
+                if response.status not in [200, 201]:  # HTTP Response code of 20X generally means it is successful
+                    raise IOError(f"Error fetching response from {http_method}-{url}. HTTP Status Code {response.status}: "
+                                  f"{data}")
+                return data
 
     async def check_network(self) -> NetworkStatus:
         try:

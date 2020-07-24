@@ -30,7 +30,7 @@ cdef class FtxInFlightOrder(InFlightOrderBase):
 
     @property
     def is_done(self) -> bool:
-        return self.last_state in {"CLOSED"}
+        return self.last_state in {"CLOSED", "CANCELLED"}
 
     @property
     def is_failure(self) -> bool:
