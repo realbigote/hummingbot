@@ -16,7 +16,7 @@ pipelines:
           script: # Modify the commands below to build your repository.
             # Set $DOCKER_HUB_USERNAME and $DOCKER_HUB_PASSWORD as environment variables in repository settings
             - export IMAGE_NAME=tokamaktech/hummingbot:develop_$BITBUCKET_COMMIT
-            - export IMAGE_NAME_LATEST=tokamaktech/hummingbot:develop_latest
+            - export IMAGE_NAME_LATEST=tokamaktech/hummingbot:develop
             - export DOCKER_API_VERSION=1.39
 
             # build the Docker image (this will use the Dockerfile in the root of the repo)
@@ -37,7 +37,7 @@ pipelines:
           script: # Modify the commands below to build your repository.
             # Set $DOCKER_HUB_USERNAME and $DOCKER_HUB_PASSWORD as environment variables in repository settings
             - export IMAGE_NAME=tokamaktech/hummingbot:release_$BITBUCKET_COMMIT
-            - export IMAGE_NAME_LATEST=tokamaktech/hummingbot:release_latest
+            - export IMAGE_NAME_LATEST=tokamaktech/hummingbot:release
             - export DOCKER_API_VERSION=1.39
 
             # build the Docker image (this will use the Dockerfile in the root of the repo)
