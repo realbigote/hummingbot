@@ -657,16 +657,16 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         if (abs(primary_base_balance - self.primary_base_total_balance) > 0.001):
             self.primary_base_total_balance = primary_base_balance
-            SlackPusher(self.slack_hook,f"BALANCE DISCREPANCY on {primary_market} for {primary_base_asset}")
+            SlackPusher(self.slack_url,f"BALANCE DISCREPANCY on {primary_market} for {primary_base_asset}")
         if (abs(primary_quote_balance - self.primary_quote_total_balance) > 0.001):
             self.primary_quote_total_balance = primary_quote_balance
-            SlackPusher(self.slack_hook,f"BALANCE DISCREPANCY on {primary_market} for {primary_quote_asset}")
+            SlackPusher(self.slack_url,f"BALANCE DISCREPANCY on {primary_market} for {primary_quote_asset}")
         if (abs(mirrored_base_balance - self.mirrored_base_total_balance) > 0.001):
             self.mirrored_base_total_balance = mirrored_base_balance
-            SlackPusher(self.slack_hook,f"BALANCE DISCREPANCY on {mirrored_market} for {mirrored_base_asset}")
+            SlackPusher(self.slack_url,f"BALANCE DISCREPANCY on {mirrored_market} for {mirrored_base_asset}")
         if (abs(mirrored_quote_balance - self.mirrored_quote_total_balance) > 0.001):
             self.mirrored_quote_total_balance = mirrored_quote_balance
-            SlackPusher(self.slack_hook,f"BALANCE DISCREPANCY on {mirrored_market} for {mirrored_quote_asset}")
+            SlackPusher(self.slack_url,f"BALANCE DISCREPANCY on {mirrored_market} for {mirrored_quote_asset}")
 
     cdef c_process_market_pair(self, object market_pair):
         primary_market_pair = self.primary_market_pairs[0]
