@@ -829,6 +829,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     else:
                         self.logger().warning(f"INSUFFICIENT FUNDS for buy on {primary_market.name}")
                         self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.quote_asset)
+                        self.buys_to_replace.append(0)
                 except:
                     pass
 
@@ -876,6 +877,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         else:
                             self.logger().warning(f"INSUFFICIENT FUNDS for buy on {primary_market.name}")
                             self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.quote_asset)
+                            self.buys_to_replace.append(i+1)
                     except:
                         break
 
@@ -928,6 +930,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     else:
                         self.logger().warning(f"INSUFFICIENT FUNDS for sell on {primary_market.name}")
                         self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.base_asset)
+                        self.sells_to_replace.append(0)
                 except:
                     pass
     
@@ -976,6 +979,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         else:
                             self.logger().warning(f"INSUFFICIENT FUNDs for sell on {primary_market.name}!")
                             self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.base_asset)
+                            self.sells_to_replace.append(i+1)
                     except:
                         break
 
