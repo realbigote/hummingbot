@@ -831,7 +831,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                                               "rank": 0}
                     else:
                         self.logger().warning(f"INSUFFICIENT FUNDS for buy on {primary_market.name}")
-                    self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.quote_asset)
+                        self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.quote_asset)
                 except:
                     pass
 
@@ -878,7 +878,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                                                     "rank": (i+1)}
                         else:
                             self.logger().warning(f"INSUFFICIENT FUNDS for buy on {primary_market.name}")
-                        self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.quote_asset)
+                            self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.quote_asset)
                     except:
                         break
 
@@ -930,7 +930,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                                                 "rank": 0}
                     else:
                         self.logger().warning(f"INSUFFICIENT FUNDS for sell on {primary_market.name}")
-                    self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.base_asset)
+                        self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.base_asset)
                 except:
                     pass
     
@@ -978,7 +978,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                                                   "rank": (i+1)}
                         else:
                             self.logger().warning(f"INSUFFICIENT FUNDs for sell on {primary_market.name}!")
-                        self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.base_asset)
+                            self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.base_asset)
                     except:
                         break
 
