@@ -383,15 +383,17 @@ cdef class FtxMarket(MarketBase):
                 trade_type = "BUY" if tracked_order.trade_type is TradeType.BUY else "SELL"
                 order_type_description = tracked_order.order_type_description
 
-                executed_price = Decimal(order["avgFillPrice"])
                 executed_amount_diff = s_decimal_0
 
-                remaining_size = Decimal(order["remainingSize"])
-                new_confirmed_amount = tracked_order.amount - remaining_size
-                executed_amount_diff = new_confirmed_amount - tracked_order.executed_amount_base
-                tracked_order.executed_amount_base = new_confirmed_amount
-                tracked_order.executed_amount_quote += executed_amount_diff * executed_price
+                if order["avgFillPrice"]:
+                    executed_price = Decimal(order["avgFillPrice"])
 
+                    remaining_size = Decimal(order["remainingSize"])
+                    new_confirmed_amount = tracked_order.amount - remaining_size
+                    executed_amount_diff = new_confirmed_amount - tracked_order.executed_amount_base
+                    tracked_order.executed_amount_base = new_confirmed_amount
+                    tracked_order.executed_amount_quote += executed_amount_diff * executed_price
+                
                 if executed_amount_diff > s_decimal_0:
                     self.logger().info(f"Filled {executed_amount_diff} out of {tracked_order.amount} of the "
                                        f"{order_type_description} order {tracked_order.client_order_id}.")
@@ -487,15 +489,18 @@ cdef class FtxMarket(MarketBase):
                         continue
 
                     order_type_description = tracked_order.order_type_description
-                    execute_price = Decimal(data["avgFillPrice"])
+
                     execute_amount_diff = s_decimal_0
 
-                    remaining_size = Decimal(str(data["remainingSize"]))
+                    if data["avgFillPrice"]:
+                        execute_price = Decimal(data["avgFillPrice"])
 
-                    new_confirmed_amount = Decimal(tracked_order.amount - remaining_size)
-                    execute_amount_diff = Decimal(new_confirmed_amount - tracked_order.executed_amount_base)
-                    tracked_order.executed_amount_base = new_confirmed_amount
-                    tracked_order.executed_amount_quote += Decimal(execute_amount_diff * execute_price)
+                        remaining_size = Decimal(str(data["remainingSize"]))
+
+                        new_confirmed_amount = Decimal(tracked_order.amount - remaining_size)
+                        execute_amount_diff = Decimal(new_confirmed_amount - tracked_order.executed_amount_base)
+                        tracked_order.executed_amount_base = new_confirmed_amount
+                        tracked_order.executed_amount_quote += Decimal(execute_amount_diff * execute_price)
 
                     if execute_amount_diff > s_decimal_0:
                         self.logger().info(f"Filled {execute_amount_diff} out of {tracked_order.amount} of the "
@@ -601,7 +606,7 @@ cdef class FtxMarket(MarketBase):
             except Exception:
                 self.logger().network("Unexpected error while fetching trading rule updates.",
                                       exc_info=True,
-                                      app_warning_msg=f"Could not fetch updates from Bitrrex. "
+                                      app_warning_msg=f"Could not fetch updates from ftx. "
                                                       f"Check API key and network connection.")
                 await asyncio.sleep(0.5)
 
@@ -1001,7 +1006,8 @@ cdef class FtxMarket(MarketBase):
                                       data=body,
                                       timeout=self.API_CALL_TIMEOUT) as response:
                 data = await response.json()
-                print(data)
+                if http_method == 'DELETE':
+                    return data
                 if response.status not in [200, 201]:  # HTTP Response code of 20X generally means it is successful
                     raise IOError(f"Error fetching response from {http_method}-{url}. HTTP Status Code {response.status}: "
                                   f"{data}")
