@@ -108,7 +108,7 @@ liquidity_mirroring_config_map = {
     ),
     "max_offset_loss": ConfigVar(
         key="max_offset_loss",
-        prompt="Enter your maximum tolerated one-time offset loss (in quote currency) >>> ",
+        prompt="Enter your maximum tolerated one-time percentage offset loss (0.01 for 1%) >>> ",
         prompt_on_new=True,
         type_str="float"
     ),
