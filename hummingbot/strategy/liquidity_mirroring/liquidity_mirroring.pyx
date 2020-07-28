@@ -1019,7 +1019,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 if (amount > self.min_mirroring_amount):
                     if (self.avg_sell_price[1] > 0):
                         true_average = self.avg_sell_price[0]/self.avg_sell_price[1]
-                        new_price = true_average + (self.max_loss/amount)
+                        new_price = true_average * (1.0 + self.max_loss)
                     else:
                         #should not hit this; if we are offsetting, there should be an extant sell price
                         new_price = float(best_ask.price)
@@ -1049,7 +1049,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 if (amount > self.min_mirroring_amount):
                     if (self.avg_buy_price[1] > 0):
                         true_average = self.avg_buy_price[0]/self.avg_buy_price[1]
-                        new_price = true_average - (self.max_loss/amount)
+                        new_price = true_average * (1.0 - self.max_loss)
                     else:
                         # should not hit this. there should be an extant buy
                         new_price = float(best_bid.price)
