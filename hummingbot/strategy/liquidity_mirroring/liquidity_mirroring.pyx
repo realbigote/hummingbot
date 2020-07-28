@@ -768,6 +768,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         available_quote_exposure = self.max_exposure_quote - self.offset_quote_exposure
         available_base_exposure = self.max_exposure_base - self.offset_base_exposure
 
+        available_offset_base = self.mirrored_base_balance
+        available_offset_quote = self.mirrored_quote_balance  
+
+        available_quote_exposure = min(available_quote_exposure, available_offset_base * float(best_bid.price))
+        available_base_exposure = min(available_base_exposure, available_offset_quote/float(best_ask.price))
+
         spread = float(best_ask.price - best_bid.price)
         spread_factor = (spread)/float(best_ask.price)
         if spread_factor < self.spread_percent:
