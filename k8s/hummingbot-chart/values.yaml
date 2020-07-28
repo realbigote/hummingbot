@@ -4,14 +4,13 @@
 
 # Define global variables
 global:
-  namespace: hummingbot
-  releaseTag: development
+  namespacePrefix: hummingbot
+  releaseTag: release
   name: 
   appName: 
   chartName:
-  strategyPrefix: bolsa-pure-mm-liq-mirr  
-  strategySuffix: eth-usds
-
+  strategyName: liquidity-mirroring
+  
   node:
     feature:
       storage:
@@ -39,7 +38,7 @@ global:
         pathRoot: "/home/tradebot"        
       default:
         name: "hetzner.athena"
-        pathRoot: "/home/tradebot"      
+        pathRoot: "/home/tradebot"
 
   image:
     hummingbot:
@@ -53,8 +52,23 @@ global:
       registry: index.docker.io/v1/
 
   options:
-    paper_trade: true
+    paper_trade: false
     strategy: liquidity_mirroring 
-    strategyName: liquidy-mirroring   
     config_password: tradebot
-    config_file_name: strat_conf.yml
+    config_file_name: 20200725loopringethusdt_liquidity_mirroring_1.yml
+
+persistence:
+  hummingbot_conf:
+    name: conf
+    pathRoot: "/home/hummingbot"
+  hummingbot_logs:
+    name: logs
+    pathRoot: "/home/hummingbot"    
+
+strategies:
+  - name: loopring-binance-ethusdt
+    config: 20200725loopringethusdt_liquidity_mirroring_1.yml
+  - name: loopring-binance-compusdt
+    config: 20200725loopringethusdt_liquidity_mirroring_1.yml
+  - name: loopring-binance-usdtdai
+    config: 20200725loopringethusdt_liquidity_mirroring_1.yml

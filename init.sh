@@ -1,11 +1,16 @@
 #!/bin/bash
 tmux new-session -d -s hummingbot -n hbstrat
-tmux send-keys -t hummingbot:hbstrat " /opt/conda/envs/hummingbot/bin/python3 /bin/hummingbot_quickstart.py" Enter
+tmux send-keys -t hummingbot:hbstrat "python3 bin/hummingbot_quickstart.py" Enter
+
+sleep 5
+
+tmux send-keys -t hummingbot:hbstrat "import ${STRAT_CONF_FILE}" Enter
+
 #GET PID by parsing?? or Force PID
 #TAIL PID
 tail -f /dev/null
 
-# # To attach run 
-#tmux attach -t hummingbot:hbstrat
+###### To attach to Hummingbot Session run
+##   tmux attach -t hummingbot:hbstrat
 
 
