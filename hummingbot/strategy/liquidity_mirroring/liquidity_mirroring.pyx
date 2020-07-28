@@ -145,6 +145,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.mirrored_quote_balance = 0.0
         self.mirrored_quote_total_balance = 0.0
         self.balances_set = False     
+        self.funds_message_sent = False
 
         self.min_primary_amount = min_primary_amount
         self.min_mirroring_amount = min_mirroring_amount
@@ -754,6 +755,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             if (wallet_check_time_elapsed > 60):
                 self.start_wallet_check_time = current_time
                 self.check_calculations()
+            if (time_elapsed > 1800):
+                if self.funds_message_sent == True:
+                    self.funds_message_sent = False
             if (time_elapsed > (3600 * self.slack_update_period)):
                 self.start_time = current_time
                 SlackPusher(self.slack_url, self.format_status())
@@ -842,7 +846,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                                               "rank": 0}
                     else:
                         self.logger().warning(f"INSUFFICIENT FUNDS for buy on {primary_market.name}")
-                        self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.quote_asset)
+                        if not self.funds_message_sent:
+                            self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.quote_asset)
+                            self.funds_message_sent = True
                         self.buys_to_replace.append(0)
                 except:
                     pass
@@ -890,7 +896,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                                                     "rank": (i+1)}
                         else:
                             self.logger().warning(f"INSUFFICIENT FUNDS for buy on {primary_market.name}")
-                            self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.quote_asset)
+                            if not self.funds_message_sent:
+                                self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.quote_asset)
+                                self.funds_message_sent = True
                             self.buys_to_replace.append(i+1)
                     except:
                         break
@@ -943,7 +951,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                                                 "rank": 0}
                     else:
                         self.logger().warning(f"INSUFFICIENT FUNDS for sell on {primary_market.name}")
-                        self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.base_asset)
+                        if not self.funds_message_sent:
+                            self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.base_asset)
+                            self.funds_message_sent = True
                         self.sells_to_replace.append(0)
                 except:
                     pass
@@ -992,7 +1002,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                                                   "rank": (i+1)}
                         else:
                             self.logger().warning(f"INSUFFICIENT FUNDs for sell on {primary_market.name}!")
-                            self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.base_asset)
+                            if not self.funds_message_sent:
+                                self.slack_insufficient_funds_message(primary_market.name, primary_market_pair.base_asset)
+                                self.funds_message_sent = True
                             self.sells_to_replace.append(i+1)
                     except:
                         break
