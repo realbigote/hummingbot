@@ -889,8 +889,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, min_price)
                         quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
 
-                        while (not self.c_ready_for_new_orders([primary_market_pair])):
-                            continue
                         try:
                             if (min(primary_market.get_available_balance(primary_market_pair.quote_asset),self.primary_quote_balance) >
                               quant_price * quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
@@ -948,8 +946,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
                     quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, price_tx)
                     quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
-                    while (not self.c_ready_for_new_orders([primary_market_pair])):
-                        continue
+
                     try:
                         if (min(primary_market.get_available_balance(primary_market_pair.base_asset),self.primary_base_balance) >
                           quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
@@ -999,8 +996,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, max_price)
                         quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
 
-                        while (not self.c_ready_for_new_orders([primary_market_pair])):
-                            continue
                         try:
                             if (min(primary_market.get_available_balance(primary_market_pair.base_asset),self.primary_base_balance) >
                               quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
