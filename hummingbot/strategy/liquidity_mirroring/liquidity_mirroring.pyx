@@ -94,7 +94,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self._cool_off_logged = False
         self.two_sided_mirroring = two_sided_mirroring
         self._failed_market_order_count = 0
-        self._last_failed_market_order_timestamp = 0
+        self._last_failed_market_order_timestamp = 0.0
                                                                 
         cdef:
             set all_markets = {
