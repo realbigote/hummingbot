@@ -298,6 +298,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             else:
                 self.logger().warning("Too much total offset loss!")
                 SlackPusher(self.slack_url, "Total offset loss beyond threshold")
+                safe_ensure_future(self.primary_market_pairs[0].market.cancel_all(5.0))
+                safe_ensure_future(self.mirrored_market_pairs[0].market.cancel_all(5.0))
         finally:
             self._last_timestamp = timestamp
 
