@@ -74,7 +74,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         int _failed_order_tolerance
         bint _cool_off_logged
         int _failed_market_order_count
-        int _last_failed_market_order_timestamp
+        float _last_failed_market_order_timestamp
         int cycle_number
         float slack_update_period
 
