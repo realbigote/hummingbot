@@ -71,7 +71,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                  logging_options: int = OPTION_LOG_ORDER_COMPLETED,
                  status_report_interval: float = 60.0,
                  next_trade_delay_interval: float = 15.0,
-                 failed_order_tolerance: int = 100):
+                 failed_order_tolerance: int = 2000000000):
         """
         :param market_pairs: list liquidity mirroring market pairs
         :param logging_options: select the types of logs to output
@@ -839,8 +839,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, price_tx)
                     quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
 
-                    while (not self.c_ready_for_new_orders([primary_market_pair])):
-                        continue
+                    #while (not self.c_ready_for_new_orders([primary_market_pair])):
+                    #    continue
                     try:
                         if (min(primary_market.get_available_balance(primary_market_pair.quote_asset),self.primary_quote_balance) >
                           quant_price * quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
