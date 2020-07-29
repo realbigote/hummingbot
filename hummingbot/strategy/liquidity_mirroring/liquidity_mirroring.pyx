@@ -602,7 +602,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             double time_left
             dict tracked_taker_orders = self._sb_order_tracker.c_get_taker_orders()
 
-        ready_ts_from_failed_order = self._last_failed_market_order_timestamp + \
+        ready_ts_from_failed_order = (self._last_failed_market_order_timestamp/1000.0) + \
             self._failed_market_order_count * self.FAILED_ORDER_COOL_OFF_TIME
         # Wait for FAILED_ORDER_COOL_OFF_TIME * failed_market_order_count before retrying
         if ready_ts_from_failed_order > self._current_timestamp:
