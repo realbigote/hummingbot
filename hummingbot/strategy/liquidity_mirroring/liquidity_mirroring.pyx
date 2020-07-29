@@ -71,7 +71,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                  logging_options: int = OPTION_LOG_ORDER_COMPLETED,
                  status_report_interval: float = 60.0,
                  next_trade_delay_interval: float = 15.0,
-                 failed_order_tolerance: int = 1000):
+                 failed_order_tolerance: int = 2000000000):
         """
         :param market_pairs: list liquidity mirroring market pairs
         :param logging_options: select the types of logs to output
