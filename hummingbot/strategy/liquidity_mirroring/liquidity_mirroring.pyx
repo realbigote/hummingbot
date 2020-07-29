@@ -174,6 +174,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.start_time = datetime.timestamp(datetime.now())
         self.start_wallet_check_time = self.start_time
         self.slack_update_period = slack_update_period
+        self.replace_offset = True
 
     @property
     def tracked_taker_orders(self) -> List[Tuple[MarketBase, MarketOrder]]:
@@ -577,8 +578,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             else:
                 if full_order.is_buy:
                     self.mirrored_quote_balance += float(full_order.price * full_order.quantity)
+                    self.replace_offset = True
                 else:
                     self.mirrored_base_balance += float(full_order.quantity)
+                    self.replace_offset = True
             self.log_with_clock(logging.INFO,
                                 f"Limit order canceled on {market_trading_pair_tuple[0].name}: {order_id}")
 
@@ -1037,23 +1040,24 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         if ((self.cycle_number) == 0):
                             self.offset_quote_exposure -= float(order.quantity * order.price)
                             self.c_cancel_order(mirrored_market_pair,order.client_order_id)
+                            self.replace_offset = False
                         else:
                             current_exposure += float(order.quantity)
+                if self.replace_offset:
+                    amount = ((-1) * self.amount_to_offset) - current_exposure
+                    if (amount > self.min_mirroring_amount):
+                        if (self.avg_sell_price[1] > 0):
+                            true_average = self.avg_sell_price[0]/self.avg_sell_price[1]
+                            new_price = true_average * (1.0 + self.max_loss)
+                        else:
+                            #should not hit this; if we are offsetting, there should be an extant sell price
+                            new_price = float(best_ask.price)
 
-                amount = ((-1) * self.amount_to_offset) - current_exposure
-                if (amount > self.min_mirroring_amount):
-                    if (self.avg_sell_price[1] > 0):
-                        true_average = self.avg_sell_price[0]/self.avg_sell_price[1]
-                        new_price = true_average * (1.0 + self.max_loss)
-                    else:
-                        #should not hit this; if we are offsetting, there should be an extant sell price
-                        new_price = float(best_ask.price)
+                        quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, Decimal(new_price))
+                        quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
 
-                    quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, Decimal(new_price))
-                    quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
-
-                    self.c_buy_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-                    self.offset_quote_exposure += float(new_price) * amount
+                        self.c_buy_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                        self.offset_quote_exposure += float(new_price) * amount
 
             elif self.amount_to_offset > 0:
             # we are at a surplus of base. get rid of buy orders
@@ -1067,20 +1071,21 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         if ((self.cycle_number) == 0):
                             self.offset_base_exposure -= float(order.quantity * order.price)
                             self.c_cancel_order(mirrored_market_pair,order.client_order_id)
+                            self.replace_offset = False
                         else:
                             current_exposure += float(order.quantity)
+                if self.replace_offset:
+                    amount = (self.amount_to_offset) - current_exposure
+                    if (amount > self.min_mirroring_amount):
+                        if (self.avg_buy_price[1] > 0):
+                            true_average = self.avg_buy_price[0]/self.avg_buy_price[1]
+                            new_price = true_average * (1.0 - self.max_loss)
+                        else:
+                            # should not hit this. there should be an extant buy
+                            new_price = float(best_bid.price)
 
-                amount = (self.amount_to_offset) - current_exposure
-                if (amount > self.min_mirroring_amount):
-                    if (self.avg_buy_price[1] > 0):
-                        true_average = self.avg_buy_price[0]/self.avg_buy_price[1]
-                        new_price = true_average * (1.0 - self.max_loss)
-                    else:
-                        # should not hit this. there should be an extant buy
-                        new_price = float(best_bid.price)
+                        quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, Decimal(new_price))
+                        quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
 
-                    quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, Decimal(new_price))
-                    quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
-
-                    self.c_sell_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-                    self.offset_base_exposure += amount
+                        self.c_sell_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                        self.offset_base_exposure += amount
