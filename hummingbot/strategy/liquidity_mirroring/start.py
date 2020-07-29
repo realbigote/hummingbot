@@ -20,10 +20,11 @@ def start(self):
     spread_percent = liquidity_mirroring_config_map.get("spread_percent").value
     max_exposure_base = liquidity_mirroring_config_map.get("max_exposure_base").value
     max_exposure_quote = liquidity_mirroring_config_map.get("max_exposure_quote").value
+    max_offsetting_exposure = liquidity_mirroring_config_map.get("max_offsetting_exposure").value
     max_loss = liquidity_mirroring_config_map.get("max_offset_loss").value
     max_total_loss = liquidity_mirroring_config_map.get("max_total_offset_loss").value
     #equivalent_tokens = liquidity_mirroring_config_map.get("equivalent_tokens").value
-    equivalent_tokens = [["USDT", "USDC", "USDS", "DAI", "PAX", "TUSD", "USD", "ZUSD", "TKMKB"],
+    equivalent_tokens = [["USDT", "USDC", "USDS", "DAI", "PAX", "TUSD", "USD", "ZUSD", "TKMKB", "COMP"],
         ["XETH", "ETH", "WETH", "FTH"], ["BTC", "WBTC", "XXBT", "TKMKB"], ["ZRX"], ["XTZ", "TKMKA"]]
     min_primary_amount = liquidity_mirroring_config_map.get("min_primary_amount").value
     min_mirroring_amount = liquidity_mirroring_config_map.get("min_mirroring_amount").value
@@ -121,6 +122,7 @@ def start(self):
                                                spread_percent=spread_percent,
                                                max_exposure_base=max_exposure_base,
                                                max_exposure_quote=max_exposure_quote,
+                                               max_offsetting_exposure=max_offsetting_exposure,
                                                max_loss=max_loss,
                                                max_total_loss=max_total_loss,
                                                bid_amount_percents=bid_ratios,
