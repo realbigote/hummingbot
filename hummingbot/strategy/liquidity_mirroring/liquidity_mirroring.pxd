@@ -21,7 +21,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         dict marked_for_deletion
         list has_been_offset
         str slack_url
-        bint replace_offset
         object performance_logger
         float best_bid_start
         float initial_base_amount
