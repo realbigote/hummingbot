@@ -1026,6 +1026,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             
             if self.amount_to_offset < 0:
                 # we are at a deficit of base. get rid of sell orders
+                quantity = float(order.quantity)
                 for order in current_orders:
                     if not order.is_buy:
                         self.c_cancel_order(mirrored_market_pair,order.client_order_id)
@@ -1033,7 +1034,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         if ((self.cycle_number) == 0):
                             self.c_cancel_order(mirrored_market_pair,order.client_order_id)
 
-                        current_exposure += float(order.quantity)
+                        current_exposure += quantity
 
                 amount = ((-1) * self.amount_to_offset) - current_exposure
                 if (amount > self.min_mirroring_amount):
@@ -1053,6 +1054,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             elif self.amount_to_offset > 0:
             # we are at a surplus of base. get rid of buy orders
                 for order in current_orders:
+                    quantity = float(order.quantity)
                     if order.is_buy:
                         self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                     else:
@@ -1061,7 +1063,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         if ((self.cycle_number) == 0):
                             self.c_cancel_order(mirrored_market_pair,order.client_order_id)
 
-                        current_exposure += float(order.quantity)
+                        current_exposure += quantity
 
                 amount = (self.amount_to_offset) - current_exposure
                 if (amount > self.min_mirroring_amount):
