@@ -303,6 +303,17 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         finally:
             self._last_timestamp = timestamp
 
+    def cancel_offsetting_orders(self):
+        mirrored_market_pair: MarketBase = self.mirrored_market_pairs[0]
+        mirrored_market = mirrored_market_pair.market
+        active_orders = self._sb_order_tracker.market_pair_to_active_orders
+        current_orders = []
+        if mirrored_market_pair in active_orders:
+            current_orders = active_orders[mirrored_market_pair][:]
+        for order in current_orders:
+            self.c_cancel_order(mirrored_market_pair,order.client_order_id)
+        
+
     cdef c_did_fill_order(self, object order_filled_event):
         cdef:
             str order_id = order_filled_event.order_id
@@ -315,7 +326,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     if f"{order_id}COMPLETE" not in self.has_been_offset:
                         self.avg_buy_price[0] += float(order_filled_event.price * order_filled_event.amount)
                         self.avg_buy_price[1] += float(order_filled_event.amount)
+                        previous_amount_to_offset = self.amount_to_offset
                         self.amount_to_offset += float(order_filled_event.amount)
+                        if abs(self.amount_to_offset) < abs(previous_amount_to_offset):
+                            self.cancel_offsetting_orders()
                         self.primary_base_balance += float(order_filled_event.amount)
                         if order_id in self.marked_for_deletion.keys():
                             order = self.marked_for_deletion[order_id]
@@ -354,7 +368,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     if f"{order_id}COMPLETE" not in self.has_been_offset:
                         self.avg_sell_price[0] += float(order_filled_event.price * order_filled_event.amount)
                         self.avg_sell_price[1] += float(order_filled_event.amount)
+                        previous_amount_to_offset = self.amount_to_offset
                         self.amount_to_offset -= float(order_filled_event.amount)
+                        if abs(self.amount_to_offset) < abs(previous_amount_to_offset):
+                            self.cancel_offsetting_orders()
                         self.primary_quote_balance += float(order_filled_event.price * order_filled_event.amount)
                         if order_id in self.marked_for_deletion.keys():
                             order = self.marked_for_deletion[order_id]
@@ -432,7 +449,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.trades_executed += 1
                     self.avg_buy_price[0] += float(buy_order_completed_event.quote_asset_amount)
                     self.avg_buy_price[1] += float(buy_order_completed_event.base_asset_amount)
+                    previous_amount_to_offset = self.amount_to_offset
                     self.amount_to_offset += float(buy_order_completed_event.base_asset_amount)
+                    if abs(self.amount_to_offset) < abs(previous_amount_to_offset):
+                        self.cancel_offsetting_orders()
                     self.primary_base_balance += float(buy_order_completed_event.base_asset_amount)
                     if order_id in self.marked_for_deletion.keys():
                         order = self.marked_for_deletion[order_id]
@@ -483,7 +503,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.trades_executed += 1
                     self.avg_sell_price[0] += float(sell_order_completed_event.quote_asset_amount)
                     self.avg_sell_price[1] += float(sell_order_completed_event.base_asset_amount)
+                    previous_amount_to_offset = self.amount_to_offset
                     self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
+                    if abs(self.amount_to_offset) < abs(previous_amount_to_offset):
+                        self.cancel_offsetting_orders()
                     self.primary_quote_balance += float(sell_order_completed_event.quote_asset_amount)
                     if order_id in self.marked_for_deletion.keys():
                         order = self.marked_for_deletion[order_id]
@@ -1027,13 +1050,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             if self.amount_to_offset < 0:
                 # we are at a deficit of base. get rid of sell orders
                 for order in current_orders:
+                    quantity = float(order.quantity)
                     if not order.is_buy:
                         self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                     else:
-                        if ((self.cycle_number) == 0):
-                            self.c_cancel_order(mirrored_market_pair,order.client_order_id)
-
-                        current_exposure += float(order.quantity)
+                        current_exposure += quantity
 
                 amount = ((-1) * self.amount_to_offset) - current_exposure
                 if (amount > self.min_mirroring_amount):
@@ -1053,15 +1074,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             elif self.amount_to_offset > 0:
             # we are at a surplus of base. get rid of buy orders
                 for order in current_orders:
+                    quantity = float(order.quantity)
                     if order.is_buy:
                         self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                     else:
-                        #shouldn't be some fixed value here!
-                        #if (max((order.price - best_bid.price),(best_bid.price - order.price)) > 0.01):
-                        if ((self.cycle_number) == 0):
-                            self.c_cancel_order(mirrored_market_pair,order.client_order_id)
-
-                        current_exposure += float(order.quantity)
+                        current_exposure += quantity
 
                 amount = (self.amount_to_offset) - current_exposure
                 if (amount > self.min_mirroring_amount):
