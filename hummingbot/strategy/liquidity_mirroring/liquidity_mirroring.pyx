@@ -27,7 +27,7 @@ from hummingbot.strategy.strategy_base import StrategyBase
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
 from hummingbot.strategy.liquidity_mirroring.liquidity_mirroring_market_pair import LiquidityMirroringMarketPair
 
-NaN = float("nan")
+NaN = Decimal("nan")
 s_decimal_0 = Decimal(0)
 as_logger = None
 
@@ -55,22 +55,22 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                  primary_market_pairs: List[MarketTradingPairTuple],
                  mirrored_market_pairs: List[MarketTradingPairTuple],
                  two_sided_mirroring: bool,
-                 spread_percent: float,
-                 max_exposure_base: float,
-                 max_exposure_quote: float,
-                 max_offsetting_exposure: float,
-                 max_loss: float,
-                 max_total_loss: float,
+                 spread_percent: Decimal,
+                 max_exposure_base: Decimal,
+                 max_exposure_quote: Decimal,
+                 max_offsetting_exposure: Decimal,
+                 max_loss: Decimal,
+                 max_total_loss: Decimal,
                  equivalent_tokens: list,
-                 min_primary_amount: float,
-                 min_mirroring_amount: float,
+                 min_primary_amount: Decimal,
+                 min_mirroring_amount: Decimal,
                  bid_amount_percents: list,
                  ask_amount_percents: list,
                  slack_hook: str,
-                 slack_update_period: float,
+                 slack_update_period: Decimal,
                  logging_options: int = OPTION_LOG_ORDER_COMPLETED,
-                 status_report_interval: float = 60.0,
-                 next_trade_delay_interval: float = 15.0,
+                 status_report_interval: Decimal = 60.0,
+                 next_trade_delay_interval: Decimal = 15.0,
                  failed_order_tolerance: int = 2000000000):
         """
         :param market_pairs: list liquidity mirroring market pairs
@@ -94,7 +94,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self._cool_off_logged = False
         self.two_sided_mirroring = two_sided_mirroring
         self._failed_market_order_count = 0
-        self._last_failed_market_order_timestamp = 0.0
+        self._last_failed_market_order_timestamp = Decimal(0)
                                                                 
         cdef:
             set all_markets = {
@@ -105,15 +105,15 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.c_add_markets(list(all_markets))
         
         # initialize the bounds of the orderbooks
-        self.primary_best_bid = 0.0
-        self.primary_best_ask = float("inf")
-        self.mirrored_best_bid = 0.0
-        self.mirrored_best_ask = float("inf")
+        self.primary_best_bid = Decimal(0)
+        self.primary_best_ask = Decimal("inf")
+        self.mirrored_best_bid = Decimal(0)
+        self.mirrored_best_ask = Decimal("inf")
 
-        self.spread_percent = spread_percent
-        self.max_exposure_base = max_exposure_base
-        self.max_exposure_quote = max_exposure_quote
-        self.max_offsetting_exposure = max_offsetting_exposure
+        self.spread_percent = Decimal(spread_percent)
+        self.max_exposure_base = Decimal(max_exposure_base)
+        self.max_exposure_quote = Decimal(max_exposure_quote)
+        self.max_offsetting_exposure = Decimal(max_offsetting_exposure)
 
         self.bid_amount_percents = bid_amount_percents
         self.ask_amount_percents = ask_amount_percents
@@ -126,30 +126,30 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             self.ask_amounts.append(amount * self.max_exposure_base)
 
         self.outstanding_offsets = {}
-        self.max_loss = max_loss
+        self.max_loss = Decimal(max_loss)
         self.equivalent_tokens = equivalent_tokens
-        self.current_total_offset_loss = 0.0
-        self.amount_to_offset = 0.0
-        self.max_total_loss = max_total_loss
-        self.avg_sell_price = [0.0,0.0]
-        self.avg_buy_price = [0.0,0.0]
-        self.offset_base_exposure = 0.0
-        self.offset_quote_exposure = 0.0
+        self.current_total_offset_loss = Decimal(0)
+        self.amount_to_offset = Decimal(0)
+        self.max_total_loss = Decimal(max_total_loss)
+        self.avg_sell_price = [Decimal(0),Decimal(0)]
+        self.avg_buy_price = [Decimal(0),Decimal(0)]
+        self.offset_base_exposure = Decimal(0)
+        self.offset_quote_exposure = Decimal(0)
 
-        self.primary_base_balance = 0.0
-        self.primary_base_total_balance = 0.0
-        self.primary_quote_balance = 0.0
-        self.primary_quote_total_balance = 0.0
-        self.mirrored_base_balance = 0.0
-        self.mirrored_base_total_balance = 0.0
-        self.mirrored_quote_balance = 0.0
-        self.mirrored_quote_total_balance = 0.0
+        self.primary_base_balance = Decimal(0)
+        self.primary_base_total_balance = Decimal(0)
+        self.primary_quote_balance = Decimal(0)
+        self.primary_quote_total_balance = Decimal(0)
+        self.mirrored_base_balance = Decimal(0)
+        self.mirrored_base_total_balance = Decimal(0)
+        self.mirrored_quote_balance = Decimal(0)
+        self.mirrored_quote_total_balance = Decimal(0)
         self.balances_set = False     
         self.funds_message_sent = False
 
-        self.min_primary_amount = min_primary_amount
-        self.min_mirroring_amount = min_mirroring_amount
-        self.total_trading_volume = 0.0
+        self.min_primary_amount = Decimal(min_primary_amount)
+        self.min_mirroring_amount = Decimal(min_mirroring_amount)
+        self.total_trading_volume = Decimal(0)
         self.trades_executed = 0
 
         self.marked_for_deletion = {}
@@ -159,8 +159,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.ask_replace_ranks = []
         self.has_been_offset = []
 
-        self.previous_sells = [0.0 for i in range(0, len(self.ask_amounts))]
-        self.previous_buys = [0.0 for i in range(0, len(self.bid_amounts))]
+        self.previous_sells = [Decimal(0) for i in range(0, len(self.ask_amounts))]
+        self.previous_buys = [Decimal(0) for i in range(0, len(self.bid_amounts))]
         
         cur_dir = os.getcwd()
         nonce = datetime.timestamp(datetime.now()) * 1000
@@ -168,7 +168,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.performance_logger = logging.getLogger()
         self.performance_logger.addHandler(logging.FileHandler(filename))
 
-        self.best_bid_start = 0.0
+        self.best_bid_start = Decimal(0)
         self.slack_url = slack_hook
         self.cycle_number = 0
         self.start_time = datetime.timestamp(datetime.now())
@@ -203,9 +203,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         
         mirrored_market_df = self.market_status_data_frame([self.mirrored_market_pairs[0]])
         mult = mirrored_market_df["Best Bid Price"]
-
-        profit = float((total_balance[0] * mult) - (self.initial_base_amount * self.best_bid_start)) + float(total_balance[1] - self.initial_quote_amount)
-        portfolio = float((total_balance[0] * mult) - (self.initial_base_amount * mult)) + float(total_balance[1] - self.initial_quote_amount)  
+        profit = (total_balance[0] * float(mult)) - float(self.initial_base_amount * self.best_bid_start) + total_balance[1] - float(self.initial_quote_amount)
+        portfolio = (total_balance[0] * float(mult)) - (float(self.initial_base_amount) * float(mult)) + total_balance[1] - float(self.initial_quote_amount)
         current_time = datetime.now().isoformat()
         lines.extend(["", f"   Time: {current_time}"])
         lines.extend(["", f"   Executed Trades: {self.trades_executed}"])
@@ -220,7 +219,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         return "\n".join(lines)
 
-    def slack_order_filled_message(self, market: str, amount: float, price: float, is_buy: bool):
+    def slack_order_filled_message(self, market: str, amount: Decimal, price: Decimal, is_buy: bool):
         if is_buy:
             buy_sell = "BUY"
         else:
@@ -284,8 +283,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 total_balance = assets_df['Total Balance']
                 assets_df = self.wallet_balance_data_frame([self.primary_market_pairs[0]])
                 total_balance += assets_df['Total Balance']
-                self.initial_base_amount = total_balance[0]
-                self.initial_quote_amount = total_balance[1]
+                self.initial_base_amount = Decimal(total_balance[0])
+                self.initial_quote_amount = Decimal(total_balance[1])
                 self.balances_set = True
 
             if not all([market.network_status is NetworkStatus.CONNECTED for market in self._sb_markets]):
@@ -320,24 +319,24 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
             if order_filled_event.trade_type == TradeType.BUY:
-                self.total_trading_volume += float(order_filled_event.amount)
+                self.total_trading_volume += order_filled_event.amount
                 self.trades_executed += 1
                 if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
                     if f"{order_id}COMPLETE" not in self.has_been_offset:
-                        self.avg_buy_price[0] += float(order_filled_event.price * order_filled_event.amount)
-                        self.avg_buy_price[1] += float(order_filled_event.amount)
+                        self.avg_buy_price[0] += order_filled_event.price * order_filled_event.amount
+                        self.avg_buy_price[1] += order_filled_event.amount
                         previous_amount_to_offset = self.amount_to_offset
-                        self.amount_to_offset += float(order_filled_event.amount)
+                        self.amount_to_offset += order_filled_event.amount
                         if abs(self.amount_to_offset) < abs(previous_amount_to_offset):
                             self.cancel_offsetting_orders()
-                        self.primary_base_balance += float(order_filled_event.amount)
+                        self.primary_base_balance += order_filled_event.amount
                         if order_id in self.marked_for_deletion.keys():
                             order = self.marked_for_deletion[order_id]
                             self.buys_to_replace.append(order["rank"])
-                        self.primary_base_total_balance += float(order_filled_event.amount)
-                        self.primary_quote_total_balance -= float(order_filled_event.amount * order_filled_event.price)
+                        self.primary_base_total_balance += order_filled_event.amount
+                        self.primary_quote_total_balance -= order_filled_event.amount * order_filled_event.price
                         self.has_been_offset.append(order_id)
-                        self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(order_filled_event.amount), float(order_filled_event.price), True)
+                        self.slack_order_filled_message(self.primary_market_pairs[0].market.name, order_filled_event.amount, order_filled_event.price, True)
                     else:
                         self.has_been_offset.remove(f"{order_id}COMPLETE")
                 else:
@@ -346,40 +345,40 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                 true_average = Decimal(self.avg_sell_price[0]/self.avg_sell_price[1])
                         else:
                             true_average = Decimal(0)
-                        self.current_total_offset_loss += float((order_filled_event.price * order_filled_event.amount) - (order_filled_event.amount * true_average))
-                        self.avg_sell_price[1] = max(0.0, self.avg_sell_price[1] - float(order_filled_event.amount))
-                        self.avg_sell_price[0] = max(0.0, self.avg_sell_price[0] - float(order_filled_event.amount * order_filled_event.price))
-                        self.amount_to_offset += float(order_filled_event.amount)
-                        self.offset_quote_exposure -= float(order_filled_event.amount)
-                        self.mirrored_base_balance += float(order_filled_event.amount) 
-                        self.mirrored_base_total_balance += float(order_filled_event.amount)
-                        self.mirrored_quote_total_balance -= float(order_filled_event.price * order_filled_event.amount)
+                        self.current_total_offset_loss += (order_filled_event.price * order_filled_event.amount) - (order_filled_event.amount * true_average)
+                        self.avg_sell_price[1] = max(Decimal(0), self.avg_sell_price[1] - order_filled_event.amount)
+                        self.avg_sell_price[0] = max(Decimal(0), self.avg_sell_price[0] - order_filled_event.amount * order_filled_event.price)
+                        self.amount_to_offset += order_filled_event.amount
+                        self.offset_quote_exposure -= order_filled_event.amount
+                        self.mirrored_base_balance += order_filled_event.amount
+                        self.mirrored_base_total_balance += order_filled_event.amount
+                        self.mirrored_quote_total_balance -= order_filled_event.price * order_filled_event.amount
                         self.has_been_offset.append(order_id)
-                        self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, float(order_filled_event.amount), float(order_filled_event.price), True)
+                        self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, order_filled_event.amount, order_filled_event.price, True)
                     else:
                         self.has_been_offset.remove(f"{order_id}COMPLETE")
                 if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                     self.log_with_clock(logging.INFO,
                     f"Limit order filled on {market_trading_pair_tuple[0].name}: {order_id}")
             elif order_filled_event.trade_type == TradeType.SELL:
-                self.total_trading_volume += float(order_filled_event.amount)
+                self.total_trading_volume += order_filled_event.amount
                 self.trades_executed += 1
                 if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
                     if f"{order_id}COMPLETE" not in self.has_been_offset:
-                        self.avg_sell_price[0] += float(order_filled_event.price * order_filled_event.amount)
-                        self.avg_sell_price[1] += float(order_filled_event.amount)
+                        self.avg_sell_price[0] += order_filled_event.price * order_filled_event.amount
+                        self.avg_sell_price[1] += order_filled_event.amount
                         previous_amount_to_offset = self.amount_to_offset
-                        self.amount_to_offset -= float(order_filled_event.amount)
+                        self.amount_to_offset -= order_filled_event.amount
                         if abs(self.amount_to_offset) < abs(previous_amount_to_offset):
                             self.cancel_offsetting_orders()
-                        self.primary_quote_balance += float(order_filled_event.price * order_filled_event.amount)
+                        self.primary_quote_balance += order_filled_event.price * order_filled_event.amount
                         if order_id in self.marked_for_deletion.keys():
                             order = self.marked_for_deletion[order_id]
                             self.sells_to_replace.append(order["rank"])
-                        self.primary_quote_total_balance += float(order_filled_event.price * order_filled_event.amount)
-                        self.primary_base_total_balance -= float(order_filled_event.amount)
+                        self.primary_quote_total_balance += order_filled_event.price * order_filled_event.amount
+                        self.primary_base_total_balance -= order_filled_event.amount
                         self.has_been_offset.append(order_id)
-                        self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(order_filled_event.amount), float(order_filled_event.price), False)
+                        self.slack_order_filled_message(self.primary_market_pairs[0].market.name, order_filled_event.amount, order_filled_event.price, False)
                     else:
                         self.has_been_offset.remove(f"{order_id}COMPLETE")
                 else:
@@ -388,16 +387,16 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                 true_average = Decimal(self.avg_buy_price[0]/self.avg_buy_price[1])
                         else:
                             true_average = Decimal(0)
-                        self.current_total_offset_loss -= float((order_filled_event.amount * order_filled_event.price) - (order_filled_event.amount * true_average))
-                        self.avg_buy_price[1] = max(0.0, self.avg_buy_price[1] - float(order_filled_event.amount))
-                        self.avg_buy_price[0] = max(0.0, self.avg_buy_price[0] - float(order_filled_event.amount * order_filled_event.price))
-                        self.amount_to_offset -= float(order_filled_event.amount)
-                        self.offset_base_exposure -= float(order_filled_event.amount)
-                        self.mirrored_quote_balance += float(order_filled_event.price * order_filled_event.amount)
-                        self.mirrored_quote_total_balance += float(order_filled_event.price * order_filled_event.amount)
-                        self.mirrored_base_total_balance -= float(order_filled_event.amount)
+                        self.current_total_offset_loss -= (order_filled_event.amount * order_filled_event.price) - (order_filled_event.amount * true_average)
+                        self.avg_buy_price[1] = max(Decimal(0), self.avg_buy_price[1] - order_filled_event.amount)
+                        self.avg_buy_price[0] = max(Decimal(0), self.avg_buy_price[0] - order_filled_event.amount * order_filled_event.price)
+                        self.amount_to_offset -= order_filled_event.amount
+                        self.offset_base_exposure -= order_filled_event.amount
+                        self.mirrored_quote_balance += order_filled_event.price * order_filled_event.amount
+                        self.mirrored_quote_total_balance += order_filled_event.price * order_filled_event.amount
+                        self.mirrored_base_total_balance -= order_filled_event.amount
                         self.has_been_offset.append(order_id)
-                        self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, float(order_filled_event.amount), float(order_filled_event.price), False)
+                        self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, order_filled_event.amount, order_filled_event.price, False)
                     else:
                         self.has_been_offset.remove(f"{order_id}COMPLETE")
                 if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
@@ -413,12 +412,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
             if (market_trading_pair_tuple.market == self.primary_market_pairs[0].market):
-                self.primary_quote_balance -= float(buy_order_created_event.amount * buy_order_created_event.price)
+                self.primary_quote_balance -= buy_order_created_event.amount * buy_order_created_event.price
                 num_seconds = random.randint(30,50)
                 expiration_time = datetime.timestamp(datetime.now() + timedelta(seconds=num_seconds)) 
                 self.marked_for_deletion[order_id]["time"] = expiration_time
             elif (market_trading_pair_tuple.market == self.mirrored_market_pairs[0].market):
-                self.mirrored_quote_balance -= float(buy_order_created_event.amount * buy_order_created_event.price)
+                self.mirrored_quote_balance -= buy_order_created_event.amount * buy_order_created_event.price
 
     cdef c_did_create_sell_order(self, object sell_order_created_event):
         cdef:
@@ -426,12 +425,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
             if (market_trading_pair_tuple.market == self.primary_market_pairs[0].market):
-                self.primary_base_balance -= float(sell_order_created_event.amount)
+                self.primary_base_balance -= sell_order_created_event.amount
                 num_seconds = random.randint(30,50)
                 expiration_time = datetime.timestamp(datetime.now() + timedelta(seconds=num_seconds))
                 self.marked_for_deletion[order_id]["time"] = expiration_time
             elif (market_trading_pair_tuple.market == self.mirrored_market_pairs[0].market):
-                self.mirrored_base_balance -= float(sell_order_created_event.amount)
+                self.mirrored_base_balance -= sell_order_created_event.amount
 
     cdef c_did_complete_buy_order(self, object buy_order_completed_event):
         """
@@ -445,42 +444,42 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if market_trading_pair_tuple is not None:         
             if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
                 if order_id not in self.has_been_offset:
-                    self.total_trading_volume += float(buy_order_completed_event.quote_asset_amount)
+                    self.total_trading_volume += buy_order_completed_event.quote_asset_amount
                     self.trades_executed += 1
-                    self.avg_buy_price[0] += float(buy_order_completed_event.quote_asset_amount)
-                    self.avg_buy_price[1] += float(buy_order_completed_event.base_asset_amount)
+                    self.avg_buy_price[0] += buy_order_completed_event.quote_asset_amount
+                    self.avg_buy_price[1] += buy_order_completed_event.base_asset_amount
                     previous_amount_to_offset = self.amount_to_offset
-                    self.amount_to_offset += float(buy_order_completed_event.base_asset_amount)
+                    self.amount_to_offset += buy_order_completed_event.base_asset_amount
                     if abs(self.amount_to_offset) < abs(previous_amount_to_offset):
                         self.cancel_offsetting_orders()
-                    self.primary_base_balance += float(buy_order_completed_event.base_asset_amount)
+                    self.primary_base_balance += buy_order_completed_event.base_asset_amount
                     if order_id in self.marked_for_deletion.keys():
                         order = self.marked_for_deletion[order_id]
                         self.buys_to_replace.append(order["rank"])
-                    self.primary_base_total_balance += float(buy_order_completed_event.base_asset_amount)
-                    self.primary_quote_total_balance -= float(buy_order_completed_event.quote_asset_amount)
+                    self.primary_base_total_balance += buy_order_completed_event.base_asset_amount
+                    self.primary_quote_total_balance -= buy_order_completed_event.quote_asset_amount
                     self.has_been_offset.append(f"{order_id}COMPLETE")
-                    price = float(buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount)
-                    self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(buy_order_completed_event.base_asset_amount), price, True)
+                    price = buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount
+                    self.slack_order_filled_message(self.primary_market_pairs[0].market.name, buy_order_completed_event.base_asset_amount, price, True)
             else:
                 if order_id not in self.has_been_offset:
-                    self.total_trading_volume += float(buy_order_completed_event.quote_asset_amount)
+                    self.total_trading_volume += buy_order_completed_event.quote_asset_amount
                     self.trades_executed += 1
                     if (self.avg_sell_price[1] > 0):
                             true_average = Decimal(self.avg_sell_price[0]/self.avg_sell_price[1])
                     else:
                         true_average = Decimal(0)
-                    self.current_total_offset_loss += float(buy_order_completed_event.quote_asset_amount - (buy_order_completed_event.base_asset_amount * true_average))
-                    self.avg_sell_price[1] = max(0.0, self.avg_sell_price[1] - float(buy_order_completed_event.base_asset_amount))
-                    self.avg_sell_price[0] = max(0.0, self.avg_sell_price[0] - float(buy_order_completed_event.quote_asset_amount))
-                    self.amount_to_offset += float(buy_order_completed_event.base_asset_amount)
-                    self.offset_quote_exposure -= float(buy_order_completed_event.quote_asset_amount)
-                    self.mirrored_base_balance += float(buy_order_completed_event.base_asset_amount)
-                    self.mirrored_base_total_balance += float(buy_order_completed_event.base_asset_amount)
-                    self.mirrored_quote_total_balance -= float(buy_order_completed_event.quote_asset_amount)
+                    self.current_total_offset_loss += buy_order_completed_event.quote_asset_amount - (buy_order_completed_event.base_asset_amount * true_average)
+                    self.avg_sell_price[1] = max(Decimal(0), self.avg_sell_price[1] - buy_order_completed_event.base_asset_amount)
+                    self.avg_sell_price[0] = max(Decimal(0), self.avg_sell_price[0] - buy_order_completed_event.quote_asset_amount)
+                    self.amount_to_offset += buy_order_completed_event.base_asset_amount
+                    self.offset_quote_exposure -= buy_order_completed_event.quote_asset_amount
+                    self.mirrored_base_balance += buy_order_completed_event.base_asset_amount
+                    self.mirrored_base_total_balance += buy_order_completed_event.base_asset_amount
+                    self.mirrored_quote_total_balance -= buy_order_completed_event.quote_asset_amount
                     self.has_been_offset.append(f"{order_id}COMPLETE")
-                    price = float(buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount)
-                    self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(buy_order_completed_event.base_asset_amount), price, True)
+                    price = buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount
+                    self.slack_order_filled_message(self.primary_market_pairs[0].market.name, buy_order_completed_event.base_asset_amount, price, True)
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id}")
@@ -499,42 +498,42 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if market_trading_pair_tuple is not None:
             if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
                 if order_id not in self.has_been_offset:
-                    self.total_trading_volume += float(sell_order_completed_event.quote_asset_amount)
+                    self.total_trading_volume += sell_order_completed_event.quote_asset_amount
                     self.trades_executed += 1
-                    self.avg_sell_price[0] += float(sell_order_completed_event.quote_asset_amount)
-                    self.avg_sell_price[1] += float(sell_order_completed_event.base_asset_amount)
+                    self.avg_sell_price[0] += sell_order_completed_event.quote_asset_amount
+                    self.avg_sell_price[1] += sell_order_completed_event.base_asset_amount
                     previous_amount_to_offset = self.amount_to_offset
-                    self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
+                    self.amount_to_offset -= sell_order_completed_event.base_asset_amount
                     if abs(self.amount_to_offset) < abs(previous_amount_to_offset):
                         self.cancel_offsetting_orders()
-                    self.primary_quote_balance += float(sell_order_completed_event.quote_asset_amount)
+                    self.primary_quote_balance += sell_order_completed_event.quote_asset_amount
                     if order_id in self.marked_for_deletion.keys():
                         order = self.marked_for_deletion[order_id]
                         self.sells_to_replace.append(order["rank"])
-                    self.primary_quote_total_balance += float(sell_order_completed_event.quote_asset_amount)
-                    self.primary_base_total_balance -= float(sell_order_completed_event.base_asset_amount)
+                    self.primary_quote_total_balance += sell_order_completed_event.quote_asset_amount
+                    self.primary_base_total_balance -= sell_order_completed_event.base_asset_amount
                     self.has_been_offset.append(f"{order_id}COMPLETE")
-                    price = float(sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount)
-                    self.slack_order_filled_message(self.primary_market_pairs[0].market.name, float(sell_order_completed_event.base_asset_amount), price, False)
+                    price = sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount
+                    self.slack_order_filled_message(self.primary_market_pairs[0].market.name, sell_order_completed_event.base_asset_amount, price, False)
             else:
                 if order_id not in self.has_been_offset:
-                    self.total_trading_volume += float(sell_order_completed_event.quote_asset_amount)
+                    self.total_trading_volume += sell_order_completed_event.quote_asset_amount
                     self.trades_executed += 1
                     if (self.avg_buy_price[1] > 0):
                             true_average = Decimal(self.avg_buy_price[0]/self.avg_buy_price[1])
                     else:
                         true_average = Decimal(0)
-                    self.current_total_offset_loss -= float(sell_order_completed_event.quote_asset_amount - (sell_order_completed_event.base_asset_amount * true_average))
-                    self.avg_buy_price[1] = max(0.0, self.avg_buy_price[1] - float(sell_order_completed_event.base_asset_amount))
-                    self.avg_buy_price[0] = max(0.0, self.avg_buy_price[0] - float(sell_order_completed_event.quote_asset_amount))
-                    self.amount_to_offset -= float(sell_order_completed_event.base_asset_amount)
-                    self.offset_base_exposure -= float(sell_order_completed_event.quote_asset_amount)
-                    self.mirrored_quote_balance += float(sell_order_completed_event.quote_asset_amount)
-                    self.mirrored_quote_total_balance += float(sell_order_completed_event.quote_asset_amount)
-                    self.mirrored_base_total_balance -= float(sell_order_completed_event.base_asset_amount)
+                    self.current_total_offset_loss -= sell_order_completed_event.quote_asset_amount - (sell_order_completed_event.base_asset_amount * true_average)
+                    self.avg_buy_price[1] = max(Decimal(0), self.avg_buy_price[1] - sell_order_completed_event.base_asset_amount)
+                    self.avg_buy_price[0] = max(Decimal(0), self.avg_buy_price[0] - sell_order_completed_event.quote_asset_amount)
+                    self.amount_to_offset -= sell_order_completed_event.base_asset_amount
+                    self.offset_base_exposure -= sell_order_completed_event.quote_asset_amount
+                    self.mirrored_quote_balance += sell_order_completed_event.quote_asset_amount
+                    self.mirrored_quote_total_balance += sell_order_completed_event.quote_asset_amount
+                    self.mirrored_base_total_balance -= sell_order_completed_event.base_asset_amount
                     self.has_been_offset.append(f"{order_id}COMPLETE")
-                    price = float(sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount)
-                    self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, float(sell_order_completed_event.base_asset_amount), price, False)
+                    price = sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount
+                    self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, sell_order_completed_event.base_asset_amount, price, False)
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id}")
@@ -594,16 +593,16 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 del self.marked_for_deletion[order_id]
             if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
                 if full_order.is_buy:
-                    self.primary_quote_balance += float(full_order.price * full_order.quantity)
+                    self.primary_quote_balance += full_order.price * full_order.quantity
                 else:
-                    self.primary_base_balance += float(full_order.quantity)
+                    self.primary_base_balance += full_order.quantity
             else:
                 if full_order.is_buy:
-                    self.mirrored_quote_balance += float(full_order.price * full_order.quantity)
-                    self.offset_quote_exposure -= float(full_order.quantity * full_order.price)
+                    self.mirrored_quote_balance += full_order.price * full_order.quantity
+                    self.offset_quote_exposure -= full_order.quantity * full_order.price
                 else:
-                    self.mirrored_base_balance += float(full_order.quantity)
-                    self.offset_base_exposure -= float(full_order.quantity)
+                    self.mirrored_base_balance += full_order.quantity
+                    self.offset_base_exposure -= full_order.quantity
             self.log_with_clock(logging.INFO,
                                 f"Limit order canceled on {market_trading_pair_tuple[0].name}: {order_id}")
 
@@ -684,21 +683,21 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         primary_quote_asset = self.primary_market_pairs[0].quote_asset
         mirrored_base_asset = self.mirrored_market_pairs[0].base_asset
         mirrored_quote_asset = self.mirrored_market_pairs[0].quote_asset
-        primary_base_balance = float(primary_market.get_balance(primary_base_asset))
-        primary_quote_balance = float(primary_market.get_balance(primary_quote_asset))
-        mirrored_base_balance = float(mirrored_market.get_balance(mirrored_base_asset))  
-        mirrored_quote_balance = float(mirrored_market.get_balance(mirrored_quote_asset))
+        primary_base_balance = primary_market.get_balance(primary_base_asset)
+        primary_quote_balance = primary_market.get_balance(primary_quote_asset)
+        mirrored_base_balance = mirrored_market.get_balance(mirrored_base_asset) 
+        mirrored_quote_balance = mirrored_market.get_balance(mirrored_quote_asset)
 
-        if (abs(primary_base_balance - self.primary_base_total_balance) > 0.001):
+        if (abs(primary_base_balance - self.primary_base_total_balance) > Decimal(0.001)):
             self.primary_base_total_balance = primary_base_balance
             SlackPusher(self.slack_url,f"BALANCE DISCREPANCY on {primary_market} for {primary_base_asset}")
-        if (abs(primary_quote_balance - self.primary_quote_total_balance) > 0.001):
+        if (abs(primary_quote_balance - self.primary_quote_total_balance) > Decimal(0.001)):
             self.primary_quote_total_balance = primary_quote_balance
             SlackPusher(self.slack_url,f"BALANCE DISCREPANCY on {primary_market} for {primary_quote_asset}")
-        if (abs(mirrored_base_balance - self.mirrored_base_total_balance) > 0.001):
+        if (abs(mirrored_base_balance - self.mirrored_base_total_balance) > Decimal(0.001)):
             self.mirrored_base_total_balance = mirrored_base_balance
             SlackPusher(self.slack_url,f"BALANCE DISCREPANCY on {mirrored_market} for {mirrored_base_asset}")
-        if (abs(mirrored_quote_balance - self.mirrored_quote_total_balance) > 0.001):
+        if (abs(mirrored_quote_balance - self.mirrored_quote_total_balance) > Decimal(0.001)):
             self.mirrored_quote_total_balance = mirrored_quote_balance
             SlackPusher(self.slack_url,f"BALANCE DISCREPANCY on {mirrored_market} for {mirrored_quote_asset}")
 
@@ -711,21 +710,21 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         asks = list(market_pair.order_book_ask_entries())
         best_ask = asks[0]
 
-        midpoint = float(best_ask.price + best_bid.price)/2.0
-        threshold = 0.0001 * self.previous_buys[0]
+        midpoint = best_ask.price + best_bid.price/Decimal(2)
+        threshold = Decimal(0.0001) * self.previous_buys[0]
 
         #TODO make these thresholds dynamic and sensible
-        if (abs(float(best_bid.price) - self.previous_buys[0]) > threshold):
-            self.previous_buys[0] = float(best_bid.price)
+        if (abs(best_bid.price - self.previous_buys[0]) > threshold):
+            self.previous_buys[0] = best_bid.price
             if 0 not in self.bid_replace_ranks:
                 self.bid_replace_ranks.append(0)
 
-        if (self.best_bid_start == 0):
+        if (self.best_bid_start == Decimal(0)):
             self.best_bid_start = best_bid.price
 
-        threshold = 0.0001 * self.previous_sells[0]
-        if (abs(float(best_ask.price) - self.previous_sells[0]) > threshold):
-            self.previous_sells[0] = float(best_ask.price)
+        threshold = Decimal(0.0001) * self.previous_sells[0]
+        if (abs(best_ask.price - self.previous_sells[0]) > threshold):
+            self.previous_sells[0] = best_ask.price
             if 0 not in self.ask_replace_ranks:
                 self.ask_replace_ranks.append(0)
 
@@ -742,10 +741,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 current_level += 1
                 bid_levels.append({"price": bids[i].price, "amount": bids[i].amount})
                 current_bid_price = bids[i].price
-                threshold = self.previous_buys[current_level] * (midpoint - self.previous_buys[current_level]) * 0.0001
+                threshold = self.previous_buys[current_level] * (midpoint - self.previous_buys[current_level]) * Decimal(0.0001)
 
-                if (abs(float(current_bid_price) - self.previous_buys[current_level]) > threshold):
-                    self.previous_buys[current_level] = float(current_bid_price)
+                if (abs(current_bid_price - self.previous_buys[current_level]) > threshold):
+                    self.previous_buys[current_level] = current_bid_price
                     if current_level not in self.bid_replace_ranks:
                         self.bid_replace_ranks.append(current_level)
                 i += 1
@@ -763,9 +762,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 current_level += 1
                 ask_levels.append({"price": asks[i].price, "amount": asks[i].amount})
                 current_ask_price = asks[i].price
-                threshold = self.previous_sells[current_level] * (self.previous_sells[current_level] - midpoint) * 0.0001
-                if (abs(float(current_ask_price) - self.previous_sells[current_level]) > threshold):
-                    self.previous_sells[current_level] = float(current_ask_price)
+                threshold = self.previous_sells[current_level] * (self.previous_sells[current_level] - midpoint) * Decimal(0.0001)
+                if (abs(current_ask_price - self.previous_sells[current_level]) > threshold):
+                    self.previous_sells[current_level] = current_ask_price
                     if current_level not in self.ask_replace_ranks:
                         self.ask_replace_ranks.append(current_level)
                 i += 1
@@ -800,18 +799,18 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         available_offset_base = self.mirrored_base_balance
         available_offset_quote = self.mirrored_quote_balance  
 
-        available_quote_exposure = min(available_quote_exposure, available_offset_base * float(best_bid.price))
-        available_base_exposure = min(available_base_exposure, available_offset_quote/float(best_ask.price))
+        available_quote_exposure = min(available_quote_exposure, available_offset_base * best_bid.price)
+        available_base_exposure = min(available_base_exposure, available_offset_quote/best_ask.price)
 
-        spread = float(best_ask.price - best_bid.price)
-        spread_factor = (spread)/float(best_ask.price)
+        spread = best_ask.price - best_bid.price
+        spread_factor = (spread)/best_ask.price
         if spread_factor < self.spread_percent:
-            adjustment_factor = (self.spread_percent*float(best_ask.price) - spread)/(2-self.spread_percent)
-            adjusted_ask = float(best_ask.price) + adjustment_factor
-            adjusted_bid = float(best_bid.price) - adjustment_factor
+            adjustment_factor = (self.spread_percent*best_ask.price - spread)/(Decimal(2)-self.spread_percent)
+            adjusted_ask = best_ask.price + adjustment_factor
+            adjusted_bid = best_bid.price - adjustment_factor
         else:
-            adjusted_ask = float(best_ask.price)
-            adjusted_bid = float(best_bid.price)
+            adjusted_ask = best_ask.price
+            adjusted_bid = best_bid.price
 
         bid_price_diff = abs(1 - (self.primary_best_bid/adjusted_bid))
         ask_price_diff = abs(1 - (self.primary_best_ask/adjusted_ask))
@@ -888,8 +887,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                             bid_price = bids[i+1]["price"]
                             bid_amount = bids[i+1]["amount"]
                         else:
-                            bid_price = float("inf")
-                            bid_amount = float("inf")
+                            bid_price = Decimal("inf")
+                            bid_amount = Decimal("inf")
                         min_price = min(price, bid_price)
                         amount = Decimal(min(bid_amount, (self.bid_amounts[i+1])))
                         amount = max(amount, Decimal(self.min_primary_amount))
@@ -995,7 +994,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                             ask_amount = asks[i+1]["amount"]
                         else:
                             ask_price = 0
-                            ask_amount = float("inf")
+                            ask_amount = Decimal("inf")
                         max_price = max(price, ask_price)
                         amount = Decimal(min(ask_amount, self.ask_amounts[i+1]))
                         amount = max(amount, Decimal(self.min_primary_amount))
@@ -1038,19 +1037,19 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if (abs(self.amount_to_offset) > self.max_offsetting_exposure):
             SlackPusher(self.slack_url, "Offsetting exposure beyond threshold")
         mirrored_market: MarketBase = mirrored_market_pair.market
-        if self.amount_to_offset == 0:
+        if self.amount_to_offset == Decimal(0):
             return
         else:
-            current_exposure = 0.0
+            current_exposure = Decimal(0)
             active_orders = self._sb_order_tracker.market_pair_to_active_orders
             current_orders = []
             if mirrored_market_pair in active_orders:
                 current_orders = active_orders[mirrored_market_pair][:]
             
-            if self.amount_to_offset < 0:
+            if self.amount_to_offset < Decimal(0):
                 # we are at a deficit of base. get rid of sell orders
                 for order in current_orders:
-                    quantity = float(order.quantity)
+                    quantity = Decimal(order.quantity)
                     if not order.is_buy:
                         self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                     else:
@@ -1060,21 +1059,21 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 if (amount > self.min_mirroring_amount):
                     if (self.avg_sell_price[1] > 0):
                         true_average = self.avg_sell_price[0]/self.avg_sell_price[1]
-                        new_price = true_average * (1.0 + self.max_loss)
+                        new_price = true_average * (Decimal(1) + self.max_loss)
                     else:
                         #should not hit this; if we are offsetting, there should be an extant sell price
-                        new_price = float(best_ask.price)
+                        new_price = Decimal(best_ask.price)
 
                     quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, Decimal(new_price))
                     quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
 
                     self.c_buy_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-                    self.offset_quote_exposure += float(new_price) * amount
+                    self.offset_quote_exposure += Decimal(new_price) * amount
 
-            elif self.amount_to_offset > 0:
+            elif self.amount_to_offset > Decimal(0):
             # we are at a surplus of base. get rid of buy orders
                 for order in current_orders:
-                    quantity = float(order.quantity)
+                    quantity = order.quantity
                     if order.is_buy:
                         self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                     else:
@@ -1082,12 +1081,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
                 amount = (self.amount_to_offset) - current_exposure
                 if (amount > self.min_mirroring_amount):
-                    if (self.avg_buy_price[1] > 0):
+                    if (self.avg_buy_price[1] > Decimal(0)):
                         true_average = self.avg_buy_price[0]/self.avg_buy_price[1]
-                        new_price = true_average * (1.0 - self.max_loss)
+                        new_price = true_average * (Decimal(1) - self.max_loss)
                     else:
                         # should not hit this. there should be an extant buy
-                        new_price = float(best_bid.price)
+                        new_price = best_bid.price
 
                     quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, Decimal(new_price))
                     quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
