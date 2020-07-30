@@ -2,7 +2,7 @@ from typing import (
     List,
     Tuple,
 )
-
+from decimal import Decimal
 from hummingbot.client.config.global_config_map import global_config_map
 from hummingbot.market.markets_recorder import MarketsRecorder
 from hummingbot.market.paper_trade import create_paper_trade_market
@@ -36,37 +36,37 @@ def start(self):
     if bid_ratios_type == "manual":
         bid_ratios = []
         denominations = liquidity_mirroring_config_map.get("bid_amount_ratios").value
-        denominator = 0.0
+        denominator = Decimal(0)
         for summand in denominations:
-            denominator += float(summand)
+            denominator += Decimal(summand)
         
         if denominator == 0:
             self.logger().warning("empty bid ratio list!")
             return
         else:
             for summand in denominations:
-                bid_ratios.append(float(summand)/denominator)
+                bid_ratios.append(Decimal(summand)/denominator)
     else:
-        bid_ratios = [float(1/55),float(2/55),float(3/55),float(4/55),float(5/55),float(6/55),
-                               float(7/55),float(8/55),float(9/55),float(10/55)]
+        bid_ratios = [Decimal(1/55),Decimal(2/55),Decimal(3/55),Decimal(4/55),Decimal(5/55),Decimal(6/55),
+                               Decimal(7/55),Decimal(8/55),Decimal(9/55),Decimal(10/55)]
 
     ask_ratios_type = liquidity_mirroring_config_map.get("ask_amount_ratio_type").value                               
     if ask_ratios_type == "manual":
         ask_ratios = []
         denominations = liquidity_mirroring_config_map.get("ask_amount_ratios").value
-        denominator = 0.0
+        denominator = Decimal(0)
         for summand in denominations:
-            denominator += float(summand)
+            denominator += Decimal(summand)
         
         if denominator == 0:
             self.logger().warning("empty ask ratio list!")
             return
         else:
             for summand in denominations:
-                ask_ratios.append(float(summand)/denominator)
+                ask_ratios.append(Decimal(summand)/denominator)
     else:
-        ask_ratios = [float(1/55),float(2/55),float(3/55),float(4/55),float(5/55),float(6/55),
-                               float(7/55),float(8/55),float(9/55),float(10/55)]
+        ask_ratios = [Decimal(1/55),Decimal(2/55),Decimal(3/55),Decimal(4/55),Decimal(5/55),Decimal(6/55),
+                               Decimal(7/55),Decimal(8/55),Decimal(9/55),Decimal(10/55)]
 
     try:
         primary_market_trading_pair: str = self._convert_to_exchange_trading_pair(primary_market, [primary_trading_pair])[0]
