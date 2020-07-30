@@ -427,8 +427,8 @@ cdef class LoopringMarket(MarketBase):
             self.c_trigger_event(ORDER_CANCELLED_EVENT, cancellation_event)
 
         except Exception as e:
-            self.logger().info(f"Failed to cancel order {client_order_id}")
-            self.logger().debug(e)
+            self.logger().error(f"Failed to cancel order {client_order_id}")
+            self.logger().error(e)
 
     cdef c_cancel(self, str trading_pair, str client_order_id):
         safe_ensure_future(self.cancel_order(client_order_id))
@@ -749,13 +749,14 @@ cdef class LoopringMarket(MarketBase):
                                                                 })
                 data = loopring_order_request["data"]
             except Exception:
-                self.logger().warning(f"Failed to fetch tracked Loopring order {tracked_order.exchange_order_id} from api")
+                self.logger().warning(f"Failed to fetch tracked Loopring order " \
+                                      f"{tracked_order.exchange_order_id} from api (code: {loopring_order_request['resultInfo']['code']})")
                 continue
 
             try:
                 self._update_inflight_order(tracked_order, data)
             except Exception as e:
-                self.logger().warning(f"Failed to update Loopring order {tracked_order.exchange_order_id}")
+                self.logger().error(f"Failed to update Loopring order {tracked_order.exchange_order_id}")
                 self.logger().error(e)
 
 
