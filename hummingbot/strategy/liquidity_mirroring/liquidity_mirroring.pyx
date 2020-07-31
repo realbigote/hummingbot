@@ -551,7 +551,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         full_order = self._sb_order_tracker.c_get_limit_order(market_trading_pair_tuple, order_id)
         if fail_event.order_type is OrderType.LIMIT:
-            market = market_trading_pair_tuple[0].name
+            market = market_trading_pair_tuple[0].market.name
             price = full_order.price
             amount = full_order.quantity
             buy_sell = "BUY" if full_order.is_buy else "SELL"
