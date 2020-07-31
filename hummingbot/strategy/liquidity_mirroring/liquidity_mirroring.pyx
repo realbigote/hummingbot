@@ -721,7 +721,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         best_ask = asks[0]
 
         midpoint = best_ask.price + best_bid.price/Decimal(2)
-        threshold = Decimal(0.0001) * self.previous_buys[0]
+        #TODO Make this configurable
+        threshold = Decimal(0.0005) * self.previous_buys[0]
 
         #TODO make these thresholds dynamic and sensible
         if (abs(best_bid.price - self.previous_buys[0]) > threshold):
@@ -732,7 +733,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if (self.best_bid_start == Decimal(0)):
             self.best_bid_start = best_bid.price
 
-        threshold = Decimal(0.0001) * self.previous_sells[0]
+        threshold = Decimal(0.0005) * self.previous_sells[0]
         if (abs(best_ask.price - self.previous_sells[0]) > threshold):
             self.previous_sells[0] = best_ask.price
             if 0 not in self.ask_replace_ranks:
@@ -751,7 +752,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 current_level += 1
                 bid_levels.append({"price": bids[i].price, "amount": bids[i].amount})
                 current_bid_price = bids[i].price
-                threshold = self.previous_buys[current_level] * (midpoint - self.previous_buys[current_level]) * Decimal(0.0001)
+                threshold = self.previous_buys[current_level] * (midpoint - self.previous_buys[current_level]) * Decimal(0.0005)
 
                 if (abs(current_bid_price - self.previous_buys[current_level]) > threshold):
                     self.previous_buys[current_level] = current_bid_price
@@ -772,7 +773,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 current_level += 1
                 ask_levels.append({"price": asks[i].price, "amount": asks[i].amount})
                 current_ask_price = asks[i].price
-                threshold = self.previous_sells[current_level] * (self.previous_sells[current_level] - midpoint) * Decimal(0.0001)
+                threshold = self.previous_sells[current_level] * (self.previous_sells[current_level] - midpoint) * Decimal(0.0005)
                 if (abs(current_ask_price - self.previous_sells[current_level]) > threshold):
                     self.previous_sells[current_level] = current_ask_price
                     if current_level not in self.ask_replace_ranks:
