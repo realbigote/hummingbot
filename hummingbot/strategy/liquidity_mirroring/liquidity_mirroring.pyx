@@ -546,8 +546,18 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         :param fail_event: Order failure event
         """
+        cdef:
+            str order_id = fail_event.order_id
+            object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
+        full_order = self._sb_order_tracker.c_get_limit_order(market_trading_pair_tuple, order_id)
         if fail_event.order_type is OrderType.LIMIT:
-            SlackPusher(self.slack_url, "Order failed")
+            market = market_trading_pair_tuple[0].name
+            price = full_order.price
+            amount = full_order.quantity
+            buy_sell = "BUY" if full_order.is_buy else "SELL"
+            msg = {"msg_type": "order failed", "data": {"market": market, "price": price, "amount": amount, "buy/sell": buy_sell}}
+
+            SlackPusher(self.slack_url, "ORDER FAILED: " + str(msg))
             self._failed_market_order_count += 1
             self._last_failed_market_order_timestamp = fail_event.timestamp
 
@@ -559,9 +569,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
             self.logger().network(failed_order_kill_switch_log, app_warning_msg=failed_order_kill_switch_log)
             self.c_stop(self._clock)
-        cdef:
-            str order_id = fail_event.order_id
-            object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
             self.log_with_clock(logging.INFO,
                 f"Limit order failed on {market_trading_pair_tuple[0].name}: {order_id}")
