@@ -555,7 +555,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             price = full_order.price
             amount = full_order.quantity
             buy_sell = "BUY" if full_order.is_buy else "SELL"
-            msg = {"msg_type": "order failed", "data": {"market": market, "price": price, "amount": amount, "buy/sell": buy_sell}}
+            msg = {"msg_type": "order failed", "data": {"market": market, "price": price, "amount": amount, "buy/sell": buy_sell, "id": order_id}}
 
             SlackPusher(self.slack_url, "ORDER FAILED: " + str(msg))
             self._failed_market_order_count += 1
