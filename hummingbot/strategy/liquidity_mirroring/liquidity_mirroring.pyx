@@ -146,6 +146,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.mirrored_quote_total_balance = Decimal(0)
         self.balances_set = False     
         self.funds_message_sent = False
+        self.fail_message_sent = False
 
         self.min_primary_amount = Decimal(min_primary_amount)
         self.min_mirroring_amount = Decimal(min_mirroring_amount)
@@ -551,13 +552,15 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         full_order = self._sb_order_tracker.c_get_limit_order(market_trading_pair_tuple, order_id)
         if fail_event.order_type is OrderType.LIMIT:
-            market = market_trading_pair_tuple[0].market.name
-            price = full_order.price
-            amount = full_order.quantity
-            buy_sell = "BUY" if full_order.is_buy else "SELL"
-            msg = {"msg_type": "order failed", "data": {"market": market, "price": price, "amount": amount, "buy/sell": buy_sell, "id": order_id}}
+            if not self.fail_message_sent:
+                market = market_trading_pair_tuple[0].market.name
+                price = full_order.price
+                amount = full_order.quantity
+                buy_sell = "BUY" if full_order.is_buy else "SELL"
+                msg = {"msg_type": "order failed", "data": {"market": market, "price": price, "amount": amount, "buy/sell": buy_sell, "id": order_id}}
 
-            SlackPusher(self.slack_url, "ORDER FAILED: " + str(msg))
+                SlackPusher(self.slack_url, "ORDER FAILED: " + str(msg))
+                self.fail_message_sent = True
             self._failed_market_order_count += 1
             self._last_failed_market_order_timestamp = fail_event.timestamp
 
@@ -789,6 +792,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             if (time_elapsed > 1800):
                 if self.funds_message_sent == True:
                     self.funds_message_sent = False
+            if (time_elapsed > 60):
+                if self.fail_message_sent == True:
+                    self.fail_message_sent = False
             if (time_elapsed > (3600 * self.slack_update_period)):
                 self.start_time = current_time
                 SlackPusher(self.slack_url, self.format_status())
