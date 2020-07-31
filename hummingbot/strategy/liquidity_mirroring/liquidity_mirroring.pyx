@@ -146,6 +146,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.mirrored_quote_total_balance = Decimal(0)
         self.balances_set = False     
         self.funds_message_sent = False
+        self.fail_message_sent = False
 
         self.min_primary_amount = Decimal(min_primary_amount)
         self.min_mirroring_amount = Decimal(min_mirroring_amount)
@@ -551,13 +552,15 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         full_order = self._sb_order_tracker.c_get_limit_order(market_trading_pair_tuple, order_id)
         if fail_event.order_type is OrderType.LIMIT:
-            market = market_trading_pair_tuple[0].market.name
-            price = full_order.price
-            amount = full_order.quantity
-            buy_sell = "BUY" if full_order.is_buy else "SELL"
-            msg = {"msg_type": "order failed", "data": {"market": market, "price": price, "amount": amount, "buy/sell": buy_sell, "id": order_id}}
+            if not self.fail_message_sent:
+                market = market_trading_pair_tuple[0].market.name
+                price = full_order.price
+                amount = full_order.quantity
+                buy_sell = "BUY" if full_order.is_buy else "SELL"
+                msg = {"msg_type": "order failed", "data": {"market": market, "price": price, "amount": amount, "buy/sell": buy_sell, "id": order_id}}
 
-            SlackPusher(self.slack_url, "ORDER FAILED: " + str(msg))
+                SlackPusher(self.slack_url, "ORDER FAILED: " + str(msg))
+                self.fail_message_sent = True
             self._failed_market_order_count += 1
             self._last_failed_market_order_timestamp = fail_event.timestamp
 
@@ -718,7 +721,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         best_ask = asks[0]
 
         midpoint = best_ask.price + best_bid.price/Decimal(2)
-        threshold = Decimal(0.0001) * self.previous_buys[0]
+        #TODO Make this configurable
+        threshold = Decimal(0.0005) * self.previous_buys[0]
 
         #TODO make these thresholds dynamic and sensible
         if (abs(best_bid.price - self.previous_buys[0]) > threshold):
@@ -729,7 +733,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if (self.best_bid_start == Decimal(0)):
             self.best_bid_start = best_bid.price
 
-        threshold = Decimal(0.0001) * self.previous_sells[0]
+        threshold = Decimal(0.0005) * self.previous_sells[0]
         if (abs(best_ask.price - self.previous_sells[0]) > threshold):
             self.previous_sells[0] = best_ask.price
             if 0 not in self.ask_replace_ranks:
@@ -748,7 +752,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 current_level += 1
                 bid_levels.append({"price": bids[i].price, "amount": bids[i].amount})
                 current_bid_price = bids[i].price
-                threshold = self.previous_buys[current_level] * (midpoint - self.previous_buys[current_level]) * Decimal(0.0001)
+                threshold = self.previous_buys[current_level] * (midpoint - self.previous_buys[current_level]) * Decimal(0.0005)
 
                 if (abs(current_bid_price - self.previous_buys[current_level]) > threshold):
                     self.previous_buys[current_level] = current_bid_price
@@ -769,7 +773,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 current_level += 1
                 ask_levels.append({"price": asks[i].price, "amount": asks[i].amount})
                 current_ask_price = asks[i].price
-                threshold = self.previous_sells[current_level] * (self.previous_sells[current_level] - midpoint) * Decimal(0.0001)
+                threshold = self.previous_sells[current_level] * (self.previous_sells[current_level] - midpoint) * Decimal(0.0005)
                 if (abs(current_ask_price - self.previous_sells[current_level]) > threshold):
                     self.previous_sells[current_level] = current_ask_price
                     if current_level not in self.ask_replace_ranks:
@@ -789,6 +793,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             if (time_elapsed > 1800):
                 if self.funds_message_sent == True:
                     self.funds_message_sent = False
+            if (time_elapsed > 60):
+                if self.fail_message_sent == True:
+                    self.fail_message_sent = False
             if (time_elapsed > (3600 * self.slack_update_period)):
                 self.start_time = current_time
                 SlackPusher(self.slack_url, self.format_status())
