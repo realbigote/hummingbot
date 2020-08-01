@@ -332,7 +332,14 @@ cdef class LoopringMarket(MarketBase):
             in_flight_order = LoopringInFlightOrder.from_loopring_order(self, order_side, client_order_id, created_at, None, trading_pair, price, amount)
             self.start_tracking(in_flight_order)
 
-            creation_response = await self.place_order(client_order_id, trading_pair, amount, order_side is TradeType.BUY, order_type, price)
+            try:
+                creation_response = await self.place_order(client_order_id, trading_pair, amount, order_side is TradeType.BUY, order_type, price)
+            except asyncio.exceptions.TimeoutError as e:
+                # we don't know what state we ended up in here so add this order to our recovery queue
+
+                # Let's just issue a cancel order for now and hope for the best
+                if not self.cancel_order(client_order_id):
+                    raise e
             
             # Verify the response from the exchange
             if "data" not in creation_response.keys():
@@ -428,10 +435,12 @@ cdef class LoopringMarket(MarketBase):
             res = await self.api_request("DELETE", ORDER_CANCEL_ROUTE, params=cancellation_payload, secure=True)
             if res['resultInfo']['code'] != 0:
                 raise Exception(f"Cancel order returned code {res['resultInfo']['code']} ({res['resultInfo']['message']})")
+            return True
 
         except Exception as e:
             self.logger().error(f"Failed to cancel order {client_order_id}")
             self.logger().error(e)
+            return False
 
     cdef c_cancel(self, str trading_pair, str client_order_id):
         safe_ensure_future(self.cancel_order(client_order_id))
