@@ -28,6 +28,7 @@ from hummingbot.market.loopring.loopring_auth import LoopringAuth
 from hummingbot.market.loopring.loopring_order_book_tracker import LoopringOrderBookTracker
 from hummingbot.market.loopring.loopring_api_order_book_data_source import LoopringAPIOrderBookDataSource
 from hummingbot.market.loopring.loopring_api_token_configuration_data_source import LoopringAPITokenConfigurationDataSource
+from hummingbot.market.loopring.loopring_user_stream_tracker import LoopringUserStreamTracker
 from hummingbot.core.utils.async_utils import (
     safe_ensure_future,
 )
@@ -135,7 +136,13 @@ cdef class LoopringMarket(MarketBase):
             rest_api_url=self.API_REST_ENDPOINT,
             websocket_url=self.WS_ENDPOINT,
             token_configuration = self._token_configuration
+        )        
+        self._user_stream_tracker = LoopringUserStreamTracker(
+            orderbook_tracker_data_source=self._order_book_tracker.data_source,
+            loopring_auth=self._loopring_auth
         )
+        self._user_stream_event_listener_task = None
+        self._user_stream_tracker_task = None
         self._tx_tracker = LoopringMarketTransactionTracker(self)
         self._trading_required = trading_required
         self._poll_notifier = asyncio.Event()
@@ -422,10 +429,6 @@ cdef class LoopringMarket(MarketBase):
             if res['resultInfo']['code'] != 0:
                 raise Exception(f"Cancel order returned code {res['resultInfo']['code']} ({res['resultInfo']['message']})")
 
-            self.logger().info(f"Successfully cancelled order {client_order_id}")
-            self.stop_tracking(client_order_id)
-            self.c_trigger_event(ORDER_CANCELLED_EVENT, cancellation_event)
-
         except Exception as e:
             self.logger().error(f"Failed to cancel order {client_order_id}")
             self.logger().error(e)
@@ -479,11 +482,19 @@ cdef class LoopringMarket(MarketBase):
                 await self._get_next_order_id(token, force_sync = True)
 
         self._polling_update_task = safe_ensure_future(self._polling_update())
+        self._user_stream_tracker_task = safe_ensure_future(self._user_stream_tracker.start())
+        self._user_stream_event_listener_task = safe_ensure_future(self._user_stream_event_listener())
 
     async def stop_network(self):
         self._order_book_tracker.stop()
         self._pending_approval_tx_hashes.clear()
         self._polling_update_task = None
+        if self._user_stream_tracker_task is not None:
+            self._user_stream_tracker_task.cancel()
+        if self._user_stream_event_listener_task is not None:
+            self._user_stream_event_listener_task.cancel()
+        self._user_stream_tracker_task = None
+        self._user_stream_event_listener_task = None
 
     async def check_network(self) -> NetworkStatus:
         try:
@@ -505,8 +516,9 @@ cdef class LoopringMarket(MarketBase):
         }
 
     def restore_tracking_states(self, saved_states: Dict[str, any]):
-        for order_id, in_flight_json in saved_states.iteritems():
-            self._in_flight_orders[order_id] = LoopringInFlightOrder.from_json(in_flight_json, self)
+        for order_id, in_flight_repr in saved_states.iteritems():
+            in_flight_json : Dict[Str, Any] = json.loads(in_flight_repr)
+            self._in_flight_orders[order_id] = LoopringInFlightOrder.from_json(self, in_flight_json)
 
     def start_tracking(self, in_flight_order):
         self._in_flight_orders[in_flight_order.client_order_id] = in_flight_order
@@ -525,6 +537,8 @@ cdef class LoopringMarket(MarketBase):
         # Issue relevent events
         for (market_event, new_amount, new_price, new_fee) in issuable_events:
             if market_event == MarketEvent.OrderCancelled:
+                self.logger().info(f"Successfully cancelled order {tracked_order.client_order_id}")
+                self.stop_tracking(tracked_order.client_order_id)
                 self.c_trigger_event(ORDER_CANCELLED_EVENT,
                                 OrderCancelledEvent(self._current_timestamp,
                                                     tracked_order.client_order_id))
@@ -644,11 +658,11 @@ cdef class LoopringMarket(MarketBase):
     async def _user_stream_event_listener(self):
         async for event_message in self._iter_user_event_queue():
             try:
-                event: Dict[str, Any] = json.loads(event_message)
+                event: Dict[str, Any] = event_message
                 topic: str = event['topic']['topic']
                 data : Dict[str, Any] = event['data']
                 if topic == 'account':
-                    self._set_balances([data])
+                    await self._set_balances([data])
                 elif topic == 'order':
                     client_order_id : str = data['clientOrderId']
                     tracked_order : LoopringInFlightOrder = self._in_flight_orders.get(client_order_id)
