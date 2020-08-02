@@ -1070,7 +1070,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         current_exposure += quantity
 
                 amount = ((-1) * self.amount_to_offset) - current_exposure
-                if (amount > self.min_mirroring_amount):
+                if (amount >= self.min_mirroring_amount):
                     if (self.avg_sell_price[1] > 0):
                         true_average = self.avg_sell_price[0]/self.avg_sell_price[1]
                         new_price = true_average * (Decimal(1) + self.max_loss)
@@ -1094,7 +1094,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         current_exposure += quantity
 
                 amount = (self.amount_to_offset) - current_exposure
-                if (amount > self.min_mirroring_amount):
+                if (amount >= self.min_mirroring_amount):
                     if (self.avg_buy_price[1] > Decimal(0)):
                         true_average = self.avg_buy_price[0]/self.avg_buy_price[1]
                         new_price = true_average * (Decimal(1) - self.max_loss)
