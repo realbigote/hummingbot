@@ -711,7 +711,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if (abs(mirrored_quote_balance - self.mirrored_quote_total_balance) > Decimal(0.001)):
             messages.append(f"{mirrored_market.name}:{mirrored_quote_asset} Old:{str(self.mirrored_quote_total_balance)} New:{str(mirrored_quote_balance)}")
             self.mirrored_quote_total_balance = mirrored_quote_balance
-        if len(messages > 0)
+        if len(messages) > 0:
             SlackPusher(self.slack_url, f"BALANCE DISCREPANCY: {'\n'.join(messages)}")
 
     cdef c_process_market_pair(self, object market_pair):
