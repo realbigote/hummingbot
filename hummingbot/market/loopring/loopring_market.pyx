@@ -229,6 +229,7 @@ cdef class LoopringMarket(MarketBase):
 
     async def _get_next_order_id(self, token, force_sync = False):
         async with self._order_id_lock:
+            next_id = self._next_order_id
             if force_sync or self._next_order_id.get(token) is None:
                 try:
                     temp = await self.api_request("GET", NEXT_ORDER_ID, params={"accountId":self._loopring_accountid, "tokenSId": token})
@@ -859,7 +860,7 @@ cdef class LoopringMarket(MarketBase):
                                             data=data, params=params, headers=headers) as response:
             if response.status != 200:
                 self.logger().info(f"Issue with Loopring API {http_method} to {url}, response: ")
-                self.logger().info(await response.text)
+                self.logger().info(await response.text())
                 raise IOError(f"Error fetching data from {full_url}. HTTP status is {response.status}.")
             data = await response.json()
             return data
