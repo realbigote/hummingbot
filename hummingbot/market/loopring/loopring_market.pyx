@@ -617,7 +617,7 @@ cdef class LoopringMarket(MarketBase):
 
                 self.c_stop_tracking_order(tracked_order.client_order_id)
 
-    async def _set_balances(self, updates):
+    async def _set_balances(self, updates, is_snapshot=True):
         try:
             tokens = set(self.token_configuration.get_tokens())
             if len(tokens) == 0:
@@ -639,11 +639,12 @@ cdef class LoopringMarket(MarketBase):
                     self._account_balances[token_symbol] = total_amount
                     self._account_available_balances[token_symbol] = total_amount - amount_locked
 
-                # Tokens with 0 balance aren't returned, so set any missing tokens to 0 balance
-                for token_id in tokens - completed_tokens:
-                    token_symbol : str = self._token_configuration.get_symbol(token_id) 
-                    self._account_balances[token_symbol] = Decimal(0)
-                    self._account_available_balances[token_symbol] = Decimal(0)
+                if is_snapshot:
+                    # Tokens with 0 balance aren't returned, so set any missing tokens to 0 balance
+                    for token_id in tokens - completed_tokens:
+                        token_symbol : str = self._token_configuration.get_symbol(token_id) 
+                        self._account_balances[token_symbol] = Decimal(0)
+                        self._account_available_balances[token_symbol] = Decimal(0)
 
         except Exception as e:
             self.logger().error(f"Could not set balance {repr(e)}")
@@ -672,7 +673,7 @@ cdef class LoopringMarket(MarketBase):
                 topic: str = event['topic']['topic']
                 data : Dict[str, Any] = event['data']
                 if topic == 'account':
-                    await self._set_balances([data])
+                    await self._set_balances([data], is_snapshot=False)
                 elif topic == 'order':
                     client_order_id : str = data['clientOrderId']
                     tracked_order : LoopringInFlightOrder = self._in_flight_orders.get(client_order_id)
