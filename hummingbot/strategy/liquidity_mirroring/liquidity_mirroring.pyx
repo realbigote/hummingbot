@@ -698,18 +698,21 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         mirrored_base_balance = mirrored_market.get_balance(mirrored_base_asset) 
         mirrored_quote_balance = mirrored_market.get_balance(mirrored_quote_asset)
 
+        messages : List[str] = []
         if (abs(primary_base_balance - self.primary_base_total_balance) > Decimal(0.001)):
+            messages.append(f"{primary_market.name}:{primary_base_asset} Old:{str(self.primary_base_total_balance)} New:{str(primary_base_balance)}")
             self.primary_base_total_balance = primary_base_balance
-            SlackPusher(self.slack_url,f"BALANCE DISCREPANCY on {primary_market} for {primary_base_asset}")
         if (abs(primary_quote_balance - self.primary_quote_total_balance) > Decimal(0.001)):
+            messages.append(f"{primary_market.name}:{primary_quote_asset} Old:{str(self.primary_quote_total_balance)} New:{str(primary_quote_balance)}")
             self.primary_quote_total_balance = primary_quote_balance
-            SlackPusher(self.slack_url,f"BALANCE DISCREPANCY on {primary_market} for {primary_quote_asset}")
         if (abs(mirrored_base_balance - self.mirrored_base_total_balance) > Decimal(0.001)):
+            messages.append(f"{mirrored_market.name}:{mirrored_base_asset} Old:{str(self.mirrored_base_total_balance)} New:{str(mirrored_base_balance)}")
             self.mirrored_base_total_balance = mirrored_base_balance
-            SlackPusher(self.slack_url,f"BALANCE DISCREPANCY on {mirrored_market} for {mirrored_base_asset}")
         if (abs(mirrored_quote_balance - self.mirrored_quote_total_balance) > Decimal(0.001)):
+            messages.append(f"{mirrored_market.name}:{mirrored_quote_asset} Old:{str(self.mirrored_quote_total_balance)} New:{str(mirrored_quote_balance)}")
             self.mirrored_quote_total_balance = mirrored_quote_balance
-            SlackPusher(self.slack_url,f"BALANCE DISCREPANCY on {mirrored_market} for {mirrored_quote_asset}")
+        if len(messages > 0)
+            SlackPusher(self.slack_url, f"BALANCE DISCREPANCY: {'\n'.join(messages)}")
 
     cdef c_process_market_pair(self, object market_pair):
         primary_market_pair = self.primary_market_pairs[0]
