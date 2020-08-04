@@ -28,6 +28,7 @@ bid_amount_ratios: null
 ask_amount_ratios: null
 paper_trade_offset: null
 slack_update_period: null
+max_offsetting_exposure: null
 
 # For more detailed information, see:
 # https://docs.hummingbot.io/strategies/arbitrage/#configuration-parameters
