@@ -29,7 +29,7 @@ WS_BASE_URL = "wss://bolsa.tokamaktech.net/api/v2/ranger/private/?stream=order&s
 class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
     MESSAGE_TIMEOUT = 30.0
-    PING_TIMEOUT = 10.0
+    PING_TIMEOUT = 30.0
 
     _bausds_logger: Optional[HummingbotLogger] = None
 
@@ -43,6 +43,7 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
         self._blocktane_auth: BlocktaneAuth = blocktane_auth
         self._listen_for_user_stream_task = None
         self._last_recv_time: float = 0
+        self._ws = None
         super().__init__()
 
     @property
@@ -54,7 +55,10 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
             try:
                 if self._listen_for_user_stream_task is not None:
                     self._listen_for_user_stream_task.cancel()
-                self._listen_for_user_stream_task = safe_ensure_future(self.log_user_stream(output))
+                    if self._listen_for_user_stream_task.cancelled():
+                        self._listen_for_user_stream_task = None
+                else:
+                    self._listen_for_user_stream_task = safe_ensure_future(self.log_user_stream(output))
                 await self.wait_til_next_tick(seconds=60.0)
             except asyncio.CancelledError:
                 raise
@@ -89,14 +93,19 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
     async def messages(self) -> AsyncIterable[str]:
         try:
             async with (await self.get_ws_connection()) as ws:
-                async for msg in self._inner_messages(ws):
-                    yield msg
+                while(True):
+                    try:
+                        async for msg in self._inner_messages(ws):
+                            yield msg
+                    except Exception as e:
+                        self.logger().error(f"got {str(type(e).__name__)}", stack_info=True)
+                        raise e
         except asyncio.CancelledError:
-            return
+            raise
 
     async def get_ws_connection(self):
-        # stream_url: str = WS_BASE_URL
-        # self.logger().info(f"Reconnecting to {stream_url}.")
+        stream_url: str = WS_BASE_URL
+        self.logger().info(f"Reconnecting to {stream_url}.")
 
         # Create the WS connection.
         ws = websockets.connect(WS_BASE_URL, extra_headers=self._blocktane_auth.generate_auth_dict())
