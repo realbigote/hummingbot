@@ -686,6 +686,25 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 break
         return covered
 
+    def factor_in_fees(self, market: MarketBase, market_pair, price, amount, is_buy, is_primary):
+        fee_object = market.c_get_fee(
+            market_pair.base_asset,
+            market_pair.quote_asset,
+            OrderType.LIMIT,
+            TradeType.BUY if is_buy else TradeType.SELL,
+            amount,
+            price
+        )
+            
+        total_flat_fees = self.c_sum_flat_fees(market_pair.quote_asset,
+                                                   fee_object.flat_fees)
+        fixed_cost_per_unit = total_flat_fees / amount                                                       
+        if (is_buy and is_primary) or ((not is_buy) and (not is_primary)):
+            price_tx = Decimal(price) / (Decimal(1) + fee_object.percent) - fixed_cost_per_unit
+        else:
+            price_tx = Decimal(price) / (Decimal(1) - fee_object.percent) + fixed_cost_per_unit
+        return price_tx, fee_object
+
     def check_calculations(self):
         primary_market = self.primary_market_pairs[0].market
         mirrored_market = self.mirrored_market_pairs[0].market
@@ -810,6 +829,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
     def adjust_primary_orderbook(self, primary_market_pair, best_bid, best_ask, bids, asks):
         primary_market: MarketBase = primary_market_pair.market
+        mirrored_market: MarketBase = self.mirrored_market_pairs[0].market
+        mirrored_market_pair = self.mirrored_market_pairs[0]
         available_quote_exposure = self.max_exposure_quote - self.offset_quote_exposure
         available_base_exposure = self.max_exposure_base - self.offset_base_exposure
 
@@ -859,22 +880,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 if 0 in self.buys_to_replace:
                     self.buys_to_replace.remove(0)
                     amount = Decimal(min(best_bid.amount, (self.bid_amounts[0])))
-                    amount = max(amount, Decimal(self.min_primary_amount))
+                    amount = max(amount, Decimal(self.min_primary_amount))                                                      
 
-                    fee_object = primary_market.c_get_fee(
-                            primary_market_pair.base_asset,
-                            primary_market_pair.quote_asset,
-                            OrderType.LIMIT,
-                            TradeType.BUY,
-                            amount,
-                            adjusted_bid
-                        )
-            
-                    total_flat_fees = self.c_sum_flat_fees(primary_market_pair.quote_asset,
-                                                               fee_object.flat_fees)
-                    fixed_cost_per_unit = total_flat_fees / amount                                                       
-
-                    price_tx = Decimal(adjusted_bid) / (Decimal(1) + fee_object.percent) - fixed_cost_per_unit
+                    price_itx, fee_object = self.factor_in_fees(primary_market, primary_market_pair, adjusted_bid, amount, True, True)
+                    price_tx, fee_object_unused = self.factor_in_fees(mirrored_market, mirrored_market_pair, price_itx, amount, False, False)
                     quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, price_tx)
                     quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
 
@@ -910,21 +919,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         amount = Decimal(min(bid_amount, (self.bid_amounts[i+1])))
                         amount = max(amount, Decimal(self.min_primary_amount))
 
-                        fee_object = primary_market.c_get_fee(
-                            primary_market_pair.base_asset,
-                            primary_market_pair.quote_asset,
-                            OrderType.LIMIT,
-                            TradeType.BUY,
-                            amount,
-                            min_price
-                        )
-
-                        total_flat_fees = self.c_sum_flat_fees(primary_market_pair.quote_asset,
-                                                                   fee_object.flat_fees)
-
-                        fixed_cost_per_unit = total_flat_fees / amount
-
-                        min_price = Decimal(min_price) / (Decimal(1) + fee_object.percent) - fixed_cost_per_unit
+                        price_tx, fee_object = self.factor_in_fees(primary_market, primary_market_pair, min_price, amount, True, True)
+                        min_price, fee_object_unused = self.factor_in_fees(mirrored_market, mirrored_market_pair, price_tx, amount, False, False)
+                        
                         quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, min_price)
                         quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
 
@@ -968,20 +965,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     amount = Decimal(min(best_ask.amount, self.ask_amounts[0]))
                     amount = max(amount, Decimal(self.min_primary_amount))
 
-                    fee_object = primary_market.c_get_fee(
-                            primary_market_pair.base_asset,
-                            primary_market_pair.quote_asset,
-                            OrderType.LIMIT,
-                            TradeType.SELL,
-                            amount,
-                            adjusted_ask
-                        )
-
-                    total_flat_fees = self.c_sum_flat_fees(primary_market_pair.quote_asset,
-                                                               fee_object.flat_fees)
-                    fixed_cost_per_unit = total_flat_fees / amount                                                       
-
-                    price_tx = Decimal(adjusted_ask) / (Decimal(1) - fee_object.percent) + fixed_cost_per_unit
+                    price_itx, fee_object = self.factor_in_fees(primary_market, primary_market_pair, adjusted_ask, amount, False, True)
+                    price_tx, fee_object_unused = self.factor_in_fees(mirrored_market, mirrored_market_pair, price_itx, amount, True, False)
 
                     quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, price_tx)
                     quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
@@ -1017,21 +1002,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         amount = max(amount, Decimal(self.min_primary_amount))
                         #TODO ensure that this doesn't overexpose the trader
     
-                        fee_object = primary_market.c_get_fee(
-                            primary_market_pair.base_asset,
-                            primary_market_pair.quote_asset,
-                            OrderType.LIMIT,
-                            TradeType.SELL,
-                            amount,
-                            max_price
-                        )
-                
-                        total_flat_fees = self.c_sum_flat_fees(primary_market_pair.quote_asset,
-                                                                   fee_object.flat_fees)
-    
-                        fixed_cost_per_unit = total_flat_fees / amount                                                           
-    
-                        max_price = Decimal(max_price) / (Decimal(1) - fee_object.percent) + fixed_cost_per_unit
+                        price_tx, fee_object = self.factor_in_fees(primary_market, primary_market_pair, max_price, amount, False, True)
+                        max_price, fee_object_unused = self.factor_in_fees(mirrored_market, mirrored_market_pair, price_tx, amount, True, False)
+                        
                         quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, max_price)
                         quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
 
