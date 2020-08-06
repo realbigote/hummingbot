@@ -121,9 +121,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.bid_amounts = []
         self.ask_amounts = []
         for amount in self.bid_amount_percents:
-            self.bid_amounts.append(amount * self.max_exposure_quote)
+            self.bid_amounts.append(Decimal(amount * self.max_exposure_quote))
         for amount in self.ask_amount_percents:
-            self.ask_amounts.append(amount * self.max_exposure_base)
+            self.ask_amounts.append(Decimal(amount * self.max_exposure_base))
 
         self.outstanding_offsets = {}
         self.max_loss = Decimal(max_loss)
@@ -846,12 +846,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         for j in range(0,len(self.ask_amount_percents)):
             self.ask_amounts[j] = (self.ask_amount_percents[j] * available_base_exposure)
 
-        bid_amount = min(best_bid.amount, self.bid_amounts[0])
+        bid_amount = Decimal(min(best_bid.amount, self.bid_amounts[0]))
         primary_fees_bid, bid_fee_object = self.factor_in_fees(primary_market, primary_market_pair, best_bid.price, bid_amount, True, True)
         both_fees_bid, fee_object_unused = self.factor_in_fees(mirrored_market, mirrored_market_pair, primary_fees_bid, bid_amount, False, False)
         adjusted_bid = both_fees_bid * (1 - self.order_price_markup)
 
-        ask_amount = min(best_ask.amount, self.ask_amounts[0])
+        ask_amount = Decimal(min(best_ask.amount, self.ask_amounts[0]))
         primary_fees_ask, ask_fee_object = self.factor_in_fees(primary_market, primary_market_pair, best_ask.price, ask_amount, False, True)
         both_fees_ask, fee_object_unused = self.factor_in_fees(mirrored_market, mirrored_market_pair, primary_fees_ask, ask_amount, True, False)
         adjusted_ask = both_fees_ask * (1 + self.order_price_markup)
