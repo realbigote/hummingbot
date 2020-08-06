@@ -44,7 +44,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         object primary_best_ask
         object mirrored_best_bid
         object mirrored_best_ask
-        object spread_percent
+        object order_price_markup
         object max_exposure_base
         object max_exposure_quote
         object max_loss

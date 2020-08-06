@@ -14,7 +14,7 @@ mirrored_market: null
 market_trading_pair_to_mirror: null
 primary_market_trading_pair: null
 two_sided_mirroring: null
-spread_percent: null
+order_price_markup: null
 max_exposure_base: null
 max_exposure_quote: null
 max_offset_loss: null
