@@ -350,7 +350,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.avg_sell_price[1] = max(Decimal(0), self.avg_sell_price[1] - order_filled_event.amount)
                         self.avg_sell_price[0] = max(Decimal(0), self.avg_sell_price[0] - order_filled_event.amount * order_filled_event.price)
                         self.amount_to_offset += order_filled_event.amount
-                        self.offset_quote_exposure -= order_filled_event.amount
+                        self.offset_quote_exposure -= (order_filled_event.amount * order_filled_event.price)
                         self.mirrored_base_balance += order_filled_event.amount
                         self.mirrored_base_total_balance += order_filled_event.amount
                         self.mirrored_quote_total_balance -= order_filled_event.price * order_filled_event.amount
@@ -528,7 +528,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.avg_buy_price[1] = max(Decimal(0), self.avg_buy_price[1] - sell_order_completed_event.base_asset_amount)
                     self.avg_buy_price[0] = max(Decimal(0), self.avg_buy_price[0] - sell_order_completed_event.quote_asset_amount)
                     self.amount_to_offset -= sell_order_completed_event.base_asset_amount
-                    self.offset_base_exposure -= sell_order_completed_event.quote_asset_amount
+                    self.offset_base_exposure -= sell_order_completed_event.base_asset_amount
                     self.mirrored_quote_balance += sell_order_completed_event.quote_asset_amount
                     self.mirrored_quote_total_balance += sell_order_completed_event.quote_asset_amount
                     self.mirrored_base_total_balance -= sell_order_completed_event.base_asset_amount
