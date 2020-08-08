@@ -25,8 +25,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         object best_bid_start
         object initial_base_amount
         object initial_quote_amount
-        object amount_to_offset
-        object current_total_offset_loss
         object primary_base_balance
         object primary_quote_balance
         object mirrored_base_balance
@@ -56,8 +54,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         object max_offsetting_exposure
         object min_primary_amount
         object min_mirroring_amount
-        list avg_buy_price
-        list avg_sell_price
+        object pm
         list bid_amount_percents
         list ask_amount_percents
         bint _all_markets_ready
