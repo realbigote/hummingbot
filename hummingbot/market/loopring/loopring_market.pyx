@@ -91,6 +91,7 @@ NEXT_ORDER_ID = "api/v2/orderId"
 ORDER_ROUTE = "api/v2/order"
 ORDER_CANCEL_ROUTE = "api/v2/orders"
 MAXIMUM_FILL_COUNT = 16
+UNRECOGNIZED_ORDER_DEBOUCE = 20 #seconds
 
 cdef class LoopringMarketTransactionTracker(TransactionTracker):
     cdef:
@@ -775,7 +776,16 @@ cdef class LoopringMarket(MarketBase):
                 data = loopring_order_request["data"]
             except Exception:
                 self.logger().warning(f"Failed to fetch tracked Loopring order " \
-                                      f"{tracked_order.exchange_order_id} from api (code: {loopring_order_request['resultInfo']['code']})")
+                                      f"{client_order_id }({tracked_order.exchange_order_id}) from api (code: {loopring_order_request['resultInfo']['code']})")
+
+                # check if this error is because the api cliams to be unaware of this order. If so, and this order
+                # is reasonably old, mark the orde as cancelled
+                if loopring_order_request['resultInfo']['code'] == 107003:
+                    if tracked_order.created_at < (int(time.time()) - UNRECOGNIZED_ORDER_DEBOUCE):
+                        self.logger().warning(f"marking {client_order_id} as cancelled")
+                        cancellation_event = OrderCancelledEvent(now(), client_order_id)
+                        self.c_trigger_event(ORDER_CANCELLED_EVENT, cancellation_event)
+                        self.stop_tracking(client_order_id)
                 continue
 
             try:
