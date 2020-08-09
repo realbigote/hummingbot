@@ -711,7 +711,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         asks = list(market_pair.order_book_ask_entries())
         best_ask = asks[0]
 
-        midpoint = best_ask.price + best_bid.price/Decimal(2)
+        midpoint = (best_ask.price + best_bid.price)/Decimal(2)
         #TODO Make this configurable
         threshold = Decimal(0.0005) * self.previous_buys[0]
 
@@ -1025,7 +1025,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
 
                     self.c_buy_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-                    self.offset_quote_exposure += Decimal(new_price) * amount
+                    self.offset_quote_exposure += Decimal(quant_price) * quant_amount
 
             elif self.pm.amount_to_offset > Decimal(0):
             # we are at a surplus of base. get rid of buy orders
@@ -1049,4 +1049,4 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
 
                     self.c_sell_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-                    self.offset_base_exposure += amount
+                    self.offset_base_exposure += quant_amount
