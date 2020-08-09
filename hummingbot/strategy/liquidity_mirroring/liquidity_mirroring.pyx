@@ -711,7 +711,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         asks = list(market_pair.order_book_ask_entries())
         best_ask = asks[0]
 
-        midpoint = best_ask.price + best_bid.price/Decimal(2)
+        midpoint = (best_ask.price + best_bid.price)/Decimal(2)
         #TODO Make this configurable
         threshold = Decimal(0.0005) * self.previous_buys[0]
 
