@@ -347,7 +347,9 @@ cdef class FtxMarket(MarketBase):
 
                 exchange_order_id = str(await tracked_order.get_exchange_order_id())
                 client_order_id = tracked_order.client_order_id
-                order = open_orders[exchange_order_id]
+                order = None
+                if exchange_order_id in open_orders:
+                    order = open_orders[exchange_order_id]
 
                 # Do nothing, if the order has already been cancelled or has failed
                 if client_order_id not in self._in_flight_orders:
@@ -469,7 +471,7 @@ cdef class FtxMarket(MarketBase):
 
                 if (channel == "orders") and (event_type == "update"):  # Updates track order status
                     order_status = data["status"]
-                    order_id = data["id"]
+                    order_id = str(data["id"])
 
                     tracked_order = None
                     for o in self._in_flight_orders.values():
@@ -493,28 +495,6 @@ cdef class FtxMarket(MarketBase):
                         execute_amount_diff = Decimal(new_confirmed_amount - tracked_order.executed_amount_base)
                         tracked_order.executed_amount_base = new_confirmed_amount
                         tracked_order.executed_amount_quote += Decimal(execute_amount_diff * execute_price)
-
-                    if execute_amount_diff > s_decimal_0:
-                        self.logger().info(f"Filled {execute_amount_diff} out of {tracked_order.amount} of the "
-                                           f"{order_type_description} order {tracked_order.client_order_id}.")
-                        self.c_trigger_event(self.MARKET_ORDER_FILLED_EVENT_TAG,
-                                             OrderFilledEvent(
-                                                 self._current_timestamp,
-                                                 tracked_order.client_order_id,
-                                                 tracked_order.trading_pair,
-                                                 tracked_order.trade_type,
-                                                 tracked_order.order_type,
-                                                 execute_price,
-                                                 execute_amount_diff,
-                                                 self.c_get_fee(
-                                                     tracked_order.base_asset,
-                                                     tracked_order.quote_asset,
-                                                     tracked_order.order_type,
-                                                     tracked_order.trade_type,
-                                                     execute_price,
-                                                     execute_amount_diff
-                                                 )
-                                             ))
 
                         if order_status == "closed":  # FILL(COMPLETE)
                             tracked_order.last_state = "CLOSED"
@@ -551,14 +531,7 @@ cdef class FtxMarket(MarketBase):
                             self.c_stop_tracking_order(tracked_order.client_order_id)
                             continue
 
-                    elif order_status == "closed":  # CANCEL
-                        tracked_order.last_state = "CLOSED"
-                        self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
-                                             OrderCancelledEvent(self._current_timestamp,
-                                                                 tracked_order.client_order_id))
-                        self.c_stop_tracking_order(tracked_order.client_order_id)
-
-                if (channel == "fills") and (event_type == "update"):
+                elif (channel == "fills") and (event_type == "update"):
                     order_id = str(data["orderId"])
 
                     tracked_order = None
@@ -574,7 +547,9 @@ cdef class FtxMarket(MarketBase):
 
                     execute_amount = data["size"]
                     execute_price = data["price"]
-                    execute_fee = data["fee"]
+
+                    tracked_order.executed_amount_base += Decimal(execute_amount)
+                    tracked_order.executed_amount_quote += Decimal(execute_amount * execute_price)
 
                     self.logger().info(f"Filled {execute_amount} out of {tracked_order.amount} of the "
                                            f"{order_type_description} order {tracked_order.client_order_id}.")
@@ -596,38 +571,6 @@ cdef class FtxMarket(MarketBase):
                                                      execute_amount
                                                  )
                                              ))
-                    tracked_order.last_state = "CLOSED"
-                    if tracked_order.trade_type is TradeType.BUY:
-                        self.logger().info(f"The LIMIT_BUY order {tracked_order.client_order_id} has completed "
-                                           f"according to order delta websocket API.")
-                        self.c_trigger_event(self.MARKET_BUY_ORDER_COMPLETED_EVENT_TAG,
-                                             BuyOrderCompletedEvent(
-                                                 self._current_timestamp,
-                                                 tracked_order.client_order_id,
-                                                 tracked_order.base_asset,
-                                                 tracked_order.quote_asset,
-                                                 tracked_order.fee_asset or tracked_order.quote_asset,
-                                                 tracked_order.executed_amount_base,
-                                                 tracked_order.executed_amount_quote,
-                                                 tracked_order.fee_paid,
-                                                 tracked_order.order_type
-                                             ))
-                    elif tracked_order.trade_type is TradeType.SELL:
-                        self.logger().info(f"The LIMIT_SELL order {tracked_order.client_order_id} has completed "
-                                           f"according to Order Delta WebSocket API.")
-                        self.c_trigger_event(self.MARKET_SELL_ORDER_COMPLETED_EVENT_TAG,
-                                             SellOrderCompletedEvent(
-                                                 self._current_timestamp,
-                                                 tracked_order.client_order_id,
-                                                 tracked_order.base_asset,
-                                                 tracked_order.quote_asset,
-                                                 tracked_order.fee_asset or tracked_order.quote_asset,
-                                                 tracked_order.executed_amount_base,
-                                                 tracked_order.executed_amount_quote,
-                                                 tracked_order.fee_paid,
-                                                 tracked_order.order_type
-                                             ))
-                    self.c_stop_tracking_order(tracked_order.client_order_id)
                     continue
                 else:
                     # Ignores all other user stream message types
@@ -815,7 +758,6 @@ cdef class FtxMarket(MarketBase):
                 decimal_amount
             )
             if order_type is OrderType.LIMIT:
-
                 order_result = await self.place_order(order_id,
                                                       trading_pair,
                                                       decimal_amount,
