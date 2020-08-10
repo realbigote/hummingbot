@@ -81,9 +81,9 @@ liquidity_mirroring_config_map = {
         prompt_on_new=True,
         type_str="bool" 
     ),
-    "spread_percent": ConfigVar(
-        key="spread_percent",
-        prompt="Enter your desired spread percentage >>> ",
+    "order_price_markup": ConfigVar(
+        key="order_price_markup",
+        prompt="Enter your desired order price markup applied after fees (0.01 is 1%) >>> ",
         default=0.001,
         prompt_on_new=True,
         type_str="float"
