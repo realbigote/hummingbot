@@ -33,6 +33,9 @@ loopring_exchangeid: null
 loopring_api_key: null
 loopring_private_key: null
 
+ftx_api_key: null
+ftx_secret_key: null
+
 kucoin_api_key: null
 kucoin_secret_key: null
 kucoin_passphrase: null

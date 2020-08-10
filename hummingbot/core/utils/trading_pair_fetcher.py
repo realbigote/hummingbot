@@ -27,6 +27,7 @@ DOLOMITE_ENDPOINT = "https://exchange-api.dolomite.io/v1/markets"
 LOOPRING_ENDPOINT = "https://api.loopring.io/api/v2/exchange/markets"
 BITCOIN_COM_ENDPOINT = "https://api.exchange.bitcoin.com/api/2/public/symbol"
 KRAKEN_ENDPOINT = "https://api.kraken.com/0/public/AssetPairs"
+FTX_ENDPOINT = "https://ftx.com/api/markets"
 
 API_CALL_TIMEOUT = 5
 
@@ -356,6 +357,32 @@ class TradingPairFetcher:
 
         return []
 
+    async def fetch_ftx_trading_pairs(self) -> List[str]:
+        try:
+            from hummingbot.market.ftx.ftx_market import FtxMarket
+            client: aiohttp.ClientSession = TradingPairFetcher.http_client()
+            async with client.get(FTX_ENDPOINT, timeout=API_CALL_TIMEOUT) as response:
+                if response.status == 200:
+                    all_trading_pairs: Dict[str, Any] = await response.json()
+                    valid_trading_pairs: list = []
+                    for item in all_trading_pairs["result"]:
+                        if item["type"] == "spot":
+                            valid_trading_pairs.append(item["name"])
+                    trading_pair_list: List[str] = []
+                    for raw_trading_pair in valid_trading_pairs:
+                        converted_trading_pair: Optional[str] = \
+                            FtxMarket.convert_from_exchange_trading_pair(raw_trading_pair)
+                        if converted_trading_pair is not None:
+                            trading_pair_list.append(converted_trading_pair)
+                        else:
+                            self.logger().debug(f"Could not parse the trading pair {raw_trading_pair}, skipping it...")
+                    return trading_pair_list
+        except Exception:
+            # Do nothing if the request fails -- there will be no autocomplete for ftx trading pairs
+            pass
+
+        return []
+
     async def fetch_bitcoin_com_trading_pairs(self) -> List[str]:
         try:
             from hummingbot.market.bitcoin_com.bitcoin_com_market import BitcoinComMarket
@@ -393,7 +420,8 @@ class TradingPairFetcher:
                  self.fetch_kraken_trading_pairs(),
                  self.fetch_radar_relay_trading_pairs(),
                  self.fetch_blocktane_trading_pairs(),
-                 self.fetch_loopring_trading_pairs()]
+                 self.fetch_loopring_trading_pairs(),
+                 self.fetch_ftx_trading_pairs()]
 
         # Radar Relay has not yet been migrated to a new version
         # Endpoint needs to be updated after migration
@@ -413,6 +441,7 @@ class TradingPairFetcher:
             "kraken": results[9],
             "radar_relay": results[10],
             "blocktane": results[11],
-            "loopring": results[12]
+            "loopring": results[12],
+            "ftx": results[13]
         }
         self.ready = True
