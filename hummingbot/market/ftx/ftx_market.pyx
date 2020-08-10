@@ -207,7 +207,6 @@ cdef class FtxMarket(MarketBase):
                           object order_side,
                           object amount,
                           object price):
-        # Fee info from https://bolsa.tokamaktech.net/api/v2/peatio/public/trading_fees
         cdef:
             object maker_fee = Decimal(0.002)
             object taker_fee = Decimal(0.002)
@@ -517,48 +516,119 @@ cdef class FtxMarket(MarketBase):
                                                  )
                                              ))
 
-                    if order_status == "complete":  # FILL(COMPLETE)
-                        # trade_type = TradeType.BUY if content["OT"] == "LIMIT_BUY" else TradeType.SELL
-                        tracked_order.last_state = "CLOSED"
-                        if tracked_order.trade_type is TradeType.BUY:
-                            self.logger().info(f"The LIMIT_BUY order {tracked_order.client_order_id} has completed "
-                                               f"according to order delta websocket API.")
-                            self.c_trigger_event(self.MARKET_BUY_ORDER_COMPLETED_EVENT_TAG,
-                                                 BuyOrderCompletedEvent(
-                                                     self._current_timestamp,
-                                                     tracked_order.client_order_id,
-                                                     tracked_order.base_asset,
-                                                     tracked_order.quote_asset,
-                                                     tracked_order.fee_asset or tracked_order.quote_asset,
-                                                     tracked_order.executed_amount_base,
-                                                     tracked_order.executed_amount_quote,
-                                                     tracked_order.fee_paid,
-                                                     tracked_order.order_type
-                                                 ))
-                        elif tracked_order.trade_type is TradeType.SELL:
-                            self.logger().info(f"The LIMIT_SELL order {tracked_order.client_order_id} has completed "
-                                               f"according to Order Delta WebSocket API.")
-                            self.c_trigger_event(self.MARKET_SELL_ORDER_COMPLETED_EVENT_TAG,
-                                                 SellOrderCompletedEvent(
-                                                     self._current_timestamp,
-                                                     tracked_order.client_order_id,
-                                                     tracked_order.base_asset,
-                                                     tracked_order.quote_asset,
-                                                     tracked_order.fee_asset or tracked_order.quote_asset,
-                                                     tracked_order.executed_amount_base,
-                                                     tracked_order.executed_amount_quote,
-                                                     tracked_order.fee_paid,
-                                                     tracked_order.order_type
-                                                 ))
-                        self.c_stop_tracking_order(tracked_order.client_order_id)
-                        continue
+                        if order_status == "closed":  # FILL(COMPLETE)
+                            tracked_order.last_state = "CLOSED"
+                            if tracked_order.trade_type is TradeType.BUY:
+                                self.logger().info(f"The LIMIT_BUY order {tracked_order.client_order_id} has completed "
+                                                   f"according to order delta websocket API.")
+                                self.c_trigger_event(self.MARKET_BUY_ORDER_COMPLETED_EVENT_TAG,
+                                                     BuyOrderCompletedEvent(
+                                                         self._current_timestamp,
+                                                         tracked_order.client_order_id,
+                                                         tracked_order.base_asset,
+                                                         tracked_order.quote_asset,
+                                                         tracked_order.fee_asset or tracked_order.quote_asset,
+                                                         tracked_order.executed_amount_base,
+                                                         tracked_order.executed_amount_quote,
+                                                         tracked_order.fee_paid,
+                                                         tracked_order.order_type
+                                                     ))
+                            elif tracked_order.trade_type is TradeType.SELL:
+                                self.logger().info(f"The LIMIT_SELL order {tracked_order.client_order_id} has completed "
+                                                   f"according to Order Delta WebSocket API.")
+                                self.c_trigger_event(self.MARKET_SELL_ORDER_COMPLETED_EVENT_TAG,
+                                                     SellOrderCompletedEvent(
+                                                         self._current_timestamp,
+                                                         tracked_order.client_order_id,
+                                                         tracked_order.base_asset,
+                                                         tracked_order.quote_asset,
+                                                         tracked_order.fee_asset or tracked_order.quote_asset,
+                                                         tracked_order.executed_amount_base,
+                                                         tracked_order.executed_amount_quote,
+                                                         tracked_order.fee_paid,
+                                                         tracked_order.order_type
+                                                     ))
+                            self.c_stop_tracking_order(tracked_order.client_order_id)
+                            continue
 
-                    if order_status == "closed":  # CANCEL
+                    elif order_status == "closed":  # CANCEL
                         tracked_order.last_state = "CLOSED"
                         self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
                                              OrderCancelledEvent(self._current_timestamp,
                                                                  tracked_order.client_order_id))
                         self.c_stop_tracking_order(tracked_order.client_order_id)
+
+                if (channel == "fills") and (event_type == "update"):
+                    order_id = str(data["orderId"])
+
+                    tracked_order = None
+                    for o in self._in_flight_orders.values():
+                        if o.exchange_order_id == order_id:
+                            tracked_order = o
+                            break
+
+                    if tracked_order is None:
+                        continue
+
+                    order_type_description = tracked_order.order_type_description
+
+                    execute_amount = data["size"]
+                    execute_price = data["price"]
+                    execute_fee = data["fee"]
+
+                    self.logger().info(f"Filled {execute_amount} out of {tracked_order.amount} of the "
+                                           f"{order_type_description} order {tracked_order.client_order_id}.")
+                    self.c_trigger_event(self.MARKET_ORDER_FILLED_EVENT_TAG,
+                                             OrderFilledEvent(
+                                                 self._current_timestamp,
+                                                 tracked_order.client_order_id,
+                                                 tracked_order.trading_pair,
+                                                 tracked_order.trade_type,
+                                                 tracked_order.order_type,
+                                                 execute_price,
+                                                 execute_amount,
+                                                 self.c_get_fee(
+                                                     tracked_order.base_asset,
+                                                     tracked_order.quote_asset,
+                                                     tracked_order.order_type,
+                                                     tracked_order.trade_type,
+                                                     execute_price,
+                                                     execute_amount
+                                                 )
+                                             ))
+                    tracked_order.last_state = "CLOSED"
+                    if tracked_order.trade_type is TradeType.BUY:
+                        self.logger().info(f"The LIMIT_BUY order {tracked_order.client_order_id} has completed "
+                                           f"according to order delta websocket API.")
+                        self.c_trigger_event(self.MARKET_BUY_ORDER_COMPLETED_EVENT_TAG,
+                                             BuyOrderCompletedEvent(
+                                                 self._current_timestamp,
+                                                 tracked_order.client_order_id,
+                                                 tracked_order.base_asset,
+                                                 tracked_order.quote_asset,
+                                                 tracked_order.fee_asset or tracked_order.quote_asset,
+                                                 tracked_order.executed_amount_base,
+                                                 tracked_order.executed_amount_quote,
+                                                 tracked_order.fee_paid,
+                                                 tracked_order.order_type
+                                             ))
+                    elif tracked_order.trade_type is TradeType.SELL:
+                        self.logger().info(f"The LIMIT_SELL order {tracked_order.client_order_id} has completed "
+                                           f"according to Order Delta WebSocket API.")
+                        self.c_trigger_event(self.MARKET_SELL_ORDER_COMPLETED_EVENT_TAG,
+                                             SellOrderCompletedEvent(
+                                                 self._current_timestamp,
+                                                 tracked_order.client_order_id,
+                                                 tracked_order.base_asset,
+                                                 tracked_order.quote_asset,
+                                                 tracked_order.fee_asset or tracked_order.quote_asset,
+                                                 tracked_order.executed_amount_base,
+                                                 tracked_order.executed_amount_quote,
+                                                 tracked_order.fee_paid,
+                                                 tracked_order.order_type
+                                             ))
+                    self.c_stop_tracking_order(tracked_order.client_order_id)
+                    continue
                 else:
                     # Ignores all other user stream message types
                     continue

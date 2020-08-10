@@ -76,6 +76,9 @@ class FtxAPIUserStreamDataSource(UserStreamTrackerDataSource):
             orders = json.dumps({"op": "subscribe", "channel": "orders"})
             await ws.send(orders)
             
+            fills = json.dumps({"op": "subscribe", "channel": "fills"})
+            await ws.send(fills)
+            
             async for msg in self._inner_messages(ws):
                 yield msg
 
