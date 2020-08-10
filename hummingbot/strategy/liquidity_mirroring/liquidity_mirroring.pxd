@@ -22,37 +22,40 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         list has_been_offset
         str slack_url
         object performance_logger
-        float best_bid_start
-        float initial_base_amount
-        float initial_quote_amount
-        float amount_to_offset
-        float current_total_offset_loss
-        float primary_base_balance
-        float primary_quote_balance
-        float mirrored_base_balance
-        float mirrored_quote_balance
-        float primary_base_total_balance
-        float primary_quote_total_balance
-        float mirrored_base_total_balance
-        float mirrored_quote_total_balance
+        object best_bid_start
+        object initial_base_amount
+        object initial_quote_amount
+        object amount_to_offset
+        object current_total_offset_loss
+        object primary_base_balance
+        object primary_quote_balance
+        object mirrored_base_balance
+        object mirrored_quote_balance
+        object primary_base_total_balance
+        object primary_quote_total_balance
+        object mirrored_base_total_balance
+        object mirrored_quote_total_balance
         bint two_sided_mirroring
-        float start_time
-        float start_wallet_check_time
-        float primary_best_bid
-        float primary_best_ask
-        float mirrored_best_bid
-        float mirrored_best_ask
-        float spread_percent
-        float max_exposure_base
-        float max_exposure_quote
-        float max_loss
-        float max_total_loss
-        float total_trading_volume
-        float trades_executed
-        float offset_base_exposure
-        float offset_quote_exposure
-        float min_primary_amount
-        float min_mirroring_amount
+        bint funds_message_sent
+        bint fail_message_sent
+        object start_time
+        object start_wallet_check_time
+        object primary_best_bid
+        object primary_best_ask
+        object mirrored_best_bid
+        object mirrored_best_ask
+        object spread_percent
+        object max_exposure_base
+        object max_exposure_quote
+        object max_loss
+        object max_total_loss
+        object total_trading_volume
+        int trades_executed
+        object offset_base_exposure
+        object offset_quote_exposure
+        object max_offsetting_exposure
+        object min_primary_amount
+        object min_mirroring_amount
         list avg_buy_price
         list avg_sell_price
         list bid_amount_percents
@@ -72,9 +75,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         int _failed_order_tolerance
         bint _cool_off_logged
         int _failed_market_order_count
-        int _last_failed_market_order_timestamp
+        object _last_failed_market_order_timestamp
         int cycle_number
-        float slack_update_period
+        object slack_update_period
 
     cdef c_process_market_pair(self, object market_pair)
     cdef bint c_ready_for_new_orders(self, list market_trading_pairs)

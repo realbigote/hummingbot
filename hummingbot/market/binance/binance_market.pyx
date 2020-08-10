@@ -938,10 +938,10 @@ cdef class BinanceMarket(MarketBase):
         except BinanceAPIException as e:
             if "Unknown order sent" in e.message or e.code == 2011:
                 # The order was never there to begin with. So cancelling it is a no-op but semantically successful.
-                self.logger().debug(f"The order {order_id} does not exist on Binance. No cancellation needed.")
-                self.c_stop_tracking_order(order_id)
-                self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
-                                     OrderCancelledEvent(self._current_timestamp, order_id))
+                self.logger().info(f"The order {order_id} does not exist on Binance. No cancellation needed.")
+                # self.c_stop_tracking_order(order_id)
+                # self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
+                #                      OrderCancelledEvent(self._current_timestamp, order_id))
                 return {
                     # Required by cancel_all() below.
                     "origClientOrderId": order_id
