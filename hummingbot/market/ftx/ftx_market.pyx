@@ -342,7 +342,7 @@ cdef class FtxMarket(MarketBase):
             tracked_orders = list(self._in_flight_orders.values())
 
             open_orders = await self.list_orders()
-            open_orders = dict((str(entry["id"]), entry) for entry in open_orders["result"])
+            open_orders = dict((str(entry["id"]), entry) for entry in open_orders["result"] if entry["status"] is not "closed")
 
             for tracked_order in tracked_orders:
 
@@ -355,13 +355,6 @@ cdef class FtxMarket(MarketBase):
                     continue
 
                 if order is None:  # Handles order that are currently tracked but no longer open in exchange
-                   # self._order_not_found_records[client_order_id] = \
-                   #     self._order_not_found_records.get(client_order_id, 0) + 1
-#
-                   # if self._order_not_found_records[client_order_id] < self.ORDER_NOT_EXIST_CONFIRMATION_COUNT:
-                   #     # Wait until the order not found error have repeated for a few times before actually treating
-                   #     # it as a fail. See: https://github.com/CoinAlpha/hummingbot/issues/601
-                   #     continue
                     tracked_order.last_state = "CLOSED"
                     self.c_trigger_event(
                         self.MARKET_ORDER_FAILURE_EVENT_TAG,
