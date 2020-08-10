@@ -463,7 +463,6 @@ cdef class FtxMarket(MarketBase):
 
     async def _user_stream_event_listener(self):
         async for stream_message in self._iter_user_stream_queue():
-            print("HELLO")
             try:
                 channel = stream_message.get("channel")
                 data = stream_message.get("data")
