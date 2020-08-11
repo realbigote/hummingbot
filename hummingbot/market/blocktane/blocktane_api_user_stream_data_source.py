@@ -22,6 +22,7 @@ from typing import Optional
 from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.market.blocktane.blocktane_auth import BlocktaneAuth
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
+from hummingbot.logger import HummingbotLogger
 
 
 WS_BASE_URL = "wss://bolsa.tokamaktech.net/api/v2/ranger/private/?stream=order&stream=trade"
@@ -31,10 +32,10 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
     MESSAGE_TIMEOUT = 30.0
     PING_TIMEOUT = 10.0
 
-    _bausds_logger = None
+    _bausds_logger: Optional[HummingbotLogger] = None
 
     @classmethod
-    def logger(cls):
+    def logger(cls) -> HummingbotLogger:
         if cls._bausds_logger is None:
             cls._bausds_logger = logging.getLogger(__name__)
         return cls._bausds_logger
@@ -79,7 +80,7 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
                 try:
                     msg: str = await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)
                     self._last_recv_time = time.time()
-                    self.logger().error(f"Recieved:{msg}")
+                    self.logger().info(f"Recieved:{msg}")
                     yield msg
                 except asyncio.TimeoutError:
                     try:
