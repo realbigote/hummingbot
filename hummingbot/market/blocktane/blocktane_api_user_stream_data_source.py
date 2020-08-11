@@ -80,7 +80,7 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
                 try:
                     msg: str = await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)
                     self._last_recv_time = time.time()
-                    self.logger().error(f"Recieved:{msg}")
+                    self.logger().info(f"Recieved:{msg}")
                     yield msg
                 except asyncio.TimeoutError:
                     try:
