@@ -21,10 +21,12 @@ from typing import Optional
  
 from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.market.blocktane.blocktane_auth import BlocktaneAuth
+from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
+
 
 WS_BASE_URL = "wss://bolsa.tokamaktech.net/api/v2/ranger/private/?stream=order&stream=trade"
 
-class BlocktaneAPIUserStreamDataSource:
+class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
     MESSAGE_TIMEOUT = 30.0
     PING_TIMEOUT = 10.0
