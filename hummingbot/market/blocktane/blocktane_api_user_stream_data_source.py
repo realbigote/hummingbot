@@ -18,23 +18,21 @@ import ujson
 import websockets
 from datetime import datetime
 from typing import Optional
-
-from hummingbot.logger import HummingbotLogger
+ 
 from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.market.blocktane.blocktane_auth import BlocktaneAuth
-from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
 
 WS_BASE_URL = "wss://bolsa.tokamaktech.net/api/v2/ranger/private/?stream=order&stream=trade"
 
-class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
+class BlocktaneAPIUserStreamDataSource:
 
     MESSAGE_TIMEOUT = 30.0
-    PING_TIMEOUT = 30.0
+    PING_TIMEOUT = 10.0
 
-    _bausds_logger: Optional[HummingbotLogger] = None
+    _bausds_logger = None
 
     @classmethod
-    def logger(cls) -> HummingbotLogger:
+    def logger(cls):
         if cls._bausds_logger is None:
             cls._bausds_logger = logging.getLogger(__name__)
         return cls._bausds_logger
@@ -50,15 +48,20 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
     def last_recv_time(self) -> float:
         return self._last_recv_time
 
+
+    @staticmethod
+    async def wait_til_next_tick(seconds: float = 1.0):
+        now: float = time.time()
+        current_tick: int = int(now // seconds)
+        delay_til_next_tick: float = (current_tick + 1) * seconds - now
+        await asyncio.sleep(delay_til_next_tick)
+
     async def listen_for_user_stream(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         while True:
             try:
                 if self._listen_for_user_stream_task is not None:
                     self._listen_for_user_stream_task.cancel()
-                    if self._listen_for_user_stream_task.cancelled():
-                        self._listen_for_user_stream_task = None
-                else:
-                    self._listen_for_user_stream_task = safe_ensure_future(self.log_user_stream(output))
+                self._listen_for_user_stream_task = safe_ensure_future(self.log_user_stream(output))
                 await self.wait_til_next_tick(seconds=60.0)
             except asyncio.CancelledError:
                 raise
@@ -74,6 +77,7 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
                 try:
                     msg: str = await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)
                     self._last_recv_time = time.time()
+                    self.logger().error(f"Recieved:{msg}")
                     yield msg
                 except asyncio.TimeoutError:
                     try:
@@ -93,21 +97,21 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
     async def messages(self) -> AsyncIterable[str]:
         try:
             async with (await self.get_ws_connection()) as ws:
+                self._ws = ws
                 while(True):
-                    try:
-                        async for msg in self._inner_messages(ws):
-                            yield msg
-                    except Exception as e:
-                        self.logger().error(f"got {str(type(e).__name__)}", stack_info=True)
-                        raise e
-        except asyncio.CancelledError:
+                    async for msg in self._inner_messages(ws):
+                        yield msg
+
+        except asyncio.CancelledError as e:
+            self.logger().error(f"Exception in messages({type(e).__name__})")
             raise
 
     async def get_ws_connection(self):
-        stream_url: str = WS_BASE_URL
-        self.logger().info(f"Reconnecting to {stream_url}.")
+        # stream_url: str = WS_BASE_URL
+        # self.logger().info(f"Reconnecting to {stream_url}.")
 
         # Create the WS connection.
+
         ws = websockets.connect(WS_BASE_URL, extra_headers=self._blocktane_auth.generate_auth_dict())
 
         return ws
@@ -119,6 +123,10 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
                     decoded: Dict[str, any] = ujson.loads(message)
                     output.put_nowait(decoded)
             except asyncio.CancelledError:
+                if (self._ws is not None):
+                    await self._ws.close()
+                    del self._ws
+                    self._ws = None
                 raise
             except Exception:
                 self.logger().error("Unexpected error. Retrying after 5 seconds...", exc_info=True)
