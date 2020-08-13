@@ -806,8 +806,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         available_offset_base = self.mirrored_base_balance
         available_offset_quote = self.mirrored_quote_balance
 
-        available_quote_exposure = min(available_quote_exposure, available_offset_base * best_bid.price)
-        available_base_exposure = min(available_base_exposure, available_offset_quote/best_ask.price)
+        available_quote_exposure = min(available_quote_exposure, available_offset_base * best_ask.price)
+        available_base_exposure = min(available_base_exposure, available_offset_quote/best_bid.price)
 
         for j in range(0,len(self.bid_amount_percents)):
             self.bid_amounts[j] = (self.bid_amount_percents[j] * (available_quote_exposure/best_bid.price))
@@ -850,10 +850,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             self.bid_replace_ranks.clear()
             if not no_more_bids:
                 if 0 in self.buys_to_replace:
-                    self.buys_to_replace.remove(0)
                     amount = Decimal(min(best_bid.amount, (self.bid_amounts[0])))
                     if (amount >= Decimal(self.min_primary_amount)):                                                     
-
+                        self.buys_to_replace.remove(0)
                         quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, adjusted_bid)
                         quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
 
@@ -876,7 +875,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 for i in range(0,len(self.bid_amounts) - 1):
                     price -= bid_inc
                     if (i+1) in self.buys_to_replace:
-                        self.buys_to_replace.remove(i+1)
                         if len(bids) > (i + 1):
                             bid_price = bids[i+1]["price"]
                             bid_amount = bids[i+1]["amount"]
@@ -886,7 +884,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
                         amount = Decimal(min(bid_amount, (self.bid_amounts[i+1])))
                         if (amount >= Decimal(self.min_primary_amount)):
-
+                            self.buys_to_replace.remove(i+1)
                             price_tx, fee_object = self.factor_in_fees(primary_market, primary_market_pair, bid_price, amount, True, True)
                             min_price, fee_object_unused = self.factor_in_fees(mirrored_market, mirrored_market_pair, price_tx, amount, False, False)
                         
@@ -930,10 +928,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
             if not no_more_asks:
                 if 0 in self.sells_to_replace:
-                    self.sells_to_replace.remove(0)
                     amount = Decimal(min(best_ask.amount, self.ask_amounts[0]))
                     if (amount >= Decimal(self.min_primary_amount)):
-
+                        self.sells_to_replace.remove(0)
                         quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, adjusted_ask)
                         quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
 
@@ -956,7 +953,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 for i in range(0,len(self.ask_amounts) - 1):
                     price += ask_inc
                     if (i+1) in self.sells_to_replace:
-                        self.sells_to_replace.remove(i+1)
                         if len(asks) > (i + 1):
                             ask_price = asks[i+1]["price"]
                             ask_amount = asks[i+1]["amount"]
@@ -966,7 +962,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
                         amount = Decimal(min(ask_amount, self.ask_amounts[i+1]))
                         if (amount >= Decimal(self.min_primary_amount)):
-    
+                            self.sells_to_replace.remove(i+1)
                             price_tx, fee_object = self.factor_in_fees(primary_market, primary_market_pair, ask_price, amount, False, True)
                             max_price, fee_object_unused = self.factor_in_fees(mirrored_market, mirrored_market_pair, price_tx, amount, True, False)
                         
