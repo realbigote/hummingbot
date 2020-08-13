@@ -170,7 +170,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.performance_logger.addHandler(logging.FileHandler(filename))
 
         self.best_bid_start = Decimal(0)
-        self.slack_url = None#slack_hook
+        self.slack_url = slack_hook
         self.cycle_number = 0
         self.start_time = datetime.timestamp(datetime.now())
         self.start_wallet_check_time = self.start_time
