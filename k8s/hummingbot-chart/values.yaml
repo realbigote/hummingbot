@@ -68,7 +68,5 @@ persistence:
 strategies:
   - name: loopring-binance-ethusdt
     config: 20200725loopringethusdt_liquidity_mirroring_1.yml
-  - name: loopring-binance-compusdt
-    config: 20200725loopringethusdt_liquidity_mirroring_1.yml
-  - name: loopring-binance-usdtdai
-    config: 20200725loopringethusdt_liquidity_mirroring_1.yml
+  - name: loopring-binance-lrcusdt
+    config: 20200802loopringlrcusdt_liquidity_mirroring_1.yml
