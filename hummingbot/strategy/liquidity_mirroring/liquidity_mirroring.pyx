@@ -1007,15 +1007,16 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.c_cancel_order(mirrored_market_pair,order.client_order_id)
                     else:
                         current_exposure += quantity
+                avg_price = self.pm.avg_price
+                if not avg_price.is_zero():
+                    new_price = avg_price * (Decimal(1) + self.max_loss)
+                else:
+                    #should not hit this; if we are offsetting, there should be an extant sell price
+                    new_price = Decimal(best_ask.price)
 
                 amount = ((-1) * self.pm.amount_to_offset) - current_exposure
+                amount = min((self.mirrored_quote_balance/new_price), amount)
                 if (amount >= self.min_mirroring_amount):
-                    avg_price = self.pm.avg_price
-                    if not avg_price.is_zero():
-                        new_price = avg_price * (Decimal(1) + self.max_loss)
-                    else:
-                        #should not hit this; if we are offsetting, there should be an extant sell price
-                        new_price = Decimal(best_ask.price)
 
                     quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, Decimal(new_price))
                     quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
@@ -1033,7 +1034,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         current_exposure += quantity
 
                 amount = (self.pm.amount_to_offset) - current_exposure
+                amount = min(amount, self.mirrored_base_balance)
                 if (amount >= self.min_mirroring_amount):
+
                     avg_price = self.pm.avg_price
                     if not avg_price.is_zero():
                         new_price = avg_price * (Decimal(1) - self.max_loss)
