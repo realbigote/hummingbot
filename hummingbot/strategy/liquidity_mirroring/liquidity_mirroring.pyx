@@ -685,10 +685,16 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         primary_quote_asset = self.primary_market_pairs[0].quote_asset
         mirrored_base_asset = self.mirrored_market_pairs[0].base_asset
         mirrored_quote_asset = self.mirrored_market_pairs[0].quote_asset
+        
         primary_base_balance = primary_market.get_balance(primary_base_asset)
         primary_quote_balance = primary_market.get_balance(primary_quote_asset)
         mirrored_base_balance = mirrored_market.get_balance(mirrored_base_asset) 
         mirrored_quote_balance = mirrored_market.get_balance(mirrored_quote_asset)
+
+        primary_base_available_balance = primary_market.get_available_balance(primary_base_asset)
+        primary_quote_available_balance = primary_market.get_available_balance(primary_quote_asset)
+        mirrored_base_available_balance = mirrored_market.get_available_balance(mirrored_base_asset) 
+        mirrored_quote_available_balance = mirrored_market.get_available_balance(mirrored_quote_asset)
 
         messages : List[str] = []
         if (abs(primary_base_balance - self.primary_base_total_balance) > Decimal(0.001)):
@@ -703,6 +709,19 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if (abs(mirrored_quote_balance - self.mirrored_quote_total_balance) > Decimal(0.001)):
             messages.append(f"{mirrored_market.name}:{mirrored_quote_asset} Old:{str(self.mirrored_quote_total_balance)} New:{str(mirrored_quote_balance)}")
             self.mirrored_quote_total_balance = mirrored_quote_balance
+        
+        if (abs(primary_base_available_balance - self.primary_base_balance) > Decimal(0.001)):
+            messages.append(f"{primary_market.name}:{primary_base_asset}:available Old:{str(self.primary_base_balance)} New:{str(primary_base_available_balance)}")
+            self.primary_base_balance = primary_base_available_balance
+        if (abs(primary_quote_available_balance - self.primary_quote_balance) > Decimal(0.001)):
+            messages.append(f"{primary_market.name}:{primary_quote_asset}:available Old:{str(self.primary_quote_balance)} New:{str(primary_quote_available_balance)}")
+            self.primary_quote_balance = primary_quote_available_balance
+        if (abs(mirrored_base_available_balance - self.mirrored_base_balance) > Decimal(0.001)):
+            messages.append(f"{mirrored_market.name}:{mirrored_base_asset}:available Old:{str(self.mirrored_base_balance)} New:{str(mirrored_base_available_balance)}")
+            self.mirrored_base_balance = mirrored_base_available_balance
+        if (abs(mirrored_quote_available_balance - self.mirrored_quote_balance) > Decimal(0.001)):
+            messages.append(f"{mirrored_market.name}:{mirrored_quote_asset}:available Old:{str(self.mirrored_quote_balance)} New:{str(mirrored_quote_available_balance)}")
+            self.mirrored_quote_balance = mirrored_quote_available_balance
         if len(messages) > 0:
             SlackPusher(self.slack_url, "BALANCE DISCREPANCY: " + '\n'.join(messages))
 
