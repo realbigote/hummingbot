@@ -405,6 +405,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 self.marked_for_deletion[order_id]["time"] = expiration_time
             elif (market_trading_pair_tuple.market == self.mirrored_market_pairs[0].market):
                 self.mirrored_quote_balance -= buy_order_created_event.amount * buy_order_created_event.price
+                self.offset_quote_exposure += buy_order_created_event.amount * buy_order_created_event.price
 
     cdef c_did_create_sell_order(self, object sell_order_created_event):
         cdef:
@@ -418,6 +419,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 self.marked_for_deletion[order_id]["time"] = expiration_time
             elif (market_trading_pair_tuple.market == self.mirrored_market_pairs[0].market):
                 self.mirrored_base_balance -= sell_order_created_event.amount
+                self.offset_base_exposure += sell_order_created_event.amount
 
     cdef c_did_complete_buy_order(self, object buy_order_completed_event):
         """
@@ -1029,7 +1031,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
                     try:
                         self.c_buy_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-                        self.offset_quote_exposure += Decimal(quant_price) * quant_amount
                     except:
                         pass
 
@@ -1057,6 +1058,5 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
                     try:
                         self.c_sell_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-                        self.offset_base_exposure += quant_amount
                     except:
                         pass
