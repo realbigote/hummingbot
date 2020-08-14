@@ -536,7 +536,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if self._failed_market_order_count > self._failed_order_tolerance:
             failed_order_kill_switch_log = \
                 f"Strategy is forced stop by failed order kill switch. " \
-                f"Failed market order count {self._failed_market_order_count} exceeded tolerance lever of " \
+                f"Failed market order count {self._failed_market_order_count} exceeded tolerance level of " \
                 f"{self._failed_order_tolerance}. Please check market connectivity before restarting."
 
             self.logger().network(failed_order_kill_switch_log, app_warning_msg=failed_order_kill_switch_log)
@@ -547,9 +547,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             if order_id in self.marked_for_deletion.keys():
                 order = self.marked_for_deletion[order_id]
                 if order["is_buy"]:
-                    self.buys_to_replace.append(order["rank"])
+                    if order["rank"] is not in self.buys_to_replace:
+                        self.buys_to_replace.append(order["rank"])
                 else:
-                    self.sells_to_replace.append(order["rank"])
+                    if order["rank"] is not in self.sells_to_replace:
+                        self.sells_to_replace.append(order["rank"])
                 del self.marked_for_deletion[order_id]
 
     cdef c_did_cancel_order(self, object cancel_event):
@@ -869,6 +871,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                     self.funds_message_sent = True
                                 self.buys_to_replace.append(0)
                         except:
+                            self.buys_to_replace.append(0)
                             pass
 
                 price = self.primary_best_bid
@@ -906,6 +909,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                         self.funds_message_sent = True
                                     self.buys_to_replace.append(i+1)
                             except:
+                                self.buys_to_replace.append(i+1)
                                 break
 
         no_more_asks = self.pm.amount_to_offset < (-1) * (self.max_offsetting_exposure)
@@ -947,6 +951,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                     self.funds_message_sent = True
                                 self.sells_to_replace.append(0)
                         except:
+                            self.sells_to_replace.append(0)
                             pass
     
                 price = self.primary_best_ask
@@ -984,6 +989,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                         self.funds_message_sent = True
                                     self.sells_to_replace.append(i+1)
                             except:
+                                self.sells_to_replace.append(i+1)
                                 break
 
     def adjust_mirrored_orderbook(self,mirrored_market_pair,best_bid,best_ask):
@@ -1021,8 +1027,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, Decimal(new_price))
                     quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
 
-                    self.c_buy_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-                    self.offset_quote_exposure += Decimal(quant_price) * quant_amount
+                    try:
+                        self.c_buy_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                        self.offset_quote_exposure += Decimal(quant_price) * quant_amount
 
             elif self.pm.amount_to_offset > Decimal(0):
             # we are at a surplus of base. get rid of buy orders
@@ -1046,6 +1053,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
                     quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, Decimal(new_price))
                     quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
-
-                    self.c_sell_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-                    self.offset_base_exposure += quant_amount
+                    try:
+                        self.offset_base_exposure += quant_amount
+                        self.c_sell_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                    except:
+                        self.offset_base_exposure -= quant_amount
