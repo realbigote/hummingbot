@@ -547,10 +547,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             if order_id in self.marked_for_deletion.keys():
                 order = self.marked_for_deletion[order_id]
                 if order["is_buy"]:
-                    if order["rank"] is not in self.buys_to_replace:
+                    if not (order["rank"] in self.buys_to_replace):
                         self.buys_to_replace.append(order["rank"])
                 else:
-                    if order["rank"] is not in self.sells_to_replace:
+                    if not (order["rank"] in self.sells_to_replace):
                         self.sells_to_replace.append(order["rank"])
                 del self.marked_for_deletion[order_id]
 
@@ -1030,6 +1030,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     try:
                         self.c_buy_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                         self.offset_quote_exposure += Decimal(quant_price) * quant_amount
+                    except:
+                        pass
 
             elif self.pm.amount_to_offset > Decimal(0):
             # we are at a surplus of base. get rid of buy orders
@@ -1054,7 +1056,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, Decimal(new_price))
                     quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
                     try:
-                        self.offset_base_exposure += quant_amount
                         self.c_sell_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                        self.offset_base_exposure += quant_amount
                     except:
-                        self.offset_base_exposure -= quant_amount
+                        pass
