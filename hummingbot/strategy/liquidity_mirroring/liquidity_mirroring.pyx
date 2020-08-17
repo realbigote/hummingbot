@@ -343,7 +343,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.has_been_offset.remove(f"{order_id}COMPLETE")
                 else:
                     if f"{order_id}COMPLETE" not in self.has_been_offset:
-                        self.pm.register_offset(order_filled_event.price, order_filled_event.amount)
+                        self.pm.register_trade(order_filled_event.price, order_filled_event.amount)
                         self.offset_quote_exposure -= (order_filled_event.amount * order_filled_event.price)
                         self.mirrored_base_balance += order_filled_event.amount
                         self.mirrored_base_total_balance += order_filled_event.amount
@@ -377,7 +377,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         self.has_been_offset.remove(f"{order_id}COMPLETE")
                 else:
                     if f"{order_id}COMPLETE" not in self.has_been_offset:
-                        self.pm.register_offset(order_filled_event.price, -order_filled_event.amount)
+                        self.pm.register_trade(order_filled_event.price, -order_filled_event.amount)
                         self.offset_base_exposure -= order_filled_event.amount
                         self.mirrored_quote_balance += order_filled_event.price * order_filled_event.amount
                         self.mirrored_quote_total_balance += order_filled_event.price * order_filled_event.amount
@@ -453,7 +453,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 if order_id not in self.has_been_offset:
                     self.total_trading_volume += buy_order_completed_event.quote_asset_amount
                     self.trades_executed += 1
-                    self.pm.register_offset(price, buy_order_completed_event.base_asset_amount)
+                    self.pm.register_trade(price, buy_order_completed_event.base_asset_amount)
 
                     self.offset_quote_exposure -= buy_order_completed_event.quote_asset_amount
                     self.mirrored_base_balance += buy_order_completed_event.base_asset_amount
@@ -499,7 +499,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 if order_id not in self.has_been_offset:
                     self.total_trading_volume += sell_order_completed_event.quote_asset_amount
                     self.trades_executed += 1
-                    self.pm.register_offset(price, -sell_order_completed_event.base_asset_amount)
+                    self.pm.register_trade(price, -sell_order_completed_event.base_asset_amount)
                     self.offset_base_exposure -= sell_order_completed_event.base_asset_amount
                     self.mirrored_quote_balance += sell_order_completed_event.quote_asset_amount
                     self.mirrored_quote_total_balance += sell_order_completed_event.quote_asset_amount
