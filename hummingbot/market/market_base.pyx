@@ -188,7 +188,7 @@ cdef class MarketBase(NetworkIterator):
         if price.is_nan():
             return price
         price_quantum = self.c_get_order_price_quantum(trading_pair, price)
-        return round(price / price_quantum) * price_quantum
+        return round(price // price_quantum) * price_quantum
 
     cdef object c_quantize_order_amount(self, str trading_pair, object amount, object price=s_decimal_NaN):
         order_size_quantum = self.c_get_order_size_quantum(trading_pair, amount)
