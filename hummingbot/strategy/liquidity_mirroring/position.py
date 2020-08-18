@@ -30,35 +30,67 @@ class PositionManager:
         self._trades : List[Trade] = []
         self._offsets : List[Trade] = []
 
+        self._trade_cache_invalid : bool = True
+        self._trades_sum : Trade = None
+
+        self._offset_cache_invalid : bool = True
+        self._offsets_sum : Trade = None
+
     @property
     def avg_price(self) -> Decimal:
-        return self._sum_trades().price
+        if not self._trade_cache_invalid:
+            return self._trades_sum.price
+        else:
+            return self._sum_trades().price
 
     @property
     def amount_to_offset(self) -> Decimal:
-        return self._sum_trades().amount + self._sum_offsets().amount
+        if self._trade_cache_invalid:
+            self._sum_trades()
+        if self._offset_cache_invalid:
+            self._sum_offsets()
+
+        return self._trades_sum.amount + self._offsets_sum.amount
 
     def register_trade(self, price : Decimal, amount : Decimal):
-        self._trades.append(Position(price, amount))
-        self._clean()
+        current_amount : Decimal = self.amount_to_offset
+        if current_amount < 0 and amount > 0 or current_amount > 0 and amount < 0:
+            # this is an offsetting trade
+            self._register_offset(price, amount, current_amount)
+        else:
+            self._trades.append(Position(price, amount))
 
-    def register_offset(self, price : Decimal, amount : Decimal):
-        self._offsets.append(Position(price, amount))
-        self._clean()
+        self._trade_cache_invalid = True
+
+    def _register_offset(self, price : Decimal, amount : Decimal, current_amount:Decimal):
+        if current_amount.compare_total_mag(amount) <= 0:
+            # this will swap or eliminate our position 
+            new_amount : Decimal = current_amount + amount
+            self._offsets.append(Position(price, -current_amount))
+            self._clean()
+            if abs(new_amount) > 0:
+              self._trades.append(Position(price, new_amount))
+        else:
+            self._offsets.append(Position(price, amount))
+            self._offset_cache_invalid = True
 
     def _clean(self):
-        if self.amount_to_offset == 0:
-            total_in = self._sum_trades()
-            total_out = self._sum_offsets()
-            diff = (total_out.price*total_out.amount + total_in.price*total_in.amount)
-            self.total_loss += diff
+        total_in = self._sum_trades()
+        total_out = self._sum_offsets()
+        diff = (total_out.price*total_out.amount + total_in.price*total_in.amount)
+        self.total_loss += diff
 
-            self._trades.clear()
-            self._offsets.clear()
+        self._trades.clear()
+        self._offsets.clear()
+        self._offset_cache_invalid = True
+        self._trade_cache_invalid = True
     
     def _sum_trades(self):
-        return reduce(lambda x, y: x + y, self._trades, zero_pos)
+        self._trades_sum = reduce(lambda x, y: x + y, self._trades, zero_pos)
+        self._trade_cache_invalid = False
+        return self._trades_sum
 
     def _sum_offsets(self):
-        return reduce(lambda x, y: x + y, self._offsets, zero_pos)
-
+        self._offsets_sum = reduce(lambda x, y: x + y, self._offsets, zero_pos)
+        self._offset_cache_invalid = False
+        return self._offsets_sum
