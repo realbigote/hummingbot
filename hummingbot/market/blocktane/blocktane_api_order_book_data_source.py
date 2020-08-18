@@ -84,14 +84,10 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
             
             all_markets: pd.DataFrame = pd.DataFrame(exchange_markets, columns = columns)
             all_markets = all_markets.swapaxes("index", "columns")
-            eth_price: float = float(all_markets.loc["ethusd"].lastPrice)
-            trst_price: float = float(all_markets.loc["trstusd"].lastPrice)
-            fth_price: float = float(all_markets.loc["fthusd"].lastPrice)
+            btc_price: float = float(all_markets.loc["btcpax"].lastPrice)
             usd_volume: float = [
                 (
-                    volume * trst_price if trading_pair.endswith("trst") else
-                    volume * eth_price if trading_pair.endswith("eth") else
-                    volume * fth_price if trading_pair.endswith("fth") else
+                    volume * btc_price if trading_pair.endswith("btc") else
                     volume
                 )
                 for trading_pair, volume in zip(all_markets.index, all_markets.volume.astype("float"))]

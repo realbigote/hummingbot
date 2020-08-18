@@ -46,7 +46,7 @@ from hummingbot.market.blocktane.blocktane_api_order_book_data_source import Blo
 
 bm_logger = None
 s_decimal_0 = Decimal(0)
-TRADING_PAIR_SPLITTER = re.compile(r"^(\w+)(fth|eth|trst|cad|usd|trx|xrp|tkmka|tkmkb)$")
+TRADING_PAIR_SPLITTER = re.compile(r"^(\w+)(BTC|btc|ETH|eth|BRL|brl|PAX|pax)$")
 
 cdef class BlocktaneMarketTransactionTracker(TransactionTracker):
     cdef:
@@ -125,8 +125,12 @@ cdef class BlocktaneMarket(MarketBase):
     @staticmethod
     def split_trading_pair(trading_pair: str) -> Optional[Tuple[str, str]]:
         try:
-            m = TRADING_PAIR_SPLITTER.match(trading_pair)
-            return m.group(1), m.group(2)
+            if ('/' in trading_pair):
+                m = trading_pair.split('/')
+                return m[0], m[1]
+            else:
+                m = TRADING_PAIR_SPLITTER.match(trading_pair)
+                return m.group(1), m.group(2)
         # Exceptions are now logged as warnings in trading pair fetcher
         except Exception as e:
             return None
