@@ -25,7 +25,7 @@ class ManualTradeCommand:
             order_id = strategy.buy_with_specific_market(market_trading_pair_tuple,Decimal(amount[0]),OrderType.MARKET)
         elif (buy_sell[0].lower() == "sell"):
             order_id = strategy.sell_with_specific_market(market_trading_pair_tuple,Decimal(amount[0]),OrderType.MARKET)
-        print(order_id)
+        self.logger().info(f"{order_id}")
 
 
         
