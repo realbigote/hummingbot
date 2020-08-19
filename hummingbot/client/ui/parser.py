@@ -90,9 +90,9 @@ def load_parser(hummingbot) -> ThrowingArgumentParser:
     trade_parser = subparsers.add_parser("trade", help="Perform manual trade")
     trade_parser.add_argument("buy_sell", nargs=1, choices=("buy", "sell"))
     trade_parser.add_argument("amount", nargs=1, type=Decimal)
-    trade_parser.add_argument("base", nargs=1, type=str)
-    trade_parser.add_argument("quote", nargs=1, type=str)
-    trade_parser.add_argument("exchange", nargs=1, type=str)
+    trade_parser.add_argument("base_asset", nargs=1, type=str)
+    trade_parser.add_argument("quote_asset", nargs=1, type=str)
+    trade_parser.add_argument("exchange_name", nargs=1, type=str)
     trade_parser.set_defaults(func=hummingbot.trade)
 
     return parser
