@@ -2,6 +2,7 @@ import argparse
 from typing import (
     List,
 )
+from decimal import Decimal
 from hummingbot.client.errors import ArgumentParserError
 from hummingbot.client.command.connect_command import OPTIONS as CONNECT_OPTIONS
 
@@ -85,5 +86,13 @@ def load_parser(hummingbot) -> ThrowingArgumentParser:
     export_parser = subparsers.add_parser("export", help="Export secure information")
     export_parser.add_argument("option", nargs="?", choices=("keys", "trades"), help="Export choices.")
     export_parser.set_defaults(func=hummingbot.export)
+
+    trade_parser = subparsers.add_parser("trade", help="Perform manual trade")
+    trade_parser.add_argument("buy_sell", nargs=1, choices=("buy", "sell"))
+    trade_parser.add_argument("amount", nargs=1, type=Decimal)
+    trade_parser.add_argument("base_asset", nargs=1, type=str)
+    trade_parser.add_argument("quote_asset", nargs=1, type=str)
+    trade_parser.add_argument("exchange_name", nargs=1, type=str)
+    trade_parser.set_defaults(func=hummingbot.trade)
 
     return parser

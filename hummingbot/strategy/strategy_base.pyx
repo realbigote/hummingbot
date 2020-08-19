@@ -256,6 +256,9 @@ cdef class StrategyBase(TimeIterator):
             typed_market.c_add_listener(self.SELL_ORDER_COMPLETED_EVENT_TAG, self._sb_complete_sell_order_listener)
             self._sb_markets.add(typed_market)
 
+    def add_markets(self, list markets):
+        self.c_add_markets(markets)
+
     cdef c_remove_markets(self, list markets):
         cdef:
             MarketBase typed_market

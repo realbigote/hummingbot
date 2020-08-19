@@ -116,6 +116,7 @@ def start(self):
     self.assets = set(primary_assets + secondary_assets)
     self.primary_market_trading_pair_tuples = [MarketTradingPairTuple(self.markets[primary_market], primary_market_trading_pair, primary_assets[0], primary_assets[1])]
     self.mirrored_market_trading_pair_tuples = [MarketTradingPairTuple(self.markets[mirrored_market], mirrored_market_trading_pair, secondary_assets[0], secondary_assets[1])]
+    self.market_trading_pair_tuples = self.primary_market_trading_pair_tuples + self.mirrored_market_trading_pair_tuples
     self.strategy = LiquidityMirroringStrategy(primary_market_pairs=self.primary_market_trading_pair_tuples,
                                                mirrored_market_pairs=self.mirrored_market_trading_pair_tuples,
                                                two_sided_mirroring=two_sided_mirroring,
