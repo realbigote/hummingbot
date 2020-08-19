@@ -184,6 +184,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
     def tracked_taker_orders_data_frame(self) -> List[pd.DataFrame]:
         return self._sb_order_tracker.tracked_taker_orders_data_frame
 
+    @property
+    def pm(self):
+        return self.pm
+
     def format_status(self) -> str:
         cdef:
             list lines = []

@@ -1,4 +1,3 @@
-import pandas as pd
 from typing import TYPE_CHECKING
 from decimal import Decimal
 
