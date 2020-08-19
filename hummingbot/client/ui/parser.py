@@ -95,4 +95,7 @@ def load_parser(hummingbot) -> ThrowingArgumentParser:
     trade_parser.add_argument("exchange_name", nargs=1, type=str)
     trade_parser.set_defaults(func=hummingbot.trade)
 
+    offset_amount_parser = subparsers.add_parser("zero_out_offset_amount", help="Sets the amount to offset on the LM strat")
+    offset_amount_parser.set_defaults(func=hummingbot.zero_out_offset_amount)
+
     return parser
