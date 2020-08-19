@@ -98,4 +98,9 @@ def load_parser(hummingbot) -> ThrowingArgumentParser:
     offset_amount_parser = subparsers.add_parser("zero_out_offset_amount", help="Sets the amount to offset on the LM strat")
     offset_amount_parser.set_defaults(func=hummingbot.zero_out_offset_amount)
 
+    depth_parser = subparsers.add_parser("depth", help="Display the depth of the specified exchange up to the specified level")
+    depth_parser.add_argument("exchange", nargs=1, type=str)
+    depth_parser.add_argument("levels", nargs='?', type=int, default=1)
+    depth_parser.set_defaults(func=hummingbot.depth)
+
     return parser
