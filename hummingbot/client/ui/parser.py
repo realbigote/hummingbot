@@ -103,4 +103,7 @@ def load_parser(hummingbot) -> ThrowingArgumentParser:
     depth_parser.add_argument("levels", nargs='?', type=int, default=1)
     depth_parser.set_defaults(func=hummingbot.depth)
 
+    open_orders_parser = subparsers.add_parser("open_orders", help="Display open orders on exchanges in running strat")
+    open_orders_parser.set_defaults(func=hummingbot.open_orders)
+
     return parser

@@ -181,6 +181,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         return self._sb_order_tracker.tracked_taker_orders
 
     @property
+    def tracked_maker_orders(self) -> List[Tuple[MarketBase, MarketOrder]]:
+        return self._sb_order_tracker.tracked_maker_orders
+
+    @property
     def tracked_taker_orders_data_frame(self) -> List[pd.DataFrame]:
         return self._sb_order_tracker.tracked_taker_orders_data_frame
 

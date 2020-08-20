@@ -82,6 +82,11 @@ cdef class OrderTracker(TimeIterator):
                 for order in order_map.values()]
 
     @property
+    def tracked_maker_orders(self) -> List[Tuple[MarketBase, MarketOrder]]:
+        return [(market_trading_pair_tuple[0], order) for market_trading_pair_tuple, order_map in self._tracked_maker_orders.items()
+                for order in order_map.values()]
+
+    @property
     def tracked_taker_orders_data_frame(self) -> List[pd.DataFrame]:
         market_orders = [[market_trading_pair_tuple.market.display_name, market_trading_pair_tuple.trading_pair, order_id, order.amount,
                           pd.Timestamp(order.timestamp, unit='s', tz='UTC').strftime('%Y-%m-%d %H:%M:%S')
