@@ -32,17 +32,19 @@ spec:
         - mountPath: /conf-master-data
           name: config-data
         - mountPath: /home/hummingbot/conf
-          name: config-vol
+          name: conf-{{ $strategy.subfolder }}-vol
         - mountPath: /home/hummingbot/logs
-          name: log-vol 
+          name: log-{{ $strategy.subfolder }}-vol 
       {{ end -}}
       volumes:
-      - name: config-vol
+      {{ range $i, $strategy := .Values.strategies -}}   
+      - name: log-{{ $strategy.subfolder }}-vol
         persistentVolumeClaim:
-          claimName: {{include "hummingbot.conf.pv.name" . }}    
-      - name: log-vol
+          claimName: {{include "hummingbot.logs.pv.name" $ }}-{{ $strategy.subfolder }}      
+      - name: conf-{{ $strategy.subfolder }}-vol
         persistentVolumeClaim:
-          claimName: {{include "hummingbot.logs.pv.name" . }}               
+          claimName: {{include "hummingbot.conf.pv.name" $ }}-{{ $strategy.subfolder }} 
+      {{ end -}}                      
       - name: config-data
         configMap:
           name: hummingbot-conf

@@ -64,9 +64,20 @@ persistence:
   hummingbot_logs:
     name: logs
     pathRoot: "/home/hummingbot"    
+  hummingbot:
+    name: hummingbot
+    pathRoot: "/home/hummingbot"        
 
 strategies:
-  - name: loopring-binance-ethusdt
+  - name: eth-usdt
     config: 20200725loopringethusdt_liquidity_mirroring_1.yml
-  - name: loopring-binance-lrcusdt
+    subfolder: '001'
+  - name: lrc-usdt
+    config: 20200725loopringethusdt_liquidity_mirroring_1.yml
+    subfolder: '002'
+  - name: comp-usdt
+    config: 20200725loopringethusdt_liquidity_mirroring_1.yml
+    subfolder: '003'        
+  - name: lrc-eth
     config: 20200802loopringlrcusdt_liquidity_mirroring_1.yml
+    subfolder: '004'

@@ -97,7 +97,7 @@ The default name can be overidded by setting nameOverride in values
 {{ $tag := include "resource.releaseTag" . -}}
 {{- $root := .Values.persistence.hummingbot_logs.pathRoot -}}
 {{- $dir := include "hummingbot.logs.pv.name" . -}}
-{{- printf "%s/%s/%s" $root $tag $dir | replace "+" "_"  | trimSuffix "-" }}
+{{- printf "%s/%s" $root $tag | replace "+" "_"  | trimSuffix "-" }}
 {{- end -}}
 
 
@@ -114,8 +114,9 @@ The default name can be overidded by setting nameOverride in values
 {{ $tag := include "resource.releaseTag" . -}}
 {{- $root := .Values.persistence.hummingbot_conf.pathRoot -}}
 {{- $dir := include "hummingbot.conf.pv.name" . -}}
-{{- printf "%s/%s/%s" $root $tag $dir | replace "+" "_"  | trimSuffix "-" }}
+{{- printf "%s/%s" $root $tag | replace "+" "_"  | trimSuffix "-" }}
 {{- end -}}
+
 
 {{/*
 Create a default fully qualified app name.
