@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 class ManualTradeCommand:
-    def trade(self, exchange_name: str, base_asset: str, quote_asset: str, amount: Decimal, buy_sell: str):
+    def trade(self, exchange_name: str, base_asset: str, quote_asset: str, amount: Decimal, buy_sell: str, price: Decimal = None):
         market: MarketBase = self.markets[exchange_name[0]]
         
         for trading_tuple in self.market_trading_pair_tuples:
@@ -21,10 +21,16 @@ class ManualTradeCommand:
         strategy = StrategyBase()
         strategy.add_markets([market])
         if (buy_sell[0].lower() == "buy"):
-            order_id = strategy.buy_with_specific_market(market_trading_pair_tuple,Decimal(amount[0]),OrderType.MARKET)
+            if price == None:
+                order_id = strategy.buy_with_specific_market(market_trading_pair_tuple,Decimal(amount[0]),OrderType.MARKET)
+            else:
+                order_id = strategy.buy_with_specific_market(market_trading_pair_tuple,Decimal(amount[0]),OrderType.LIMIT,Decimal(price))
         elif (buy_sell[0].lower() == "sell"):
-            order_id = strategy.sell_with_specific_market(market_trading_pair_tuple,Decimal(amount[0]),OrderType.MARKET)
-        self.logger().info(f"{order_id}")
+            if price == None:
+                order_id = strategy.sell_with_specific_market(market_trading_pair_tuple,Decimal(amount[0]),OrderType.MARKET)
+            else:
+                order_id = strategy.sell_with_specific_market(market_trading_pair_tuple,Decimal(amount[0]),OrderType.LIMIT,Decimal(price)) 
+        self._notify(f"{order_id}")
 
 
         
