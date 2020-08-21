@@ -14,7 +14,7 @@ class ManualTradeCommand:
         market: MarketBase = self.markets[exchange_name[0]]
         
         for trading_tuple in self.market_trading_pair_tuples:
-            if (trading_tuple.market == market) and (trading_tuple.base_asset == base_asset[0].upper()) and (trading_tuple.quote_asset == quote_asset[0].upper()):
+            if (trading_tuple.market == market) and (trading_tuple.base_asset.upper() == base_asset[0].upper()) and (trading_tuple.quote_asset.upper() == quote_asset[0].upper()):
                 market_trading_pair_tuple = trading_tuple
                 break              
         
