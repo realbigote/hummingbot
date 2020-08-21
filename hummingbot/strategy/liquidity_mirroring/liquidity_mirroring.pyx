@@ -237,7 +237,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         else:
             buy_sell = "SELL"
 
-        msg = {"msg_type": "order filled", "data": {"market": market, "price": price, "amount": amount, "buy/sell": buy_sell}}
+        msg = {"msg_type": "order filled", "data": {"exchange": market, "pair": self.primary_market_pairs[0].trading_pair,"price": price, "amount": amount, "buy/sell": buy_sell}}
 
         SlackPusher(self.slack_url, str(msg))
 
