@@ -1,6 +1,5 @@
 from typing import TYPE_CHECKING
 from decimal import Decimal
-import time
 
 from hummingbot.market.market_base import MarketBase
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
@@ -48,15 +47,20 @@ class ManualTradeCommand:
         strategy.add_markets([market])
         if (buy_sell.lower() == "buy"):
             if price == None:
-                order_id = strategy.buy_with_specific_market(market_trading_pair_tuple,Decimal(amount),OrderType.MARKET)
+                if (is_stopped):
+                    self._notify("Please use limit order when strategy is stopped. Append price to command")
+                else:
+                    order_id = strategy.buy_with_specific_market(market_trading_pair_tuple,Decimal(amount),OrderType.MARKET)
             else:
                 order_id = strategy.buy_with_specific_market(market_trading_pair_tuple,Decimal(amount),OrderType.LIMIT,Decimal(price))
         elif (buy_sell.lower() == "sell"):
             if price == None:
-                order_id = strategy.sell_with_specific_market(market_trading_pair_tuple,Decimal(amount),OrderType.MARKET)
+                if (is_stopped):
+                    self._notify("Please use limit order when strategy is stopped. Append price to command")
+                else:
+                    order_id = strategy.sell_with_specific_market(market_trading_pair_tuple,Decimal(amount),OrderType.MARKET)
             else:
                 order_id = strategy.sell_with_specific_market(market_trading_pair_tuple,Decimal(amount),OrderType.LIMIT,Decimal(price)) 
         if is_stopped:
-            await market.stop_network()
             self.markets = {}
         self._notify(f"{order_id}")        
