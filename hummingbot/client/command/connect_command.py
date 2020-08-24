@@ -22,7 +22,8 @@ OPTIONS = {
     "blocktane",
     "celo",
     "loopring",
-    "novadax"
+    "novadax",
+    "ftx"
 }
 
 

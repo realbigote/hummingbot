@@ -1,0 +1,81 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: {{include "hummingbot.logs.pv.name" . }}
+  namespace: {{ include "resource.namespace" . }}
+spec:
+  storageClassName: local-storage
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10.0Ti
+  selector:
+    matchLabels:
+      app: {{include "hummingbot.logs.pv.label" . }}
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{include "hummingbot.logs.pv.label" . }}
+  namespace: {{ include "resource.namespace" . }}
+  labels:
+    app: {{include "hummingbot.logs.pv.label" . }}
+spec:
+  capacity:
+    storage: 10.0Ti
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-storage
+  local:
+    path: {{include "hummingbot.logs.pv.path" . }}
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - {{ include "node.storage" . }}
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: {{include "hummingbot.conf.pv.name" . }}
+  namespace: {{ include "resource.namespace" . }}
+spec:
+  storageClassName: local-storage
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10.0Ti
+  selector:
+    matchLabels:
+      app: {{include "hummingbot.conf.pv.label" . }}
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{include "hummingbot.conf.pv.label" . }}
+  namespace: {{ include "resource.namespace" . }}
+  labels:
+    app: {{include "hummingbot.conf.pv.label" . }}
+spec:
+  capacity:
+    storage: 10.0Ti
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-storage
+  local:
+    path: {{include "hummingbot.conf.pv.path" . }}
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - {{ include "node.storage" . }}

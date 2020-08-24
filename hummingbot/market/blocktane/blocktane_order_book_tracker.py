@@ -19,6 +19,7 @@ from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTr
 from hummingbot.core.data_type.remote_api_order_book_data_source import RemoteAPIOrderBookDataSource
 from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.market.blocktane.blocktane_api_order_book_data_source import BlocktaneAPIOrderBookDataSource
+from hummingbot.market.blocktane.blocktane_active_order_tracker import BlocktaneActiveOrderTracker
 from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.core.data_type.order_book_message import OrderBookMessage, OrderBookMessageType
 
@@ -44,6 +45,7 @@ class BlocktaneOrderBookTracker(OrderBookTracker):
         self._data_source: Optional[OrderBookTrackerDataSource] = None
         self._saved_message_queues: Dict[str, Deque[OrderBookMessage]] = defaultdict(lambda: deque(maxlen=1000))
         self._trading_pairs: Optional[List[str]] = trading_pairs
+        self._active_order_tracker = BlocktaneActiveOrderTracker()
 
     @property
     def data_source(self) -> OrderBookTrackerDataSource:
@@ -153,7 +155,8 @@ class BlocktaneOrderBookTracker(OrderBookTracker):
                     message = await message_queue.get()
 
                 if message.type is OrderBookMessageType.DIFF:
-                    order_book.apply_diffs(message.bids, message.asks, message.update_id)
+                    bids, asks = self._active_order_tracker.convert_diff_message_to_order_book_row(message)
+                    order_book.apply_diffs(bids, asks, message.update_id)
                     past_diffs_window.append(message)
                     while len(past_diffs_window) > self.PAST_DIFF_WINDOW_SIZE:
                         past_diffs_window.popleft()

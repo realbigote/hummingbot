@@ -13,6 +13,7 @@ default_cex_estimate = {
     "liquid": [0.1, 0.1],
     "loopring": [0.0, 0.1],
     "novadax": [0.0, 0.1]}
+    "ftx": [0.0, 0.1]}
 
 default_dex_estimate = {
     "bamboo_relay": [0, 0.00001],

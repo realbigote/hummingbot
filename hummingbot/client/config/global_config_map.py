@@ -297,6 +297,16 @@ global_config_map = {
         ConfigVar(key="novadax_uid",
                   prompt="Enter your Novadax uid >>> ",
                   required_if=using_exchange("novadax"),
+    "ftx_secret_key":
+        ConfigVar(key="ftx_secret_key",
+                  prompt="Enter your ftx secret key >>> ",
+                  required_if=using_exchange("ftx"),
+                  is_secure=True,
+                  is_connect_key=True),
+    "ftx_api_key":
+        ConfigVar(key="ftx_api_key",
+                  prompt="Enter your ftx api key >>> ",
+                  required_if=using_exchange("ftx"),
                   is_secure=True,
                   is_connect_key=True),
     "ethereum_wallet":

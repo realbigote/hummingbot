@@ -36,6 +36,8 @@ loopring_private_key: null
 novadax_api_key: null
 novadax_api_secret: null
 novadax_uid: null
+ftx_api_key: null
+ftx_secret_key: null
 
 kucoin_api_key: null
 kucoin_secret_key: null

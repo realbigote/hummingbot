@@ -18,7 +18,7 @@ The default name can be overidded by setting nameOverride in values
 
 {{- define "resource.namespace" -}}
 {{- $namespacePrefix := include "resource.releaseTag" . -}}
-{{- $namespaceSuffix := default "test-namespace" .Values.global.namespace | trunc 63 | trimSuffix "-" -}}
+{{- $namespaceSuffix := default "test-namespace" .Values.global.namespacePrefix | trunc 63 | trimSuffix "-" -}}
 {{- printf "%s-%s" $namespacePrefix $namespaceSuffix | replace "+" "_" | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
@@ -28,12 +28,13 @@ The default name can be overidded by setting nameOverride in values
 {{- end -}}
 
 {{- define "strategy.name" -}}
-{{- default "test-strat" .Values.global.options.strategyName | trunc 63 | trimSuffix "-" -}}
+{{- $strategy := default "test-strat" .Values.global.strategyName | trunc 63 | trimSuffix "-" -}}
+{{- printf "%s" $strategy  | replace "+" "_" | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 {{- define "resource.name" -}}
 {{- $strategyName := include "strategy.name" . -}}
-{{- printf "%s-%s-%s" .Values.global.strategyPrefix $strategyName .Values.global.strategySuffix | replace "+" "_" | trunc 63 | trimSuffix "-" -}}
+{{- printf "%s" $strategyName | replace "+" "_" | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 
@@ -48,6 +49,7 @@ The default name can be overidded by setting nameOverride in values
 {{- $tag :=  include "resource.releaseTag" . }}
 {{- printf "%s:%s" $repository $tag | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
+
 
 
 {{- define "node.default" -}}
@@ -81,6 +83,39 @@ The default name can be overidded by setting nameOverride in values
 {{- end -}}
 {{- end -}}
 
+
+{{- define "hummingbot.logs.pv.name" -}}
+{{- .Values.persistence.hummingbot_logs.name -}}
+{{- end -}}
+
+{{- define "hummingbot.logs.pv.label" -}}
+{{ $name := include "hummingbot.logs.pv.name" . -}}
+{{- printf "%s" $name -}}
+{{- end -}}
+
+{{- define "hummingbot.logs.pv.path" -}}
+{{ $tag := include "resource.releaseTag" . -}}
+{{- $root := .Values.persistence.hummingbot_logs.pathRoot -}}
+{{- $dir := include "hummingbot.logs.pv.name" . -}}
+{{- printf "%s/%s/%s" $root $tag $dir | replace "+" "_"  | trimSuffix "-" }}
+{{- end -}}
+
+
+{{- define "hummingbot.conf.pv.name" -}}
+{{- .Values.persistence.hummingbot_conf.name -}}
+{{- end -}}
+
+{{- define "hummingbot.conf.pv.label" -}}
+{{ $name := include "hummingbot.conf.pv.name" . -}}
+{{- printf "%s" $name -}}
+{{- end -}}
+
+{{- define "hummingbot.conf.pv.path" -}}
+{{ $tag := include "resource.releaseTag" . -}}
+{{- $root := .Values.persistence.hummingbot_conf.pathRoot -}}
+{{- $dir := include "hummingbot.conf.pv.name" . -}}
+{{- printf "%s/%s/%s" $root $tag $dir | replace "+" "_"  | trimSuffix "-" }}
+{{- end -}}
 
 {{/*
 Create a default fully qualified app name.

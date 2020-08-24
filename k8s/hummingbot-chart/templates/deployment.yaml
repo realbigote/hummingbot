@@ -4,7 +4,7 @@ metadata:
   name: {{ include "resource.name" . }}
   namespace: {{ include "resource.namespace" . }}
 spec:
-  replicas: 3
+  replicas: 1
   template:
     metadata:
       labels:
@@ -16,39 +16,36 @@ spec:
       imagePullSecrets:
       - name: {{ .Values.global.imagePullSecrets.default.name }}
       containers:
-      - name: {{ .Values.global.image.hummingbot.name }}
-        image: {{ include "image.hummingbot.repository" . }}
-        imagePullPolicy: {{ default "Always" .Values.global.image.hummingbot.imagepullPolicy }}
+      {{ range $i, $strategy := .Values.strategies -}}     
+      - name: {{ $strategy.name }}
+        image: {{ include "image.hummingbot.repository" $ }}
+        imagePullPolicy: {{ default "Always" $.Values.global.image.hummingbot.imagepullPolicy }}
         args: ["sh", "-c", "./init.sh" ]
         env: 
         - name: "CONFIG_PASSWORD"
-          value: {{ .Values.global.options.config_password }}
+          value: {{ $.Values.global.options.config_password }}
         - name: "STRATEGY"
-          value: {{ .Values.global.options.strategy }}
-        - name: "CONFIG_FILE_NAME"
-          value: {{ .Values.global.options.config_file_name }} 
+          value: {{ $.Values.global.options.strategy }}
+        - name: "STRAT_CONF_FILE"
+          value: {{ $strategy.config }}
         volumeMounts:
         - mountPath: /conf-master-data
           name: config-data
-        - mountPath: /conf
+        - mountPath: /home/hummingbot/conf
           name: config-vol
-      initContainers:
-      - name: copy
-        image: {{ include "image.hummingbot.repository" . }}
-        command: ["bash", "-c", "cp /conf-master-data/* /conf/"]
-        volumeMounts:
-        - mountPath: /conf
-          name: config-vol
-        - mountPath: /conf-master-data
-          name: config-data
+        - mountPath: /home/hummingbot/logs
+          name: log-vol 
+      {{ end -}}
       volumes:
       - name: config-vol
-        emptyDir: {}
+        persistentVolumeClaim:
+          claimName: {{include "hummingbot.conf.pv.name" . }}    
+      - name: log-vol
+        persistentVolumeClaim:
+          claimName: {{include "hummingbot.logs.pv.name" . }}               
       - name: config-data
         configMap:
           name: hummingbot-conf
           items:
-          - key: {{ .Values.global.options.config_file_name }}
-            path: {{ .Values.global.options.config_file_name }} 
           - key: conf_global.yml
             path: conf_global.yml 

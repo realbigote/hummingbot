@@ -26,6 +26,7 @@ from hummingbot.market.bamboo_relay.bamboo_relay_market import BambooRelayMarket
 from hummingbot.market.dolomite.dolomite_market import DolomiteMarket
 from hummingbot.market.loopring.loopring_market import LoopringMarket
 from hummingbot.market.novadax.novadax_market import NovadaxMarket
+from hummingbot.market.ftx.ftx_market import FtxMarket
 from hummingbot.market.bitcoin_com.bitcoin_com_market import BitcoinComMarket
 from hummingbot.market.kraken.kraken_market import KrakenMarket
 from hummingbot.model.sql_connection_manager import SQLConnectionManager
@@ -63,6 +64,7 @@ MARKET_CLASSES = {
     "radar_relay": RadarRelayMarket,
     "dolomite": DolomiteMarket,
     "loopring": LoopringMarket,
+    "ftx": FtxMarket,
     "bittrex": BittrexMarket,
     "kucoin": KucoinMarket,
     "bitcoin_com": BitcoinComMarket,
@@ -361,6 +363,16 @@ class HummingbotApplication(*commands):
                     user_stream_tracker_data_source_type=UserStreamTrackerDataSourceType.EXCHANGE_API,
                     trading_pairs=trading_pairs,
                     trading_required=self._trading_required,
+            
+            elif market_name == "ftx":
+                ftx_secret_key : str = global_config_map.get("ftx_secret_key").value
+                ftx_api_key : str = global_config_map.get("ftx_api_key").value
+                market = FtxMarket(
+                    ftx_secret_key=ftx_secret_key,
+                    ftx_api_key=ftx_api_key,
+                    trading_pairs=trading_pairs,
+                    trading_required=self._trading_required,
+                    order_book_tracker_data_source_type=OrderBookTrackerDataSourceType.EXCHANGE_API
                 )
             elif market_name == "bittrex":
                 bittrex_api_key = global_config_map.get("bittrex_api_key").value

@@ -36,6 +36,8 @@ fee_overrides_config_map = {
     "loopring_taker_fee": new_fee_config_var("loopring_taker_fee"),
     "novadax_maker_fee": new_fee_config_var("novadax_maker_fee"),
     "novadax_taker_fee": new_fee_config_var("novadax_taker_fee"),
+    "ftx_maker_fee": new_fee_config_var("ftx_maker_fee"),
+    "ftx_taker_fee": new_fee_config_var("ftx_taker_fee"),
     "bamboo_relay_maker_fee_amount": new_fee_config_var("bamboo_relay_maker_fee_amount"),
     "bamboo_relay_taker_fee_amount": new_fee_config_var("bamboo_relay_taker_fee_amount"),
     "radar_relay_maker_fee_amount": new_fee_config_var("radar_relay_maker_fee_amount"),
