@@ -107,4 +107,9 @@ def load_parser(hummingbot) -> ThrowingArgumentParser:
     open_orders_parser = subparsers.add_parser("open_orders", help="Display open orders on exchanges in running strat")
     open_orders_parser.set_defaults(func=hummingbot.open_orders)
 
+    cancel_order_parser = subparsers.add_parser("cancel", help="Cancel the order with the specified order id on the specified exchange")
+    cancel_order_parser.add_argument("exchange", nargs=1, type=str)
+    cancel_order_parser.add_argument("order_id", nargs='?', type=int, default=1)
+    cancel_order_parser.set_defaults(func=hummingbot.cancel)
+
     return parser
