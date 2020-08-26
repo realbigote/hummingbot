@@ -18,7 +18,6 @@ class ManualTradeCommand:
 
 
     async def async_trade(self, exchange_name: str, base_asset:str, quote_asset: str, amount: Decimal, buy_sell:str, price: Decimal = None):
-        is_stopped = False
         if exchange_name in self.markets:
             market: MarketBase = self.markets[exchange_name]
             for trading_tuple in self.market_trading_pair_tuples:
@@ -26,7 +25,6 @@ class ManualTradeCommand:
                     market_trading_pair_tuple = trading_tuple
                     break
         else:
-            is_stopped = True
             trading_pair = f"{base_asset.upper()}-{quote_asset.upper()}"
             market_trading_pair: str = self._convert_to_exchange_trading_pair(exchange_name, [trading_pair])[0]
             self._initialize_markets([(exchange_name,[market_trading_pair])])
@@ -61,6 +59,4 @@ class ManualTradeCommand:
                     order_id = strategy.sell_with_specific_market(market_trading_pair_tuple,Decimal(amount),OrderType.MARKET)
             else:
                 order_id = strategy.sell_with_specific_market(market_trading_pair_tuple,Decimal(amount),OrderType.LIMIT,Decimal(price)) 
-        if is_stopped:
-            self.markets = {}
         self._notify(f"{order_id}")        
