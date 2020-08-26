@@ -39,7 +39,8 @@ EXCHANGES = {
     "bittrex",
     "kucoin",
     "bitcoin_com",
-    "kraken"
+    "kraken",
+    "novadax"
 }
 
 DEXES = {
@@ -60,6 +61,7 @@ EXAMPLE_PAIRS = {
     "coinbase_pro": "ETH-USDC",
     "dolomite": "WETH-DAI",
     "loopring": "LRC-ETH",
+    "novadax": "ETH-USDT",
     "ftx": "ETH-USD",
     "huobi": "ETH-USDT",
     "liquid": "ETH-USD",
@@ -77,6 +79,7 @@ EXAMPLE_ASSETS = {
     "coinbase_pro": "ETH",
     "dolomite": "LRC",
     "loopring": "LRC",
+    "novadax": "ETH",
     "ftx": "BTC",
     "huobi": "eth",
     "liquid": "ETH",
