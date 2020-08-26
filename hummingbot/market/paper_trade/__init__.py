@@ -4,6 +4,7 @@ from hummingbot.market.bamboo_relay.bamboo_relay_order_book_tracker import Bambo
 from hummingbot.market.binance.binance_order_book_tracker import BinanceOrderBookTracker
 from hummingbot.market.blocktane.blocktane_order_book_tracker import BlocktaneOrderBookTracker
 from hummingbot.market.loopring.loopring_order_book_tracker import LoopringOrderBookTracker
+from hummingbot.market.novadax.novadax_order_book_tracker import NovadaxOrderBookTracker
 from hummingbot.market.ftx.ftx_order_book_tracker import FtxOrderBookTracker
 from hummingbot.market.coinbase_pro.coinbase_pro_order_book_tracker import CoinbaseProOrderBookTracker
 from hummingbot.market.huobi.huobi_market import HuobiMarket
@@ -19,6 +20,7 @@ from hummingbot.market.bamboo_relay.bamboo_relay_market import BambooRelayMarket
 from hummingbot.market.binance.binance_market import BinanceMarket
 from hummingbot.market.blocktane.blocktane_market import BlocktaneMarket
 from hummingbot.market.loopring.loopring_market import LoopringMarket
+from hummingbot.market.novadax.novadax_market import NovadaxMarket
 from hummingbot.market.ftx.ftx_market import FtxMarket
 from hummingbot.market.coinbase_pro.coinbase_pro_market import CoinbaseProMarket
 
@@ -42,6 +44,7 @@ ORDER_BOOK_TRACKER_CLASS = {
     "kucoin": KucoinOrderBookTracker,
     "kraken": KrakenOrderBookTracker,
     "loopring": LoopringOrderBookTracker,
+    "novadax": NovadaxOrderBookTracker,
     "ftx": FtxOrderBookTracker,
 }
 
@@ -60,6 +63,7 @@ MARKET_CLASSES = {
     "kucoin": KucoinMarket,
     "kraken": KrakenMarket,
     "loopring": LoopringMarket,
+    "novadax": NovadaxMarket,
     "ftx": FtxMarket,
 }
 

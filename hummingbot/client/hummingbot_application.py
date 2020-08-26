@@ -25,6 +25,7 @@ from hummingbot.market.radar_relay.radar_relay_market import RadarRelayMarket
 from hummingbot.market.bamboo_relay.bamboo_relay_market import BambooRelayMarket
 from hummingbot.market.dolomite.dolomite_market import DolomiteMarket
 from hummingbot.market.loopring.loopring_market import LoopringMarket
+from hummingbot.market.novadax.novadax_market import NovadaxMarket
 from hummingbot.market.ftx.ftx_market import FtxMarket
 from hummingbot.market.bitcoin_com.bitcoin_com_market import BitcoinComMarket
 from hummingbot.market.kraken.kraken_market import KrakenMarket
@@ -68,6 +69,7 @@ MARKET_CLASSES = {
     "kucoin": KucoinMarket,
     "bitcoin_com": BitcoinComMarket,
     "kraken": KrakenMarket,
+    "novadax": NovadaxMarket
 }
 
 
@@ -348,6 +350,19 @@ class HummingbotApplication(*commands):
                     trading_pairs=trading_pairs,
                     trading_required=self._trading_required,
                     order_book_tracker_data_source_type=OrderBookTrackerDataSourceType.EXCHANGE_API
+                )
+            elif market_name == "novadax":
+                novadax_api_key : int = global_config_map.get("novadax_api_key").value
+                novadax_api_secret : int = global_config_map.get("novadax_api_secret").value
+                novadax_uid : str = global_config_map.get("novadax_uid").value
+                market = NovadaxMarket(
+                    novadax_api_key=novadax_api_key,
+                    novadax_api_secret=novadax_api_secret,
+                    novadax_uid=novadax_uid,
+                    order_book_tracker_data_source_type=OrderBookTrackerDataSourceType.EXCHANGE_API,
+                    user_stream_tracker_data_source_type=UserStreamTrackerDataSourceType.EXCHANGE_API,
+                    trading_pairs=trading_pairs,
+                    trading_required=self._trading_required,
                 )
             elif market_name == "ftx":
                 ftx_secret_key : str = global_config_map.get("ftx_secret_key").value
