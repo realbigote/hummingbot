@@ -16,6 +16,7 @@ from .manual_trade_command import ManualTradeCommand
 from .offset_command import OffsetCommand
 from .depth_command import DepthCommand
 from .open_orders_command import OpenOrdersCommand
+from .cancel_command import CancelCommand
 
 
 __all__ = [
@@ -36,5 +37,6 @@ __all__ = [
     ManualTradeCommand,
     OffsetCommand,
     DepthCommand,
-    OpenOrdersCommand
+    OpenOrdersCommand,
+    CancelCommand
 ]
