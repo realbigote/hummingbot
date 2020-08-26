@@ -281,6 +281,24 @@ global_config_map = {
                   required_if=using_exchange("loopring"),
                   is_secure=True,
                   is_connect_key=True),
+    "novadax_api_key":
+        ConfigVar(key="novadax_api_key",
+                  prompt="Enter the Novadax api key >>> ",
+                  required_if=using_exchange("novadax"),
+                  is_secure=True,
+                  is_connect_key=True),
+    "novadax_api_secret":
+        ConfigVar(key="novadax_api_secret",
+                  prompt="Enter your Novadax secret key >>> ",
+                  required_if=using_exchange("novadax"),
+                  is_secure=True,
+                  is_connect_key=True),
+    "novadax_uid":
+        ConfigVar(key="novadax_uid",
+                  prompt="Enter your Novadax uid >>> ",
+                  required_if=using_exchange("novadax"),
+                  is_secure=True,
+                  is_connect_key=True),
     "ftx_secret_key":
         ConfigVar(key="ftx_secret_key",
                   prompt="Enter your ftx secret key >>> ",

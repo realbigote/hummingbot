@@ -12,6 +12,7 @@ default_cex_estimate = {
     "kucoin": [0.1, 0.1],
     "liquid": [0.1, 0.1],
     "loopring": [0.0, 0.1],
+    "novadax": [0.0, 0.1],
     "ftx": [0.0, 0.1]}
 
 default_dex_estimate = {
