@@ -7,6 +7,7 @@ from hummingbot.market.kucoin.kucoin_market import KucoinMarket
 from hummingbot.market.liquid.liquid_market import LiquidMarket
 from hummingbot.market.kraken.kraken_market import KrakenMarket
 from hummingbot.market.loopring.loopring_market import LoopringMarket
+from hummingbot.market.novadax.novadax_market import NovadaxMarket
 from hummingbot.market.ftx.ftx_market import FtxMarket
 from hummingbot.core.utils.market_mid_price import get_mid_price
 from hummingbot.client.settings import EXCHANGES, DEXES
@@ -43,6 +44,8 @@ class UserBalances:
             market = BlocktaneMarket(api_details[0], api_details[1])
         elif exchange == "loopring":
             market = LoopringMarket(api_details[0], api_details[1], api_details[2], api_details[3])
+        elif exchange == "novadax":
+            market = NovadaxMarket(api_details[0], api_details[1], api_details[2])
         elif exchange == "ftx":
             market = FtxMarket(api_details[0], api_details[1])
         return market
