@@ -363,7 +363,7 @@ class HummingbotApplication(*commands):
                     user_stream_tracker_data_source_type=UserStreamTrackerDataSourceType.EXCHANGE_API,
                     trading_pairs=trading_pairs,
                     trading_required=self._trading_required,
-            
+                )
             elif market_name == "ftx":
                 ftx_secret_key : str = global_config_map.get("ftx_secret_key").value
                 ftx_api_key : str = global_config_map.get("ftx_api_key").value

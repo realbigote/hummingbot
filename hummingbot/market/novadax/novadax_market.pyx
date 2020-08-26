@@ -355,10 +355,9 @@ cdef class NovadaxMarket(MarketBase):
         if current_tick > last_tick and len(self._in_flight_orders) > 0:
             tracked_orders = list(self._in_flight_orders.values())
             self.logger().debug("Polling for order status updates of %d orders.", len(tracked_orders))
-            results = [self._novadax_client.get_order(o) for o in tracked_orders]
+            results = [self._novadax_client.get_order(o.exchange_order_id) for o in tracked_orders]
             for order_details, tracked_order in zip(results, tracked_orders):
                 client_order_id = tracked_order.client_order_id
-
                 # If the order has already been cancelled or has failed do nothing
                 if client_order_id not in self._in_flight_orders:
                     continue
@@ -497,17 +496,41 @@ cdef class NovadaxMarket(MarketBase):
 
                     tracked_order.update_with_execution_report(event_message[1])
 
-                    if execution_type == "trade":
-                        order_filled_event = OrderFilledEvent.order_filled_event_from_novadax_execution_report(event_message[1])
+                    if execution_type == "PARTIAL_FILLED":
                         order_filled_event = order_filled_event._replace(trade_fee=self.c_get_fee(
                             tracked_order.base_asset,
                             tracked_order.quote_asset,
                             OrderType.LIMIT if event_message[1]["type"] == "LIMIT" else OrderType.MARKET,
                             TradeType.BUY if event_message[1]["side"] == "BUY" else TradeType.SELL,
-                            Decimal(event_message["price"]),
-                            Decimal(event_message["amount"])
+                            Decimal(event_message[1]["price"]),
+                            Decimal(event_message[1]["filledAmount"])
                         ))
-                        self.c_trigger_event(self.MARKET_ORDER_FILLED_EVENT_TAG, order_filled_event)
+                        if tracked_order.trade_type is TradeType.BUY:
+                            self.logger().info(f"Filled {tracked_order.executed_amount_base} out of {tracked_order.amount} of the "
+                                f"limit order {tracked_order.client_order_id} according to the RPC transaction logs.")
+                            self.c_trigger_event(self.MARKET_ORDER_FILLED_EVENT_TAG,
+                                                 OrderFilledEvent(self._current_timestamp,
+                                                                  tracked_order.client_order_id,
+                                                                  tracked_order.trading_pair,
+                                                                  tracked_order.trade_type,
+                                                                  tracked_order.order_type,
+                                                                  tracked_order.price,
+                                                                  tracked_order.executed_amount_base,
+                                                                  tracked_order.fee_paid,
+                                                                  tracked_order.exchange_order_id))
+                        else:
+                            self.logger().info(f"Filled {tracked_order.executed_amount_base} out of {tracked_order.amount} of the "
+                                           f"limit order {tracked_order.client_order_id} according to the RPC transaction logs.")
+                            self.c_trigger_event(self.MARKET_ORDER_FILLED_EVENT_TAG,
+                                                 OrderFilledEvent(self._current_timestamp,
+                                                                  tracked_order.client_order_id,
+                                                                  tracked_order.trading_pair,
+                                                                  tracked_order.trade_type,
+                                                                  tracked_order.order_type,
+                                                                  tracked_order.price,
+                                                                  tracked_order.executed_amount_base,
+                                                                  tracked_order.fee_paid,
+                                                                  tracked_order.exchange_order_id))
 
                     if tracked_order.is_done:
                         if not tracked_order.is_failure:
@@ -888,7 +911,7 @@ cdef class NovadaxMarket(MarketBase):
                                      OrderCancelledEvent(self._current_timestamp, order_id))
                 return {
                     # Required by cancel_all() below.
-                    "origClientOrderId": order_id
+                    "client_order_id": order_id
                 }
             else:
                 raise e

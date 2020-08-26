@@ -40,11 +40,11 @@ cdef class NovadaxInFlightOrder(InFlightOrderBase):
 
     @property
     def is_done(self) -> bool:
-        return self.last_state in {"FILLED", "CANCELED", "PENDING_CANCEL", "REJECTED", "EXPIRED"}
+        return self.last_state in {"FILLED", "CANCELED", "CANCELING", "REJECTED"}
 
     @property
     def is_failure(self) -> bool:
-        return self.last_state in {"CANCELED", "PENDING_CANCEL", "REJECTED", "EXPIRED"}
+        return self.last_state in {"CANCELED", "CANCELING", "REJECTED"}
 
     @property
     def is_cancelled(self) -> bool:
@@ -76,6 +76,6 @@ cdef class NovadaxInFlightOrder(InFlightOrderBase):
             return
         self.trade_id_set.add(trade_id)
         self.executed_amount_base = Decimal(execution_report["filledAmount"])
-        self.executed_amount_quote = Decimal(execution_report["averagePrice"]) * self.executed_amount_base
+        self.executed_amount_quote = Decimal(execution_report["filledValue"])
         self.fee_paid = Decimal(execution_report["filledFee"])
         self.last_state = execution_report["status"]

@@ -372,6 +372,17 @@ class TradingPairFetcher:
                     for raw_trading_pair in valid_trading_pairs:
                         converted_trading_pair: Optional[str] = \
                             NovadaxMarket.convert_from_exchange_trading_pair(raw_trading_pair)
+                        if converted_trading_pair is not None:
+                            trading_pair_list.append(converted_trading_pair)
+                        else:
+                            self.logger().debug(f"Could not parse the trading pair {raw_trading_pair}, skipping it...")
+                    return trading_pair_list
+        except Exception:
+            # Do nothing if the request fails -- there will be no autocomplete for loopring trading pairs
+            pass
+
+        return []
+
     async def fetch_ftx_trading_pairs(self) -> List[str]:
         try:
             from hummingbot.market.ftx.ftx_market import FtxMarket
@@ -459,7 +470,7 @@ class TradingPairFetcher:
             "radar_relay": results[10],
             "blocktane": results[11],
             "loopring": results[12],
-            "novadax": results[13]
+            "novadax": results[13],
             "ftx": results[14]
         }
         self.ready = True
