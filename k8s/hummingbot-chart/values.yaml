@@ -5,7 +5,7 @@
 # Define global variables
 global:
   namespacePrefix: hummingbot
-  releaseTag: release
+  releaseTag: development
   name: 
   appName: 
   chartName:
@@ -69,15 +69,21 @@ persistence:
     pathRoot: "/home/hummingbot"        
 
 strategies:
-  - name: eth-usdt
-    config: 20200725loopringethusdt_liquidity_mirroring_1.yml
+  - name: bc-novadax-btc-brl
+    config: 
     subfolder: '001'
-  - name: lrc-usdt
-    config: 20200725loopringethusdt_liquidity_mirroring_1.yml
+  - name: bc-ftx-btc-brl
+    config: 
+    subfolder: '002'    
+  - name: bc-novadax-btc-pax
+    config: 
+    subfolder: '001'
+  - name: bc-ftx-btc-pax
+    config: 
     subfolder: '002'
-  - name: comp-usdt
-    config: 20200725loopringethusdt_liquidity_mirroring_1.yml
-    subfolder: '003'        
-  - name: lrc-eth
-    config: 20200802loopringlrcusdt_liquidity_mirroring_1.yml
-    subfolder: '004'
+  - name: bc-novadax-eth-btc
+    config: 
+    subfolder: '001'
+  - name: bc-ftx-eth-btc
+    config: 
+    subfolder: '002' 

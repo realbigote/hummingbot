@@ -24,10 +24,6 @@ spec:
         env: 
         - name: "CONFIG_PASSWORD"
           value: {{ $.Values.global.options.config_password }}
-        - name: "STRATEGY"
-          value: {{ $.Values.global.options.strategy }}
-        - name: "STRAT_CONF_FILE"
-          value: {{ $strategy.config }}
         volumeMounts:
         - mountPath: /conf-master-data
           name: config-data
