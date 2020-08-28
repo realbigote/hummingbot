@@ -954,17 +954,14 @@ cdef class BlocktaneMarket(MarketBase):
             cancel_result = await self._api_request("POST", path_url=path_url)
             while cancel_result is None:
                 continue
-            self.logger().info(f"Successfully cancelled order {order_id}.")
-            tracked_order.last_state = "cancel"
-            self.c_stop_tracking_order(order_id)
-            self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG, OrderCancelledEvent(self._current_timestamp, order_id))
+            self.logger().info(f"Requested cancel of order {order_id}.")
             return order_id
         except asyncio.CancelledError:
             raise
         except Exception as err:
             if "NOT_FOUND" in str(err):
                 # The order was never there to begin with. So cancelling it is a no-op but semantically successful.
-                self.logger().info(f"The order {order_id} does not exist on Blocktane. No cancellation needed.")
+                self.logger().info(f"The order {order_id} does not exist on Blocktane. Marking as cancelled.")
                 self.c_stop_tracking_order(order_id)
                 self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
                                      OrderCancelledEvent(self._current_timestamp, order_id))
