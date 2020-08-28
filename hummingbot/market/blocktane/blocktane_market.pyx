@@ -491,16 +491,16 @@ cdef class BlocktaneMarket(MarketBase):
 
                     order_type = tracked_order.order_type
                     execute_price = Decimal(order["avg_price"])
-                    execute_amount_diff = s_decimal_0
+                    executed_amount_diff = s_decimal_0
 
                     new_confirmed_amount = Decimal(order["executed_volume"])
                     executed_amount_diff = new_confirmed_amount - tracked_order.executed_amount_quote
                     tracked_order.executed_amount_base = Decimal(new_confirmed_amount)
                     tracked_order.executed_amount_quote = Decimal(new_confirmed_amount) * Decimal(execute_price)
 
-                    if execute_amount_diff > s_decimal_0:
+                    if executed_amount_diff > s_decimal_0:
                         tracked_order.last_state = order_status
-                        self.logger().info(f"Filled {execute_amount_diff} out of {tracked_order.amount} of the "
+                        self.logger().info(f"Filled {executed_amount_diff} out of {tracked_order.amount} of the "
                                                 f"{order_type} order {tracked_order.client_order_id}.")
                         self.c_trigger_event(self.MARKET_ORDER_FILLED_EVENT_TAG,
                                                 OrderFilledEvent(
@@ -510,14 +510,14 @@ cdef class BlocktaneMarket(MarketBase):
                                                     tracked_order.trade_type,
                                                     tracked_order.order_type,
                                                     execute_price,
-                                                    execute_amount_diff,
+                                                    executed_amount_diff,
                                                     self.c_get_fee(
                                                         tracked_order.base_asset,
                                                         tracked_order.quote_asset,
                                                         tracked_order.order_type,
                                                         tracked_order.trade_type,
                                                         execute_price,
-                                                        execute_amount_diff
+                                                        executed_amount_diff
                                                     )
                                                 ))
 
