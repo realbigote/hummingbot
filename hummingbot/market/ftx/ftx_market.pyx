@@ -690,7 +690,7 @@ cdef class FtxMarket(MarketBase):
                           amount: Decimal,
                           is_buy: bool,
                           order_type: OrderType,
-                          price: Decimal) -> Dict[str, Any]:
+                          price: Optional[Decimal]) -> Dict[str, Any]:
 
         path_url = "/orders"
 
@@ -699,8 +699,8 @@ cdef class FtxMarket(MarketBase):
             body = {
                 "market": str(trading_pair),
                 "side": "buy" if is_buy else "sell",
-                "price": float(price),
-                "size": float(amount),
+                "price": price,
+                "size": amount,
                 "type": "limit",
                 "reduceOnly": False,
                 "ioc": False,
@@ -713,7 +713,7 @@ cdef class FtxMarket(MarketBase):
                 "side": "buy" if is_buy else "sell",
                 "price": None,
                 "type": "market",
-                "size": float(amount),
+                "size": amount,
                 "reduceOnly": False,
                 "ioc": False,
                 "postOnly": False,
@@ -766,13 +766,12 @@ cdef class FtxMarket(MarketBase):
                                                       order_type,
                                                       decimal_price)
             elif order_type is OrderType.MARKET:
-                decimal_price = self.c_get_price(trading_pair, True)
                 order_result = await self.place_order(order_id,
                                                       trading_pair,
                                                       decimal_amount,
                                                       True,
                                                       order_type,
-                                                      decimal_price)
+                                                      None)
 
             else:
                 raise ValueError(f"Invalid OrderType {order_type}. Aborting.")
@@ -802,7 +801,7 @@ cdef class FtxMarket(MarketBase):
             tracked_order.last_state = "FAILURE"
             self.c_stop_tracking_order(order_id)
             order_type_str = "LIMIT" if order_type is OrderType.LIMIT else "MARKET"
-            self.logger().network(
+            self.logger().error(
                 f"Error submitting buy {order_type_str} order to ftx for "
                 f"{decimal_amount} {trading_pair} "
                 f"{decimal_price}.",
@@ -1003,8 +1002,8 @@ cdef class FtxMarket(MarketBase):
 
         if http_method == 'POST':
             res = requests.post(url, json=body, headers=headers)
-            body = res.text()
-            return simplejson.loads(body, parse_float=Decimal)
+            res_body = res.text
+            return simplejson.loads(res_body, parse_float=Decimal)
         else:
             client = await self._http_client()
             async with client.request(http_method,
@@ -1012,8 +1011,8 @@ cdef class FtxMarket(MarketBase):
                                       headers=headers,
                                       data=body,
                                       timeout=self.API_CALL_TIMEOUT) as response:
-                body = await response.text()
-                data = simplejson.loads(body, parse_float=Decimal)
+                res_body = await response.text()
+                data = simplejson.loads(res_body, parse_float=Decimal)
                 if http_method == 'DELETE':
                     return data
                 if response.status not in [200, 201]:  # HTTP Response code of 20X generally means it is successful
