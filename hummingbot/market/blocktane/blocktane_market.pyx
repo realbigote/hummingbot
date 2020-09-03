@@ -76,7 +76,7 @@ cdef class BlocktaneMarket(MarketBase):
     UPDATE_ORDERS_INTERVAL = 10.0
     ORDER_NOT_EXIST_CONFIRMATION_COUNT = 3
 
-    BLOCKTANE_API_ENDPOINT = "https://trade.bolsacripto.com/api/v2/xt"
+    BLOCKTANE_API_ENDPOINT = "https://bolsa.tokamaktech.net/api/v2/xt"
 
     @classmethod
     def logger(cls) -> HummingbotLogger:
@@ -217,7 +217,7 @@ cdef class BlocktaneMarket(MarketBase):
                           object order_side,
                           object amount,
                           object price):
-        # Fee info from https://trade.bolsacripto.com/api/v2/xt/public/trading_fees
+        # Fee info from https://bolsa.tokamaktech.net/api/v2/xt/public/trading_fees
         cdef:
             object maker_fee = Decimal(0.002)
             object taker_fee = Decimal(0.002)
