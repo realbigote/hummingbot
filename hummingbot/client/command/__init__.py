@@ -12,6 +12,11 @@ from .balance_command import BalanceCommand
 from .create_command import CreateCommand
 from .import_command import ImportCommand
 from .export_command import ExportCommand
+from .manual_trade_command import ManualTradeCommand
+from .offset_command import OffsetCommand
+from .depth_command import DepthCommand
+from .open_orders_command import OpenOrdersCommand
+from .cancel_command import CancelCommand
 
 
 __all__ = [
@@ -28,5 +33,10 @@ __all__ = [
     BalanceCommand,
     CreateCommand,
     ImportCommand,
-    ExportCommand
+    ExportCommand,
+    ManualTradeCommand,
+    OffsetCommand,
+    DepthCommand,
+    OpenOrdersCommand,
+    CancelCommand
 ]

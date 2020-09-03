@@ -27,10 +27,10 @@ from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.logger import HummingbotLogger
 from hummingbot.market.blocktane.blocktane_order_book import BlocktaneOrderBook
 
-BLOCKTANE_REST_URL = "https://bolsa.tokamaktech.net/api/v2/peatio/public"
-DIFF_STREAM_URL = "wss://bolsa.tokamaktech.net/api/v2/ranger/public"
-TICKER_PRICE_CHANGE_URL = "https://bolsa.tokamaktech.net/api/v2/peatio/public/markets/tickers"
-EXCHANGE_INFO_URL = "https://bolsa.tokamaktech.net/api/v2/peatio/public/markets"
+BLOCKTANE_REST_URL = "https://bolsa.tokamaktech.net/api/v2/xt/public"
+DIFF_STREAM_URL = "wss://bolsa.tokamaktech.net/api/v2/ws/public"
+TICKER_PRICE_CHANGE_URL = "https://bolsa.tokamaktech.net/api/v2/xt/public/markets/tickers"
+EXCHANGE_INFO_URL = "https://bolsa.tokamaktech.net/api/v2/xt/public/markets"
 
 OrderBookRow = namedtuple("Book", ["price", "amount"])
 
@@ -84,14 +84,10 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
             
             all_markets: pd.DataFrame = pd.DataFrame(exchange_markets, columns = columns)
             all_markets = all_markets.swapaxes("index", "columns")
-            eth_price: float = float(all_markets.loc["ethusd"].lastPrice)
-            trst_price: float = float(all_markets.loc["trstusd"].lastPrice)
-            fth_price: float = float(all_markets.loc["fthusd"].lastPrice)
+            btc_price: float = float(all_markets.loc["btcpax"].lastPrice)
             usd_volume: float = [
                 (
-                    volume * trst_price if trading_pair.endswith("trst") else
-                    volume * eth_price if trading_pair.endswith("eth") else
-                    volume * fth_price if trading_pair.endswith("fth") else
+                    volume * btc_price if trading_pair.endswith("btc") else
                     volume
                 )
                 for trading_pair, volume in zip(all_markets.index, all_markets.volume.astype("float"))]

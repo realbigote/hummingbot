@@ -2,6 +2,7 @@ import argparse
 from typing import (
     List,
 )
+from decimal import Decimal
 from hummingbot.client.errors import ArgumentParserError
 from hummingbot.client.command.connect_command import OPTIONS as CONNECT_OPTIONS
 
@@ -85,5 +86,32 @@ def load_parser(hummingbot) -> ThrowingArgumentParser:
     export_parser = subparsers.add_parser("export", help="Export secure information")
     export_parser.add_argument("option", nargs="?", choices=("keys", "trades"), help="Export choices.")
     export_parser.set_defaults(func=hummingbot.export)
+
+    trade_parser = subparsers.add_parser("trade", help="Perform manual trade")
+    trade_parser.add_argument("buy_sell", nargs=1, choices=("buy", "sell"))
+    trade_parser.add_argument("amount", nargs=1, type=Decimal)
+    trade_parser.add_argument("base_asset", nargs=1, type=str)
+    trade_parser.add_argument("quote_asset", nargs=1, type=str)
+    trade_parser.add_argument("exchange_name", nargs=1, type=str)
+    trade_parser.add_argument("price", nargs='?', type=Decimal)
+    trade_parser.set_defaults(func=hummingbot.trade)
+
+    offset_amount_parser = subparsers.add_parser("zero_out_offset_amount", help="Sets the amount to offset on the LM strat")
+    offset_amount_parser.set_defaults(func=hummingbot.zero_out_offset_amount)
+
+    depth_parser = subparsers.add_parser("depth", help="Display the depth of the specified exchange up to the specified level")
+    depth_parser.add_argument("exchange", nargs=1, type=str)
+    depth_parser.add_argument("levels", nargs='?', type=int, default=1)
+    depth_parser.set_defaults(func=hummingbot.depth)
+
+    open_orders_parser = subparsers.add_parser("open_orders", help="Display open orders on exchanges in running strat")
+    open_orders_parser.set_defaults(func=hummingbot.open_orders)
+
+    cancel_order_parser = subparsers.add_parser("cancel", help="Cancel the order with the specified order id on the specified exchange")
+    cancel_order_parser.add_argument("exchange", nargs=1, type=str)
+    cancel_order_parser.add_argument("base_asset", nargs='?', type=str)
+    cancel_order_parser.add_argument("quote_asset", nargs='?', type=str)
+    cancel_order_parser.add_argument("order_id", nargs='?')
+    cancel_order_parser.set_defaults(func=hummingbot.cancel)
 
     return parser

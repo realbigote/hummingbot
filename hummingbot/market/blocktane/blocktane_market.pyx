@@ -46,7 +46,7 @@ from hummingbot.market.blocktane.blocktane_api_order_book_data_source import Blo
 
 bm_logger = None
 s_decimal_0 = Decimal(0)
-TRADING_PAIR_SPLITTER = re.compile(r"^(\w+)(fth|eth|trst|cad|usd|trx|xrp|tkmka|tkmkb)$")
+TRADING_PAIR_SPLITTER = re.compile(r"^(\w+)(BTC|btc|ETH|eth|BRL|brl|PAX|pax)$")
 
 cdef class BlocktaneMarketTransactionTracker(TransactionTracker):
     cdef:
@@ -76,7 +76,7 @@ cdef class BlocktaneMarket(MarketBase):
     UPDATE_ORDERS_INTERVAL = 10.0
     ORDER_NOT_EXIST_CONFIRMATION_COUNT = 3
 
-    BLOCKTANE_API_ENDPOINT = "https://bolsa.tokamaktech.net/api/v2/peatio"
+    BLOCKTANE_API_ENDPOINT = "https://bolsa.tokamaktech.net/api/v2/xt"
 
     @classmethod
     def logger(cls) -> HummingbotLogger:
@@ -125,8 +125,12 @@ cdef class BlocktaneMarket(MarketBase):
     @staticmethod
     def split_trading_pair(trading_pair: str) -> Optional[Tuple[str, str]]:
         try:
-            m = TRADING_PAIR_SPLITTER.match(trading_pair)
-            return m.group(1), m.group(2)
+            if ('/' in trading_pair):
+                m = trading_pair.split('/')
+                return m[0], m[1]
+            else:
+                m = TRADING_PAIR_SPLITTER.match(trading_pair)
+                return m.group(1), m.group(2)
         # Exceptions are now logged as warnings in trading pair fetcher
         except Exception as e:
             return None
@@ -213,7 +217,7 @@ cdef class BlocktaneMarket(MarketBase):
                           object order_side,
                           object amount,
                           object price):
-        # Fee info from https://bolsa.tokamaktech.net/api/v2/peatio/public/trading_fees
+        # Fee info from https://bolsa.tokamaktech.net/api/v2/xt/public/trading_fees
         cdef:
             object maker_fee = Decimal(0.002)
             object taker_fee = Decimal(0.002)
@@ -487,16 +491,16 @@ cdef class BlocktaneMarket(MarketBase):
 
                     order_type = tracked_order.order_type
                     execute_price = Decimal(order["avg_price"])
-                    execute_amount_diff = s_decimal_0
+                    executed_amount_diff = s_decimal_0
 
                     new_confirmed_amount = Decimal(order["executed_volume"])
                     executed_amount_diff = new_confirmed_amount - tracked_order.executed_amount_quote
                     tracked_order.executed_amount_base = Decimal(new_confirmed_amount)
                     tracked_order.executed_amount_quote = Decimal(new_confirmed_amount) * Decimal(execute_price)
 
-                    if execute_amount_diff > s_decimal_0:
+                    if executed_amount_diff > s_decimal_0:
                         tracked_order.last_state = order_status
-                        self.logger().info(f"Filled {execute_amount_diff} out of {tracked_order.amount} of the "
+                        self.logger().info(f"Filled {executed_amount_diff} out of {tracked_order.amount} of the "
                                                 f"{order_type} order {tracked_order.client_order_id}.")
                         self.c_trigger_event(self.MARKET_ORDER_FILLED_EVENT_TAG,
                                                 OrderFilledEvent(
@@ -506,14 +510,14 @@ cdef class BlocktaneMarket(MarketBase):
                                                     tracked_order.trade_type,
                                                     tracked_order.order_type,
                                                     execute_price,
-                                                    execute_amount_diff,
+                                                    executed_amount_diff,
                                                     self.c_get_fee(
                                                         tracked_order.base_asset,
                                                         tracked_order.quote_asset,
                                                         tracked_order.order_type,
                                                         tracked_order.trade_type,
                                                         execute_price,
-                                                        execute_amount_diff
+                                                        executed_amount_diff
                                                     )
                                                 ))
 
@@ -950,17 +954,14 @@ cdef class BlocktaneMarket(MarketBase):
             cancel_result = await self._api_request("POST", path_url=path_url)
             while cancel_result is None:
                 continue
-            self.logger().info(f"Successfully cancelled order {order_id}.")
-            tracked_order.last_state = "cancel"
-            self.c_stop_tracking_order(order_id)
-            self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG, OrderCancelledEvent(self._current_timestamp, order_id))
+            self.logger().info(f"Requested cancel of order {order_id}.")
             return order_id
         except asyncio.CancelledError:
             raise
         except Exception as err:
             if "NOT_FOUND" in str(err):
                 # The order was never there to begin with. So cancelling it is a no-op but semantically successful.
-                self.logger().info(f"The order {order_id} does not exist on Blocktane. No cancellation needed.")
+                self.logger().info(f"The order {order_id} does not exist on Blocktane. Marking as cancelled.")
                 self.c_stop_tracking_order(order_id)
                 self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
                                      OrderCancelledEvent(self._current_timestamp, order_id))

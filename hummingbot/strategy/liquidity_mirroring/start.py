@@ -17,7 +17,7 @@ def start(self):
     mirrored_trading_pair = liquidity_mirroring_config_map.get("market_trading_pair_to_mirror").value
     primary_trading_pair = liquidity_mirroring_config_map.get("primary_market_trading_pair").value
     two_sided_mirroring = liquidity_mirroring_config_map.get("two_sided_mirroring").value
-    spread_percent = liquidity_mirroring_config_map.get("spread_percent").value
+    order_price_markup = liquidity_mirroring_config_map.get("order_price_markup").value
     max_exposure_base = liquidity_mirroring_config_map.get("max_exposure_base").value
     max_exposure_quote = liquidity_mirroring_config_map.get("max_exposure_quote").value
     max_offsetting_exposure = liquidity_mirroring_config_map.get("max_offsetting_exposure").value
@@ -25,7 +25,7 @@ def start(self):
     max_total_loss = liquidity_mirroring_config_map.get("max_total_offset_loss").value
     #equivalent_tokens = liquidity_mirroring_config_map.get("equivalent_tokens").value
     equivalent_tokens = [["USDT", "USDC", "USDS", "DAI", "PAX", "TUSD", "USD", "ZUSD", "TKMKB", "COMP"],
-        ["XETH", "ETH", "WETH", "FTH"], ["BTC", "WBTC", "XXBT", "TKMKB"], ["ZRX"], ["XTZ", "TKMKA"], ["LRC"]]
+        ["XETH", "ETH", "WETH", "FTH"], ["BTC", "WBTC", "XXBT", "TKMKB"], ["ZRX"], ["XTZ", "TKMKA"], ["LRC"], ["BRL"]]
     min_primary_amount = liquidity_mirroring_config_map.get("min_primary_amount").value
     min_mirroring_amount = liquidity_mirroring_config_map.get("min_mirroring_amount").value
     slack_hook = global_config_map.get("SLACK_HOOK").value
@@ -116,10 +116,11 @@ def start(self):
     self.assets = set(primary_assets + secondary_assets)
     self.primary_market_trading_pair_tuples = [MarketTradingPairTuple(self.markets[primary_market], primary_market_trading_pair, primary_assets[0], primary_assets[1])]
     self.mirrored_market_trading_pair_tuples = [MarketTradingPairTuple(self.markets[mirrored_market], mirrored_market_trading_pair, secondary_assets[0], secondary_assets[1])]
+    self.market_trading_pair_tuples = self.primary_market_trading_pair_tuples + self.mirrored_market_trading_pair_tuples
     self.strategy = LiquidityMirroringStrategy(primary_market_pairs=self.primary_market_trading_pair_tuples,
                                                mirrored_market_pairs=self.mirrored_market_trading_pair_tuples,
                                                two_sided_mirroring=two_sided_mirroring,
-                                               spread_percent=spread_percent,
+                                               order_price_markup=order_price_markup,
                                                max_exposure_base=max_exposure_base,
                                                max_exposure_quote=max_exposure_quote,
                                                max_offsetting_exposure=max_offsetting_exposure,

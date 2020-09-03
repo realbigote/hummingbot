@@ -18,13 +18,14 @@ import ujson
 import websockets
 from datetime import datetime
 from typing import Optional
-
-from hummingbot.logger import HummingbotLogger
+ 
 from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.market.blocktane.blocktane_auth import BlocktaneAuth
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
+from hummingbot.logger import HummingbotLogger
 
-WS_BASE_URL = "wss://bolsa.tokamaktech.net/api/v2/ranger/private/?stream=order&stream=trade"
+
+WS_BASE_URL = "wss://bolsa.tokamaktech.net/api/v2/ws/private/?stream=order&stream=trade"
 
 class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
@@ -43,11 +44,20 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
         self._blocktane_auth: BlocktaneAuth = blocktane_auth
         self._listen_for_user_stream_task = None
         self._last_recv_time: float = 0
+        self._ws = None
         super().__init__()
 
     @property
     def last_recv_time(self) -> float:
         return self._last_recv_time
+
+
+    @staticmethod
+    async def wait_til_next_tick(seconds: float = 1.0):
+        now: float = time.time()
+        current_tick: int = int(now // seconds)
+        delay_til_next_tick: float = (current_tick + 1) * seconds - now
+        await asyncio.sleep(delay_til_next_tick)
 
     async def listen_for_user_stream(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         while True:
@@ -70,6 +80,7 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
                 try:
                     msg: str = await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)
                     self._last_recv_time = time.time()
+                    self.logger().info(f"Recieved:{msg}")
                     yield msg
                 except asyncio.TimeoutError:
                     try:
@@ -89,16 +100,21 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
     async def messages(self) -> AsyncIterable[str]:
         try:
             async with (await self.get_ws_connection()) as ws:
-                async for msg in self._inner_messages(ws):
-                    yield msg
-        except asyncio.CancelledError:
-            return
+                self._ws = ws
+                while(True):
+                    async for msg in self._inner_messages(ws):
+                        yield msg
+
+        except asyncio.CancelledError as e:
+            self.logger().error(f"Exception in messages({type(e).__name__})")
+            raise
 
     async def get_ws_connection(self):
         # stream_url: str = WS_BASE_URL
         # self.logger().info(f"Reconnecting to {stream_url}.")
 
         # Create the WS connection.
+
         ws = websockets.connect(WS_BASE_URL, extra_headers=self._blocktane_auth.generate_auth_dict())
 
         return ws
@@ -110,6 +126,10 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
                     decoded: Dict[str, any] = ujson.loads(message)
                     output.put_nowait(decoded)
             except asyncio.CancelledError:
+                if (self._ws is not None):
+                    await self._ws.close()
+                    del self._ws
+                    self._ws = None
                 raise
             except Exception:
                 self.logger().error("Unexpected error. Retrying after 5 seconds...", exc_info=True)
