@@ -2,6 +2,7 @@ import asyncio
 import logging
 import time
 import requests
+import simplejson
 from requests import Request
 from decimal import Decimal
 from typing import Optional, List, Dict, Any, AsyncIterable, Tuple
@@ -1002,7 +1003,8 @@ cdef class FtxMarket(MarketBase):
 
         if http_method == 'POST':
             res = requests.post(url, json=body, headers=headers)
-            return res.json()
+            body = res.text()
+            return simplejson.loads(body, parse_float=Decimal)
         else:
             client = await self._http_client()
             async with client.request(http_method,
@@ -1010,7 +1012,8 @@ cdef class FtxMarket(MarketBase):
                                       headers=headers,
                                       data=body,
                                       timeout=self.API_CALL_TIMEOUT) as response:
-                data = await response.json()
+                body = await response.text()
+                data = simplejson.loads(body, parse_float=Decimal)
                 if http_method == 'DELETE':
                     return data
                 if response.status not in [200, 201]:  # HTTP Response code of 20X generally means it is successful
