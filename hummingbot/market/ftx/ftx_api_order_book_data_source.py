@@ -3,6 +3,7 @@ import asyncio
 import logging
 import time
 from base64 import b64decode
+from decimal import Decimal
 from typing import Optional, List, Dict, AsyncIterable, Any
 from zlib import decompress, MAX_WBITS
 import websockets
@@ -11,6 +12,7 @@ from websockets.exceptions import ConnectionClosed
 import aiohttp
 import pandas as pd
 import signalr_aio
+import simplejson
 import ujson
 from signalr_aio import Connection
 from signalr_aio.hubs import Hub
@@ -98,8 +100,7 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 self._trading_pairs = []
                 self.logger().network(
                     f"Error getting active exchange information.",
-                    exc_info=True,
-                    app_warning_msg=f"Error getting active exchange information. Check network connection.",
+                    exc_info=True
                 )
         return self._trading_pairs
 
@@ -110,7 +111,7 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
             if response.status != 200:
                 raise IOError(f"Error fetching FTX market snapshot for {trading_pair}. "
                               f"HTTP status is {response.status}.")
-            data: Dict[str, Any] = await response.json()
+            data: Dict[str, Any] = simplejson.loads(await response.text(), parse_float=Decimal)
 
             return data
 
@@ -181,7 +182,7 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         }
                         await ws.send(ujson.dumps(subscribe_request))
                     async for raw_msg in self._inner_messages(ws):
-                        msg = ujson.loads(raw_msg)
+                        msg = simplejson.loads(raw_msg, parse_float=Decimal)
                         if "channel" in msg:
                             if msg["channel"] == "trades" and msg["type"] == "update":
                                 for trade in msg["data"]:
@@ -210,7 +211,7 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         }
                         await ws.send(ujson.dumps(subscribe_request))
                     async for raw_msg in self._inner_messages(ws):
-                        msg = ujson.loads(raw_msg)
+                        msg = simplejson.loads(raw_msg, parse_float=Decimal)
                         if "channel" in msg:
                             if msg["channel"] == "orderbook" and msg["type"] == "update":
                                 order_book_message: OrderBookMessage = FtxOrderBook.diff_message_from_exchange(msg, msg["data"]["time"])
@@ -238,7 +239,7 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         }
                         await ws.send(ujson.dumps(subscribe_request))
                     async for raw_msg in self._inner_messages(ws):
-                        msg = ujson.loads(raw_msg)
+                        msg = simplejson.loads(raw_msg, parse_float=Decimal)
                         if "channel" in msg:
                             if msg["channel"] == "orderbook" and msg["type"] == "partial":
                                 order_book_message: OrderBookMessage = FtxOrderBook.snapshot_message_from_exchange(msg, msg["data"]["time"])

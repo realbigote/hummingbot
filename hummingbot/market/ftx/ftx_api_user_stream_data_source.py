@@ -2,6 +2,7 @@
 
 import asyncio
 import aiohttp
+from decimal import Decimal
 import logging
 import time
 from typing import (
@@ -10,7 +11,7 @@ from typing import (
     Optional
 )
 import json
-import ujson
+import simplejson
 import websockets
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
 from hummingbot.core.utils.async_utils import safe_ensure_future
@@ -111,7 +112,7 @@ class FtxAPIUserStreamDataSource(UserStreamTrackerDataSource):
         while True:
             try:
                 async for message in self.messages():
-                    decoded: Dict[str, any] = ujson.loads(message)
+                    decoded: Dict[str, any] = simplejson.loads(message, parse_float=Decimal)
                     output.put_nowait(decoded)
             except asyncio.CancelledError:
                 raise

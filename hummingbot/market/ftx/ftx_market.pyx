@@ -367,9 +367,7 @@ cdef class FtxMarket(MarketBase):
                     self.c_stop_tracking_order(client_order_id)
                     self.logger().network(
                         f"Error fetching status update for the order {client_order_id}: "
-                        f"{tracked_order}",
-                        app_warning_msg=f"Could not fetch updates for the order {client_order_id}. "
-                                        f"Check API key and network connection."
+                        f"{tracked_order}"
                     )
                     continue
 
@@ -805,8 +803,7 @@ cdef class FtxMarket(MarketBase):
                 f"Error submitting buy {order_type_str} order to ftx for "
                 f"{decimal_amount} {trading_pair} "
                 f"{decimal_price}.",
-                exc_info=True,
-                app_warning_msg=f"Failed to submit buy order to ftx. Check API key and network connection."
+                exc_info=True
             )
             self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG,
                                  MarketOrderFailureEvent(
