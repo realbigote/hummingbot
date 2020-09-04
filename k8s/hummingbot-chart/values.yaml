@@ -5,7 +5,7 @@
 # Define global variables
 global:
   namespacePrefix: hummingbot
-  releaseTag: development
+  releaseTag: develop
   name: 
   appName: 
   chartName:
@@ -18,7 +18,7 @@ global:
       default:
         name: "hetzner.storage.secondary"  
         pathRoot: "/home/tradebot"
-    development:
+    develop:
       storage:
         name: "hetzner.dev.storage.primary"
         pathRoot: "/home/tradebot"
@@ -69,21 +69,12 @@ persistence:
     pathRoot: "/home/hummingbot"        
 
 strategies:
-  - name: bc-novadax-btc-brl
-    config: 
-    subfolder: '001'
   - name: bc-ftx-btc-brl
-    config: 
-    subfolder: '002'    
-  - name: bc-novadax-btc-pax
-    config: 
+    config: trade.bolsacripto.com.ftx.btc.brl.yml
     subfolder: '001'
   - name: bc-ftx-btc-pax
-    config: 
+    config: trade.bolsacripto.com.ftx.btc.pax.yml
     subfolder: '002'
-  - name: bc-novadax-eth-btc
-    config: 
-    subfolder: '001'
   - name: bc-ftx-eth-btc
-    config: 
-    subfolder: '002' 
+    config: trade.bolsacripto.com.ftx.eth.btc.yml
+    subfolder: '003' 

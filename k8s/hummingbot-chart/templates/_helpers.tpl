@@ -62,7 +62,7 @@ The default name can be overidded by setting nameOverride in values
 {{- $node := .Values.global.node.staging.default.name -}}
 {{-  printf "%s" $node | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
-{{- $node := .Values.global.node.development.default.name -}}
+{{- $node := .Values.global.node.develop.default.name -}}
 {{-  printf "%s" $node | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 {{- end -}}
@@ -78,7 +78,7 @@ The default name can be overidded by setting nameOverride in values
 {{- $node := .Values.global.node.staging.storage.name -}}
 {{- printf "%s" $node | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
-{{- $node := .Values.global.node.development.storage.name -}}
+{{- $node := .Values.global.node.develop.storage.name -}}
 {{- printf "%s" $node | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 {{- end -}}
