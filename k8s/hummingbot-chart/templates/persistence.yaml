@@ -1,8 +1,9 @@
+{{ range $i, $strategy := .Values.strategies -}}  
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
-  name: {{include "hummingbot.logs.pv.name" . }}
-  namespace: {{ include "resource.namespace" . }}
+  name: {{include "hummingbot.logs.pv.name" $ }}-{{ $strategy.subfolder }}
+  namespace: {{ include "resource.namespace" $ }}
 spec:
   storageClassName: local-storage
   accessModes:
@@ -12,15 +13,15 @@ spec:
       storage: 10.0Ti
   selector:
     matchLabels:
-      app: {{include "hummingbot.logs.pv.label" . }}
+      app: {{include "hummingbot.logs.pv.label" $ }}-{{ $strategy.subfolder }}
 ---
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: {{include "hummingbot.logs.pv.label" . }}
-  namespace: {{ include "resource.namespace" . }}
+  name: {{include "hummingbot.logs.pv.label" $ }}-{{ $strategy.subfolder }}
+  namespace: {{ include "resource.namespace" $ }}
   labels:
-    app: {{include "hummingbot.logs.pv.label" . }}
+    app: {{include "hummingbot.logs.pv.label" $ }}-{{ $strategy.subfolder }}
 spec:
   capacity:
     storage: 10.0Ti
@@ -29,7 +30,7 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   storageClassName: local-storage
   local:
-    path: {{include "hummingbot.logs.pv.path" . }}
+    path: {{include "hummingbot.logs.pv.path" $ }}/{{ $strategy.subfolder }}/logs
   nodeAffinity:
     required:
       nodeSelectorTerms:
@@ -37,13 +38,13 @@ spec:
         - key: kubernetes.io/hostname
           operator: In
           values:
-          - {{ include "node.storage" . }}
+          - {{ include "node.storage" $ }}
 ---
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
-  name: {{include "hummingbot.conf.pv.name" . }}
-  namespace: {{ include "resource.namespace" . }}
+  name: {{include "hummingbot.conf.pv.name" $ }}-{{ $strategy.subfolder }}
+  namespace: {{ include "resource.namespace" $ }}
 spec:
   storageClassName: local-storage
   accessModes:
@@ -53,15 +54,15 @@ spec:
       storage: 10.0Ti
   selector:
     matchLabels:
-      app: {{include "hummingbot.conf.pv.label" . }}
+      app: {{include "hummingbot.conf.pv.label" $ }}-{{ $strategy.subfolder }}
 ---
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: {{include "hummingbot.conf.pv.label" . }}
-  namespace: {{ include "resource.namespace" . }}
+  name: {{include "hummingbot.conf.pv.label" $ }}-{{ $strategy.subfolder }}
+  namespace: {{ include "resource.namespace" $ }}
   labels:
-    app: {{include "hummingbot.conf.pv.label" . }}
+    app: {{include "hummingbot.conf.pv.label" $ }}-{{ $strategy.subfolder }}
 spec:
   capacity:
     storage: 10.0Ti
@@ -70,7 +71,7 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   storageClassName: local-storage
   local:
-    path: {{include "hummingbot.conf.pv.path" . }}
+    path: {{include "hummingbot.conf.pv.path" $ }}/{{ $strategy.subfolder }}/conf
   nodeAffinity:
     required:
       nodeSelectorTerms:
@@ -78,4 +79,6 @@ spec:
         - key: kubernetes.io/hostname
           operator: In
           values:
-          - {{ include "node.storage" . }}
+          - {{ include "node.storage" $ }}
+---          
+{{ end -}}
