@@ -50,8 +50,8 @@ logging.basicConfig(level=METRICS_LOG_LEVEL)
 API_MOCK_ENABLED = conf.mock_api_enabled is not None and conf.mock_api_enabled.lower() in ['true', 'yes', '1']
 API_KEY = "XXX" if API_MOCK_ENABLED else conf.blocktane_api_key
 API_SECRET = "YYY" if API_MOCK_ENABLED else conf.blocktane_api_secret
-API_BASE_URL = "bolsa.tokamaktech.net/api/v2/peatio"
-WS_BASE_URL = "wss://bolsa.tokamaktech.net/api/v2/ranger/public"
+API_BASE_URL = "bolsa.tokamaktech.net/api/v2/xt"
+WS_BASE_URL = "wss://bolsa.tokamaktech.net/api/v2/ws/public"
 logging.basicConfig(level=METRICS_LOG_LEVEL)
 
 class BlocktaneMarketUnitTest(unittest.TestCase):
@@ -92,18 +92,18 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
             cls._req_url_mock = cls._req_patcher.start()
             cls._req_url_mock.side_effect = HummingWebApp.reroute_request
 
-            cls.web_app.update_response("get", cls.base_api_url, "/api/v2/peatio/public/health/alive", FixtureBlocktane.PING)
-            cls.web_app.update_response("get", cls.base_api_url, "/api/v2/peatio/public/markets", FixtureBlocktane.MARKETS)
-            cls.web_app.update_response("get", cls.base_api_url, "/api/v2/peatio/public/markets/tickers", FixtureBlocktane.MARKETS_TICKERS)
-            cls.web_app.update_response("get", cls.base_api_url, "/api/v2/peatio/account/balances", FixtureBlocktane.BALANCES)
-            cls.web_app.update_response("get", cls.base_api_url, "/api/v2/peatio/market/orders?state=wait", FixtureBlocktane.ORDERS_OPEN_BUY)
-            cls.web_app.update_response("post", cls.base_api_url, "/api/v2/peatio/market/orders/10001/cancel", FixtureBlocktane.ORDER_CANCEL)
-            # cls.web_app.update_response("post", cls.base_api_url, "/api/v2/peatio/market/orders/10000/cancel", FixtureBlocktane.ORDER_CANCEL_1)
-            cls.web_app.update_response("post", cls.base_api_url, "/api/v2/peatio/market/orders", FixtureBlocktane.ORDER_MARKET_OPEN_BUY)
-            cls.web_app.update_response("post", cls.base_api_url, "/api/v2/peatio/market/orders", FixtureBlocktane.ORDER_MARKET_OPEN_BUY)
-            cls.web_app.update_response("get", cls.base_api_url, "/api/v2/peatio/public/markets/fthusd/depth", FixtureBlocktane.MARKETS_DEPTH)
+            cls.web_app.update_response("get", cls.base_api_url, "/api/v2/xt/public/health/alive", FixtureBlocktane.PING)
+            cls.web_app.update_response("get", cls.base_api_url, "/api/v2/xt/public/markets", FixtureBlocktane.MARKETS)
+            cls.web_app.update_response("get", cls.base_api_url, "/api/v2/xt/public/markets/tickers", FixtureBlocktane.MARKETS_TICKERS)
+            cls.web_app.update_response("get", cls.base_api_url, "/api/v2/xt/account/balances", FixtureBlocktane.BALANCES)
+            cls.web_app.update_response("get", cls.base_api_url, "/api/v2/xt/market/orders?state=wait", FixtureBlocktane.ORDERS_OPEN_BUY)
+            cls.web_app.update_response("post", cls.base_api_url, "/api/v2/xt/market/orders/10001/cancel", FixtureBlocktane.ORDER_CANCEL)
+            # cls.web_app.update_response("post", cls.base_api_url, "/api/v2/xt/market/orders/10000/cancel", FixtureBlocktane.ORDER_CANCEL_1)
+            cls.web_app.update_response("post", cls.base_api_url, "/api/v2/xt/market/orders", FixtureBlocktane.ORDER_MARKET_OPEN_BUY)
+            cls.web_app.update_response("post", cls.base_api_url, "/api/v2/xt/market/orders", FixtureBlocktane.ORDER_MARKET_OPEN_BUY)
+            cls.web_app.update_response("get", cls.base_api_url, "/api/v2/xt/public/markets/fthusd/depth", FixtureBlocktane.MARKETS_DEPTH)
 
-            ws_base_url = "wss://bolsa.tokamaktech.net/api/v2/ranger/public"
+            ws_base_url = "wss://bolsa.tokamaktech.net/api/v2/ws/public"
             cls._ws_user_url = f"{ws_base_url}/?stream=order&stream=trade"
             HummingWsServerFactory.url_host_only = True
             HummingWsServerFactory.start_new_server(cls._ws_user_url)
@@ -208,7 +208,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
 
             resp = fixture_resp.copy()
             exch_order_id = resp["id"]
-            self.web_app.update_response("post", self.base_api_url, "/api/v2/peatio/market/orders", resp)
+            self.web_app.update_response("post", self.base_api_url, "/api/v2/xt/market/orders", resp)
         if is_buy:
             order_id = self.market.buy(trading_pair, amount, order_type, price)
         else:
@@ -223,7 +223,7 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         if API_MOCK_ENABLED:
             resp = FixtureBlocktane.ORDER_CANCEL.copy()
             resp["id"] = exch_order_id
-            self.web_app.update_response("delete", self.base_api_url, f"/api/v2/peatio/market/orders/{exch_order_id}/cancel", resp)
+            self.web_app.update_response("delete", self.base_api_url, f"/api/v2/xt/market/orders/{exch_order_id}/cancel", resp)
         self.market.cancel(trading_pair, order_id)
 
     def test_limit_buy(self):
@@ -390,10 +390,10 @@ class BlocktaneMarketUnitTest(unittest.TestCase):
         if API_MOCK_ENABLED:
             resp = FixtureBlocktane.ORDER_CANCEL.copy()
             resp["id"] = exch_order_id_1
-            self.web_app.update_response("delete", self.base_api_url, f"/api/v2/peatio/orders/{exch_order_id_1}", resp)
+            self.web_app.update_response("delete", self.base_api_url, f"/api/v2/xt/orders/{exch_order_id_1}", resp)
             resp = FixtureBlocktane.ORDER_CANCEL.copy()
             resp["id"] = exch_order_id_2
-            self.web_app.update_response("delete", self.base_api_url, f"/api/v2/peatio/orders/{exch_order_id_2}", resp)
+            self.web_app.update_response("delete", self.base_api_url, f"/api/v2/xt/orders/{exch_order_id_2}", resp)
         
         [cancellation_results] = self.run_parallel(self.market.cancel_all(5))
         for cr in cancellation_results:
