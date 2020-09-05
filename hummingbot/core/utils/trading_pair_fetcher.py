@@ -16,7 +16,7 @@ from .ssl_client_request import SSLClientRequest
 
 BINANCE_ENDPOINT = "https://api.binance.com/api/v1/exchangeInfo"
 RADAR_RELAY_ENDPOINT = "https://api.radarrelay.com/v3/markets"
-BLOCKTANE_ENDPOINT = "https://bolsa.tokamaktech.net/api/v2/xt/public/markets"
+BLOCKTANE_ENDPOINT = "https://trade.bolsacripto.com/api/v2/xt/public/markets"
 BAMBOO_RELAY_ENDPOINT = "https://rest.bamboorelay.com/main/0x/markets"
 COINBASE_PRO_ENDPOINT = "https://api.pro.coinbase.com/products/"
 HUOBI_ENDPOINT = "https://api.huobi.pro/v1/common/symbols"

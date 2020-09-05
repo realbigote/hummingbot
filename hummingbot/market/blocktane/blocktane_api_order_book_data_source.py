@@ -27,10 +27,10 @@ from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.logger import HummingbotLogger
 from hummingbot.market.blocktane.blocktane_order_book import BlocktaneOrderBook
 
-BLOCKTANE_REST_URL = "https://bolsa.tokamaktech.net/api/v2/xt/public"
-DIFF_STREAM_URL = "wss://bolsa.tokamaktech.net/api/v2/ws/public"
-TICKER_PRICE_CHANGE_URL = "https://bolsa.tokamaktech.net/api/v2/xt/public/markets/tickers"
-EXCHANGE_INFO_URL = "https://bolsa.tokamaktech.net/api/v2/xt/public/markets"
+BLOCKTANE_REST_URL = "https://trade.bolsacripto.com/api/v2/xt/public"
+DIFF_STREAM_URL = "wss://trade.bolsacripto.com/api/v2/ws/public"
+TICKER_PRICE_CHANGE_URL = "https://trade.bolsacripto.com/api/v2/xt/public/markets/tickers"
+EXCHANGE_INFO_URL = "https://trade.bolsacripto.com/api/v2/xt/public/markets"
 
 OrderBookRow = namedtuple("Book", ["price", "amount"])
 
