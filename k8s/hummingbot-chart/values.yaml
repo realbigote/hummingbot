@@ -5,7 +5,7 @@
 # Define global variables
 global:
   namespacePrefix: hummingbot
-  releaseTag: develop
+  releaseTag: placeholder
   name: 
   appName: 
   chartName:
@@ -51,11 +51,11 @@ global:
       name: regcred
       registry: index.docker.io/v1/
 
+  dockerconfigjson: placeholder
+
   options:
     paper_trade: false
-    strategy: liquidity_mirroring 
-    config_password: tradebot
-    config_file_name: 20200725loopringethusdt_liquidity_mirroring_1.yml
+    config_password: placeholder
 
 persistence:
   hummingbot_conf:
