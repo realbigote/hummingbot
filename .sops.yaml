@@ -1,0 +1,2 @@
+creation_rules:
+  - kms: 'arn:aws:kms:ca-central-1:518166041255:key/dfdb4689-a299-43ac-a71a-93e6d43a9006'
