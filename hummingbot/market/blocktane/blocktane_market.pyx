@@ -390,7 +390,7 @@ cdef class BlocktaneMarket(MarketBase):
                     executed_amount_diff = s_decimal_0
                     avg_price = Decimal(order["avg_price"])
                     new_confirmed_amount = Decimal(order["executed_volume"])
-                    executed_amount_base_diff = new_confirmed_amount - tracked_order.executed_amount_quote
+                    executed_amount_base_diff = new_confirmed_amount - tracked_order.executed_amount_base
                     if executed_amount_base_diff > s_decimal_0:
                         self.logger().info(f"Updated order status with fill from polling _update_order_status: {simplejson.dumps(order)}")
                         new_confirmed_quote_amount = new_confirmed_amount * avg_price
@@ -497,7 +497,7 @@ cdef class BlocktaneMarket(MarketBase):
                     executed_amount_diff = s_decimal_0
                     avg_price = Decimal(order["avg_price"])
                     new_confirmed_amount = Decimal(order["executed_volume"])
-                    executed_amount_base_diff = new_confirmed_amount - tracked_order.executed_amount_quote
+                    executed_amount_base_diff = new_confirmed_amount - tracked_order.executed_amount_base
                     if executed_amount_base_diff > s_decimal_0:
                         self.logger().info(f"Updated order status with fill from streaming _user_stream_event_listener: {simplejson.dumps(stream_message)}")
                         new_confirmed_quote_amount = new_confirmed_amount * avg_price
