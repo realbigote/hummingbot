@@ -4,6 +4,7 @@ import asyncio
 import aiohttp
 import logging
 import pandas as pd
+import simplejson
 from decimal import Decimal
 from libc.stdint cimport int64_t
 from threading import Lock
@@ -391,6 +392,7 @@ cdef class BlocktaneMarket(MarketBase):
                     new_confirmed_amount = Decimal(order["executed_volume"])
                     executed_amount_base_diff = new_confirmed_amount - tracked_order.executed_amount_quote
                     if executed_amount_base_diff > s_decimal_0:
+                        self.logger().info(f"Updated order status with fill from polling _update_order_status: {simplejson.dumps(order)}")
                         new_confirmed_quote_amount = new_confirmed_amount * avg_price
                         executed_amount_quote_diff = new_confirmed_quote_amount - tracked_order.executed_amount_quote
                         executed_price = executed_amount_quote_diff / executed_amount_base_diff
@@ -497,6 +499,7 @@ cdef class BlocktaneMarket(MarketBase):
                     new_confirmed_amount = Decimal(order["executed_volume"])
                     executed_amount_base_diff = new_confirmed_amount - tracked_order.executed_amount_quote
                     if executed_amount_base_diff > s_decimal_0:
+                        self.logger().info(f"Updated order status with fill from streaming _user_stream_event_listener: {simplejson.dumps(stream_message)}")
                         new_confirmed_quote_amount = new_confirmed_amount * avg_price
                         executed_amount_quote_diff = new_confirmed_quote_amount - tracked_order.executed_amount_quote
                         executed_price = executed_amount_quote_diff / executed_amount_base_diff
@@ -513,14 +516,14 @@ cdef class BlocktaneMarket(MarketBase):
                                                     tracked_order.trading_pair,
                                                     tracked_order.trade_type,
                                                     tracked_order.order_type,
-                                                    execute_price,
+                                                    executed_price,
                                                     executed_amount_base_diff,
                                                     self.c_get_fee(
                                                         tracked_order.base_asset,
                                                         tracked_order.quote_asset,
                                                         tracked_order.order_type,
                                                         tracked_order.trade_type,
-                                                        execute_price,
+                                                        executed_price,
                                                         executed_amount_base_diff
                                                     )
                                                 ))
