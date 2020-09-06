@@ -69,37 +69,3 @@ cdef class BlocktaneInFlightOrder(InFlightOrderBase):
         retval.fee_asset = data["fee_asset"]
         retval.fee_paid = Decimal(data["fee_paid"])
         return retval
-
-    def update_with_execution_report(self, execution_report: Dict[str, Any]):
-        trade_id = execution_report["t"]
-        if trade_id in self.trade_id_set:
-            # trade already recorded
-            return
-        self.trade_id_set.add(trade_id)
-        last_executed_quantity = Decimal(execution_report["l"])
-        last_commission_amount = Decimal(execution_report["n"])
-        last_commission_asset = execution_report["N"]
-        last_order_state = execution_report["X"]
-        last_executed_price = Decimal(execution_report["L"])
-        executed_amount_quote = last_executed_price * last_executed_quantity
-        self.executed_amount_base += last_executed_quantity
-        self.executed_amount_quote += executed_amount_quote
-        if last_commission_asset is not None:
-            self.fee_asset = last_commission_asset
-        self.fee_paid += last_commission_amount
-        self.last_state = last_order_state
-
-    def update_with_trade_update(self, trade_update: Dict[str, Any]):
-        trade_id = trade_update["id"]
-        logging.error("In Flight Order Tracking: " + str(trade_update))
-        # trade_update["orderId"] is type int
-        if str(trade_update["orderId"]) != self.exchange_order_id or trade_id in self.trade_id_set:
-            # trade already recorded
-            return
-        self.trade_id_set.add(trade_id)
-        self.executed_amount_base += Decimal(trade_update["qty"])
-        self.fee_paid += Decimal(trade_update["commission"])
-        self.executed_amount_quote += Decimal(trade_update["quoteQty"])
-        if not self.fee_asset:
-            self.fee_asset = trade_update["commissionAsset"]
-        return trade_update
