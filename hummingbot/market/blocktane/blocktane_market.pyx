@@ -951,15 +951,18 @@ cdef class BlocktaneMarket(MarketBase):
             path_url = f"/market/orders/{tracked_order.exchange_order_id}/cancel"
 
             cancel_result = await self._api_request("POST", path_url=path_url)
-            while cancel_result is None:
-                continue
-            self.logger().info(f"Requested cancel of order {order_id}.")
+            self.logger().info(f"Requested cancel of order {order_id} ({tracked_order.exchange_order_id})")
+
+            # TODO: this cancel resutl looks like:
+            # {"id":4699083,"uuid":"2421ceb6-a8b7-445b-9ca9-0f7f1a05e285","side":"buy","ord_type":"limit","price":"0.02","avg_price":"0.0","state":"cancel","market":"ethbtc","created_at":"2020-09-09T18:53:56+02:00","updated_at":"2020-09-09T18:56:41+02:00","origin_volume":"1.0","remaining_volume":"1.0","executed_volume":"0.0","trades_count":0}
+            # and should be used as an order status update
+
             return order_id
         except asyncio.CancelledError:
             raise
         except Exception as err:
-            if "NOT_FOUND" in str(err):
-                # The order was never there to begin with. So cancelling it is a no-op but semantically successful.
+            if "record.not_found" in str(err):
+                # The order doesn't exist, possibly because it has already been canceled
                 self.logger().info(f"The order {order_id} does not exist on Blocktane. Marking as cancelled.")
                 self.c_stop_tracking_order(order_id)
                 self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
