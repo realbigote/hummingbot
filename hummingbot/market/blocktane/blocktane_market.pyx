@@ -374,11 +374,9 @@ cdef class BlocktaneMarket(MarketBase):
                                                     tracked_order.order_type)
                         )
                         self.c_stop_tracking_order(client_order_id)
-                        self.logger().network(
+                        self.logger().warning(
                             f"Error fetching status update for the order {client_order_id}: "
-                            f"{tracked_order}",
-                            app_warning_msg=f"Could not fetch updates for the order {client_order_id}. "
-                                            f"Check API key and network connection."
+                            f"{tracked_order}"
                         )
                         continue
 
@@ -576,8 +574,8 @@ cdef class BlocktaneMarket(MarketBase):
 
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                self.logger().error("Unexpected error in user stream listener loop.", exc_info=True)
+            except Exception as e:
+                self.logger().error("Unexpected error in user stream listener loop. {e}", exc_info=True)
                 await asyncio.sleep(5.0)
 
     async def _status_polling_loop(self):
@@ -593,11 +591,9 @@ cdef class BlocktaneMarket(MarketBase):
                 self._last_poll_timestamp = self._current_timestamp
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                self.logger().network("Unexpected error while polling updates.",
-                                      exc_info=True,
-                                      app_warning_msg=f"Could not fetch updates from Blocktane. "
-                                                      f"Check API key and network connection.")
+            except Exception as e:
+                self.logger().warning(f"Unexpected error while polling updates. {e}",
+                                      exc_info=True)
                 await asyncio.sleep(5.0)
 
     async def _trading_rules_polling_loop(self):
@@ -607,11 +603,9 @@ cdef class BlocktaneMarket(MarketBase):
                 await asyncio.sleep(60 * 5)
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                self.logger().network("Unexpected error while fetching trading rule updates.",
-                                      exc_info=True,
-                                      app_warning_msg=f"Could not fetch updates from Blocktane. "
-                                                      f"Check API key and network connection.")
+            except Exception as e:
+                self.logger().warning(f"Unexpected error while fetching trading rule updates. {e}",
+                                      exc_info=True)
                 await asyncio.sleep(0.5)
 
     async def get_order(self, client_order_id: str) -> Dict[str, Any]:
@@ -820,12 +814,11 @@ cdef class BlocktaneMarket(MarketBase):
             tracked_order.last_state = "FAILURE"
             self.c_stop_tracking_order(order_id)
             order_type_str = "LIMIT" if order_type is OrderType.LIMIT else "MARKET"
-            self.logger().network(
+            self.logger().error(
                 f"Error submitting buy {order_type_str} order to Blocktane for "
                 f"{decimal_amount} {trading_pair} "
                 f"{decimal_price}.",
-                exc_info=True,
-                app_warning_msg=f"Failed to submit buy order to Blocktane. Check API key and network connection."
+                exc_info=True
             )
             self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG,
                                  MarketOrderFailureEvent(
@@ -926,12 +919,11 @@ cdef class BlocktaneMarket(MarketBase):
             tracked_order.last_state = "FAILURE"
             self.c_stop_tracking_order(order_id)
             order_type_str = "LIMIT" if order_type is OrderType.LIMIT else "MARKET"
-            self.logger().network(
+            self.logger().error(
                 f"Error submitting sell {order_type_str} order to Blocktane for "
                 f"{decimal_amount} {trading_pair} "
                 f"{decimal_price if order_type is OrderType.LIMIT else ''}.",
                 exc_info=True,
-                app_warning_msg=f"Failed to submit sell order to Blocktane. Check API key and network connection."
             )
             self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG,
                                  MarketOrderFailureEvent(self._current_timestamp, order_id, order_type))
@@ -974,11 +966,9 @@ cdef class BlocktaneMarket(MarketBase):
                                      OrderCancelledEvent(self._current_timestamp, order_id))
                 return order_id
 
-            self.logger().network(
+            self.logger().error(
                 f"Failed to cancel order {order_id}: {str(err)}.",
-                exc_info=True,
-                app_warning_msg=f"Failed to cancel the order {order_id} on Blocktane. "
-                                f"Check API key and network connection."
+                exc_info=True
             )
         return None
 
@@ -998,10 +988,9 @@ cdef class BlocktaneMarket(MarketBase):
                 for res in api_responses:
                     order_id_set.remove(res)
                     successful_cancellation.append(CancellationResult(res, True))
-        except Exception:
-            self.logger().network(
-                f"Unexpected error cancelling orders.",
-                app_warning_msg="Failed to cancel order on Blocktane. Check API key and network connection."
+        except Exception as e:
+            self.logger().error(
+                f"Unexpected error cancelling orders. {e}"
             )
 
         failed_cancellation = [CancellationResult(oid, False) for oid in order_id_set]

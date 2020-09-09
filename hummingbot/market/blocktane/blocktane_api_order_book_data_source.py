@@ -103,10 +103,9 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 self._trading_pairs = active_markets.index.tolist()
             except Exception:
                 self._trading_pairs = []
-                self.logger().network(
+                self.logger().error(
                     f"Error getting active exchange information.",
-                    exc_info=True,
-                    app_warning_msg=f"Error getting active exchange information. Check network connection."
+                    exc_info=True
                 )
         return self._trading_pairs
 
