@@ -44,7 +44,6 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
         self._blocktane_auth: BlocktaneAuth = blocktane_auth
         self._listen_for_user_stream_task = None
         self._last_recv_time: float = 0
-        self._ws = None
         super().__init__()
 
     @property
@@ -80,41 +79,26 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
                 try:
                     msg: str = await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)
                     self._last_recv_time = time.time()
-                    #self.logger().info(f"Recieved:{msg}")
                     yield msg
                 except asyncio.TimeoutError:
-                    try:
                         pong_waiter = await ws.ping()
                         await asyncio.wait_for(pong_waiter, timeout=self.PING_TIMEOUT)
                         self._last_recv_time = time.time()
-                    except asyncio.TimeoutError:
-                        raise
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as e:
             self.logger().warning("WebSocket ping timed out. Going to reconnect...")
-            return
-        except websockets.exceptions.ConnectionClosed:
-            return
+            raise
+        except websockets.exceptions.ConnectionClosed as e:
+            raise
         finally:
             await ws.close()
 
     async def messages(self) -> AsyncIterable[str]:
-        try:
-            async with (await self.get_ws_connection()) as ws:
-                self._ws = ws
-                while(True):
-                    async for msg in self._inner_messages(ws):
-                        yield msg
+        ws = await self.get_ws_connection()
+        while(True):
+            async for msg in self._inner_messages(ws):
+                yield msg
 
-        except asyncio.CancelledError as e:
-            self.logger().error(f"Exception in messages({type(e).__name__})")
-            raise
-
-    async def get_ws_connection(self):
-        # stream_url: str = WS_BASE_URL
-        # self.logger().info(f"Reconnecting to {stream_url}.")
-
-        # Create the WS connection.
-
+    def get_ws_connection(self):
         ws = websockets.connect(WS_BASE_URL, extra_headers=self._blocktane_auth.generate_auth_dict())
 
         return ws
@@ -125,12 +109,6 @@ class BlocktaneAPIUserStreamDataSource(UserStreamTrackerDataSource):
                 async for message in self.messages():
                     decoded: Dict[str, any] = ujson.loads(message)
                     output.put_nowait(decoded)
-            except asyncio.CancelledError:
-                if (self._ws is not None):
-                    await self._ws.close()
-                    del self._ws
-                    self._ws = None
-                raise
             except Exception:
                 self.logger().error("Unexpected error. Retrying after 5 seconds...", exc_info=True)
                 await asyncio.sleep(5.0)
