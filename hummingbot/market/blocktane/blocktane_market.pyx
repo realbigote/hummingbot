@@ -488,8 +488,9 @@ cdef class BlocktaneMarket(MarketBase):
                     order_status = order["state"]
                     order_id = order["id"] #temporary, perhaps
 
+                    in_flight_orders = self._in_flight_orders.copy
                     tracked_order = None
-                    for o in self._in_flight_orders.values():
+                    for o in in_flight_orders.values():
                         exchange_order_id = await o.get_exchange_order_id() # TODO: Think about this. Should we await here possibly forever if we don't get an exchange id?  We should never get an update here unless we successfully got the order id back from the api
                         if int(exchange_order_id) == int(order_id):
                             tracked_order = o
