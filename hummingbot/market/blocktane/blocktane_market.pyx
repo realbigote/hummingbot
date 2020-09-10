@@ -455,6 +455,7 @@ cdef class BlocktaneMarket(MarketBase):
                                                     tracked_order.executed_amount_quote,
                                                     tracked_order.fee_paid,
                                                     tracked_order.order_type))
+                        self.c_stop_tracking_order(client_order_id)
 
                     if order_state == "cancel":
                         tracked_order.last_state = "cancel"
@@ -465,8 +466,8 @@ cdef class BlocktaneMarket(MarketBase):
                                                     self._current_timestamp,
                                                     client_order_id
                                                 ))
-
                         self.c_stop_tracking_order(client_order_id)
+
         except Exception as e:
             self.logger().error("Update Order Status Error: " + str(e) + " " + str(e.__cause__))
 
@@ -488,8 +489,9 @@ cdef class BlocktaneMarket(MarketBase):
                     order_status = order["state"]
                     order_id = order["id"] #temporary, perhaps
 
+                    in_flight_orders = self._in_flight_orders.copy()
                     tracked_order = None
-                    for o in self._in_flight_orders.values():
+                    for o in in_flight_orders.values():
                         exchange_order_id = await o.get_exchange_order_id() # TODO: Think about this. Should we await here possibly forever if we don't get an exchange id?  We should never get an update here unless we successfully got the order id back from the api
                         if int(exchange_order_id) == int(order_id):
                             tracked_order = o
@@ -571,6 +573,8 @@ cdef class BlocktaneMarket(MarketBase):
                         continue
 
                     if order_status == "cancel":  # CANCEL
+                        self.logger().info(f"The order {tracked_order.client_order_id} has been cancelled "
+                                            f"according to Blocktane WebSocket API.")
                         tracked_order.last_state = "cancel"
                         self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
                                                 OrderCancelledEvent(self._current_timestamp,
@@ -1019,10 +1023,14 @@ cdef class BlocktaneMarket(MarketBase):
                                   data=body,
                                   timeout=self.API_CALL_TIMEOUT) as response:
                                   
-            data = await response.json()
             if response.status not in [200, 201]:  # HTTP Response code of 20X generally means it is successful
                 raise IOError(f"Error fetching response from {http_method}-{url}. HTTP Status Code {response.status}: "
-                              f"{data}")
+                              f"{await response.text()}")
+
+            try:
+                data = await response.json(content_type=None)
+            except Exception as e:
+                raise IOError(f"Malformed response. Expected JSON got:{await response.text()}")
             return data
 
     async def check_network(self) -> NetworkStatus:
