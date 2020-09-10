@@ -1019,10 +1019,14 @@ cdef class BlocktaneMarket(MarketBase):
                                   data=body,
                                   timeout=self.API_CALL_TIMEOUT) as response:
                                   
-            data = await response.json()
             if response.status not in [200, 201]:  # HTTP Response code of 20X generally means it is successful
                 raise IOError(f"Error fetching response from {http_method}-{url}. HTTP Status Code {response.status}: "
-                              f"{data}")
+                              f"{await response.text()}")
+
+            try
+                data = await response.json(content_type=None)
+            except Exception as e:
+                raise IOError(f"Malformed response. Expected JSON got:{await response.text()}")
             return data
 
     async def check_network(self) -> NetworkStatus:
