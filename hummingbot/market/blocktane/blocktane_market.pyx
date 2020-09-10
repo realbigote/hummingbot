@@ -1024,7 +1024,7 @@ cdef class BlocktaneMarket(MarketBase):
                 raise IOError(f"Error fetching response from {http_method}-{url}. HTTP Status Code {response.status}: "
                               f"{await response.text()}")
 
-            try
+            try:
                 data = await response.json(content_type=None)
             except Exception as e:
                 raise IOError(f"Malformed response. Expected JSON got:{await response.text()}")
