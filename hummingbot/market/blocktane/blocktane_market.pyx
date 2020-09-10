@@ -326,11 +326,15 @@ cdef class BlocktaneMarket(MarketBase):
         result = await self._api_request("GET", path_url=path_url)
         return result
 
-    async def get_order(self, uuid: str) -> Dict[str, Any]:
-        # Used to retrieve a single order by uuid
-        path_url = f"/market/orders/{uuid}"
+    async def get_order(self, exchange_id: str) -> Dict[str, Any]:
+        # Used to retrieve a single order by exchange_id (either numeric 1923123 or uuid)
+        path_url = f"/market/orders/{exchange_id}"
 
-        result = await self._api_request("GET", path_url=path_url)
+        try:
+            result = await self._api_request("GET", path_url=path_url)
+        except IOError as e:
+            return None
+
         return result
 
     async def _update_order_status(self):
@@ -346,18 +350,11 @@ cdef class BlocktaneMarket(MarketBase):
             if current_tick > last_tick and len(self._in_flight_orders) > 0:
 
                 tracked_orders = list(self._in_flight_orders.values())
-                open_orders = await self.list_orders()
-                open_orders = dict((entry["id"], entry) for entry in open_orders)
-
                 for tracked_order in tracked_orders:
                     exchange_order_id = await tracked_order.get_exchange_order_id()
                     client_order_id = tracked_order.client_order_id
-                    order = open_orders.get(int(exchange_order_id))
-
-                    # Do nothing, if the order has already been cancelled or has failed
-                    if client_order_id not in self._in_flight_orders:
-                        continue
-
+                
+                    order = await self.get_order(exchange_order_id)
                     if order is None:  # Handles order that are currently tracked but no longer open in exchange
                         self._order_not_found_records[client_order_id] = \
                             self._order_not_found_records.get(client_order_id, 0) + 1
@@ -366,18 +363,29 @@ cdef class BlocktaneMarket(MarketBase):
                             # Wait until the order not found error have repeated for a few times before actually treating
                             # it as a fail. See: https://github.com/CoinAlpha/hummingbot/issues/601
                             continue
+                        last_state = tracked_order.last_state
                         tracked_order.last_state = "done"
-                        self.c_trigger_event(
-                            self.MARKET_ORDER_FAILURE_EVENT_TAG,
-                            MarketOrderFailureEvent(self._current_timestamp,
-                                                    client_order_id,
-                                                    tracked_order.order_type)
-                        )
-                        self.c_stop_tracking_order(client_order_id)
+                        marked_as = 'canceled'
+                        if last_state == 'pending':
+                            self.c_trigger_event(
+                                self.MARKET_ORDER_FAILURE_EVENT_TAG,
+                                MarketOrderFailureEvent(self._current_timestamp,
+                                                        client_order_id,
+                                                        tracked_order.order_type)
+                            )
+                            marked_as = 'failed'
+                        else:
+                            self.c_trigger_event(
+                                self.MARKET_ORDER_CANCELLED_EVENT_TAG,
+                                OrderCancelledEvent(self._current_timestamp,
+                                    client_order_id
+                                )
+                            )
                         self.logger().warning(
                             f"Error fetching status update for the order {client_order_id}: "
-                            f"{tracked_order}"
+                            f"{tracked_order}. Marking as {marked_as}"
                         )
+                        self.c_stop_tracking_order(client_order_id)
                         continue
 
                     order_state = order["state"]
@@ -482,10 +490,10 @@ cdef class BlocktaneMarket(MarketBase):
 
                     tracked_order = None
                     for o in self._in_flight_orders.values():
-                        if o.exchange_order_id is not None:
-                            if int(o.exchange_order_id) == int(order_id):
-                                tracked_order = o
-                                break
+                        exchange_order_id = await o.get_exchange_order_id() # TODO: Think about this. Should we await here possibly forever if we don't get an exchange id?  We should never get an update here unless we successfully got the order id back from the api
+                        if int(exchange_order_id) == int(order_id):
+                            tracked_order = o
+                            break
 
                     if tracked_order is None:
                         self.logger().debug(f"Unrecognized order ID from user stream: {order_id}.")
@@ -608,13 +616,6 @@ cdef class BlocktaneMarket(MarketBase):
                                       exc_info=True)
                 await asyncio.sleep(0.5)
 
-    async def get_order(self, client_order_id: str) -> Dict[str, Any]:
-        order = self._in_flight_orders.get(client_order_id)
-        exchange_order_id = await order.get_exchange_order_id()
-        path_url = f"/market/orders/{exchange_order_id}"
-        result = await self._api_request("GET", path_url=path_url)
-        return result
-
     async def get_deposit_address(self, currency: str) -> str:
         path_url = f"/account/deposit_address/{currency}"
 
@@ -726,11 +727,9 @@ cdef class BlocktaneMarket(MarketBase):
                 "volume": str(amount),
                 "ord_type": "market"
             }
-        try:
-            api_response = await self._api_request("POST", path_url=path_url, params=params)
-            return api_response
-        except Exception:
-            raise Exception
+
+        api_response = await self._api_request("POST", path_url=path_url, params=params)
+        return api_response
 
     async def execute_buy(self,
                           order_id: str,
@@ -768,15 +767,12 @@ cdef class BlocktaneMarket(MarketBase):
             )
 
             if order_type is OrderType.LIMIT:
-
                 order_result = await self.place_order(order_id,
                                                       trading_pair,
                                                       decimal_amount,
                                                       True,
                                                       order_type,
-                                                      decimal_price)
-                while order_result is None:
-                    continue                        
+                                                      decimal_price)                   
             elif order_type is OrderType.MARKET:
                 decimal_price = self.c_get_price(trading_pair, True)
                 order_result = await self.place_order(order_id,
@@ -882,8 +878,6 @@ cdef class BlocktaneMarket(MarketBase):
                                                       False,
                                                       order_type,
                                                       decimal_price)
-                while order_result is None:
-                    continue
             elif order_type is OrderType.MARKET:
                 decimal_price = self.c_get_price(trading_pair, False)
                 order_result = await self.place_order(order_id,
@@ -944,22 +938,25 @@ cdef class BlocktaneMarket(MarketBase):
     async def execute_cancel(self, trading_pair: str, order_id: str):
         try:
             tracked_order = self._in_flight_orders.get(order_id)
-
             if tracked_order is None:
                 self.logger().error(f"The order {order_id} is not tracked. ")
                 raise ValueError
-            path_url = f"/market/orders/{tracked_order.exchange_order_id}/cancel"
+            exchange_order_id = await tracked_order.get_exchange_order_id()
+            path_url = f"/market/orders/{exchange_order_id}/cancel"
 
             cancel_result = await self._api_request("POST", path_url=path_url)
-            while cancel_result is None:
-                continue
-            self.logger().info(f"Requested cancel of order {order_id}.")
+            self.logger().info(f"Requested cancel of order {order_id} ({exchange_order_id})")
+
+            # TODO: this cancel result looks like:
+            # {"id":4699083,"uuid":"2421ceb6-a8b7-445b-9ca9-0f7f1a05e285","side":"buy","ord_type":"limit","price":"0.02","avg_price":"0.0","state":"cancel","market":"ethbtc","created_at":"2020-09-09T18:53:56+02:00","updated_at":"2020-09-09T18:56:41+02:00","origin_volume":"1.0","remaining_volume":"1.0","executed_volume":"0.0","trades_count":0}
+            # and should be used as an order status update
+
             return order_id
         except asyncio.CancelledError:
             raise
         except Exception as err:
-            if "NOT_FOUND" in str(err):
-                # The order was never there to begin with. So cancelling it is a no-op but semantically successful.
+            if "record.not_found" in str(err):
+                # The order doesn't exist, possibly because it has already been canceled
                 self.logger().info(f"The order {order_id} does not exist on Blocktane. Marking as cancelled.")
                 self.c_stop_tracking_order(order_id)
                 self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
