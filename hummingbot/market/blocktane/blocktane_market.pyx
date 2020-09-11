@@ -347,6 +347,7 @@ cdef class BlocktaneMarket(MarketBase):
             int64_t current_tick = <int64_t>(self._current_timestamp / self.UPDATE_ORDERS_INTERVAL)
 
         try:
+            self.logger().info("Running the _update_order_status loop")
             if current_tick > last_tick and len(self._in_flight_orders) > 0:
 
                 tracked_orders = list(self._in_flight_orders.values())
@@ -455,6 +456,8 @@ cdef class BlocktaneMarket(MarketBase):
                                                     tracked_order.executed_amount_quote,
                                                     tracked_order.fee_paid,
                                                     tracked_order.order_type))
+                        else:
+                            raise ValueError("Invalid trade_type for {client_order_id}: {tracked_order.trade_type}")
                         self.c_stop_tracking_order(client_order_id)
 
                     if order_state == "cancel":
@@ -537,7 +540,8 @@ cdef class BlocktaneMarket(MarketBase):
                                                 ))
 
                     if order_status == "done":  # FILL(COMPLETE)
-                        # trade_type = TradeType.BUY if content["OT"] == "LIMIT_BUY" else TradeType.SELL
+                        self.logger().info(f"The order "
+                                        f"{tracked_order.client_order_id} has completed according to Blocktane User stream.")
                         tracked_order.last_state = "done"
                         if tracked_order.trade_type is TradeType.BUY:
                             self.logger().info(f"The LIMIT_BUY order {tracked_order.client_order_id} has completed "
@@ -569,6 +573,8 @@ cdef class BlocktaneMarket(MarketBase):
                                                         tracked_order.fee_paid,
                                                         tracked_order.order_type
                                                     ))
+                        else:
+                            raise ValueError("Invalid trade_type for {tracked_order.client_order_id}: {tracked_order.trade_type}")
                         self.c_stop_tracking_order(tracked_order.client_order_id)
                         continue
 
