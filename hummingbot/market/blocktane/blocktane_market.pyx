@@ -347,7 +347,6 @@ cdef class BlocktaneMarket(MarketBase):
             int64_t current_tick = <int64_t>(self._current_timestamp / self.UPDATE_ORDERS_INTERVAL)
 
         try:
-            self.logger().info("Running the _update_order_status loop")
             if current_tick > last_tick and len(self._in_flight_orders) > 0:
 
                 tracked_orders = list(self._in_flight_orders.values())
@@ -798,7 +797,7 @@ cdef class BlocktaneMarket(MarketBase):
             exchange_order_id = str(order_result["id"])
 
             tracked_order = self._in_flight_orders.get(order_id)
-            if tracked_order is not None and exchange_order_id:
+            if tracked_order is not None:
                 tracked_order.update_exchange_order_id(exchange_order_id)
                 order_type_str = "MARKET" if order_type == OrderType.MARKET else "LIMIT"
                 self.logger().info(f"Created {order_type_str} buy order {order_id} for "
@@ -818,6 +817,7 @@ cdef class BlocktaneMarket(MarketBase):
         except Exception:
             tracked_order = self._in_flight_orders.get(order_id)
             tracked_order.last_state = "FAILURE"
+            tracked_order.update_exchange_order_id(tracked_order.exchange_order_id) # a symantic no-op, but prevents deadlock on get_exchange_order_id()
             self.c_stop_tracking_order(order_id)
             order_type_str = "LIMIT" if order_type is OrderType.LIMIT else "MARKET"
             self.logger().error(
