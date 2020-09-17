@@ -35,6 +35,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         object mirrored_quote_total_balance
         bint two_sided_mirroring
         bint funds_message_sent
+        bint offset_beyond_threshold_message_sent
         bint fail_message_sent
         object start_time
         object start_wallet_check_time
