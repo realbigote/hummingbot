@@ -348,10 +348,12 @@ cdef class BlocktaneMarket(MarketBase):
 
         try:
             if current_tick > last_tick and len(self._in_flight_orders) > 0:
-
+                self.logger().info("Running the _update_order_status loop")
                 tracked_orders = list(self._in_flight_orders.values())
                 for tracked_order in tracked_orders:
                     exchange_order_id = await tracked_order.get_exchange_order_id()
+                    if exchange_order_id is None:
+                        continue
                     client_order_id = tracked_order.client_order_id
                 
                     order = await self.get_order(exchange_order_id)
@@ -494,8 +496,8 @@ cdef class BlocktaneMarket(MarketBase):
                     in_flight_orders = self._in_flight_orders.copy()
                     tracked_order = None
                     for o in in_flight_orders.values():
-                        exchange_order_id = await o.get_exchange_order_id() # TODO: Think about this. Should we await here possibly forever if we don't get an exchange id?  We should never get an update here unless we successfully got the order id back from the api
-                        if int(exchange_order_id) == int(order_id):
+                        exchange_order_id = await o.get_exchange_order_id() 
+                        if exchange_order_id is not None and int(exchange_order_id) == int(order_id):
                             tracked_order = o
                             break
 
@@ -812,8 +814,6 @@ cdef class BlocktaneMarket(MarketBase):
                                          order_id
                                      ))
 
-        except asyncio.CancelledError:
-            raise
         except Exception:
             tracked_order = self._in_flight_orders.get(order_id)
             tracked_order.last_state = "FAILURE"
@@ -916,11 +916,10 @@ cdef class BlocktaneMarket(MarketBase):
                                          decimal_price,
                                          order_id
                                      ))
-        except asyncio.CancelledError:
-            raise
         except Exception:
             tracked_order = self._in_flight_orders.get(order_id)
             tracked_order.last_state = "FAILURE"
+            tracked_order.update_exchange_order_id(tracked_order.exchange_order_id) # a symantic no-op, but prevents deadlock on get_exchange_order_id()
             self.c_stop_tracking_order(order_id)
             order_type_str = "LIMIT" if order_type is OrderType.LIMIT else "MARKET"
             self.logger().error(
