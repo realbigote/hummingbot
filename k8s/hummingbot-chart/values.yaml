@@ -71,13 +71,16 @@ persistence:
 strategies:
   - name: bc-ftx-btc-brl
     config: trade.bolsacripto.com.ftx.btc.brl.yml
-    subfolder: '001'
+    subfolder: 'bc-ftx-btc-brl'
   - name: bc-ftx-btc-pax
     config: trade.bolsacripto.com.ftx.btc.pax.yml
-    subfolder: '002'
+    subfolder: 'bc-ftx-btc-pax'
   - name: bc-ftx-eth-btc
     config: trade.bolsacripto.com.ftx.eth.btc.yml
-    subfolder: '003' 
+    subfolder: 'bc-ftx-eth-btc' 
   - name: binance-ftx-eth-usdt
     config: binance.ftx.eth.usdt.yml
-    subfolder: '004'
+    subfolder: 'binance-ftx-eth-usdt'
+  - name: loopring-binance-lrc-usdt
+    config: loopring.binance.lrc.usdt.yml
+    subfolder: 'loopring-binance-lrc-usdt'
