@@ -137,12 +137,6 @@ liquidity_mirroring_config_map = {
         prompt_on_new=True,
         type_str="float"
     ),
-    "order_replacement_scale_factor": ConfigVar(
-        key="order_replacment_scale_factor",
-        prompt="Enter the scaling factor for order replacement across the books >>> "
-        prompt_on_new=True,
-        type_str="float"
-    ),
     "bid_amount_ratio_type": ConfigVar(
         key="bid_amount_ratio_type",
         prompt="Enter the type of bid amount ratios you would like >>> ",

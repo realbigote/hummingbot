@@ -32,7 +32,6 @@ def start(self):
     paper_trade_offset = liquidity_mirroring_config_map.get("paper_trade_offset").value
     slack_update_period = liquidity_mirroring_config_map.get("slack_update_period").value
     order_replacement_threshold = liquidity_mirroring_config_map.get("order_replacement_threshold").value
-    order_replacement_scale_factor = liquidity_mirroring_config_map.get("order_replacement_scale_factor").value
 
     bid_ratios_type = liquidity_mirroring_config_map.get("bid_amount_ratio_type").value
     if bid_ratios_type == "manual":
@@ -133,8 +132,7 @@ def start(self):
                                                equivalent_tokens=equivalent_tokens,
                                                min_primary_amount=min_primary_amount,
                                                min_mirroring_amount=min_mirroring_amount,
-                                               order_replacement_threshold=order_replacement_threshold,
-                                               order_replacement_scale_factor=order_replacement_scale_factor,
+                                               order_replacement_threshold=order_replacement_threshold,                                               
                                                slack_hook=slack_hook,
                                                slack_update_period=slack_update_period,
                                                logging_options=LiquidityMirroringStrategy.OPTION_LOG_ALL)

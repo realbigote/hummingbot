@@ -34,7 +34,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         object mirrored_base_total_balance
         object mirrored_quote_total_balance
         object order_replacement_threshold
-        object order_replacement_scale_factor
         bint two_sided_mirroring
         bint funds_message_sent
         bint offset_beyond_threshold_message_sent

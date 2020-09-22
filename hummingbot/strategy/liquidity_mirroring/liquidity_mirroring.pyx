@@ -68,7 +68,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                  bid_amount_percents: list,
                  ask_amount_percents: list,
                  order_replacement_threshold: Decimal,
-                 order_replacement_scale_factor: Decimal,
                  slack_hook: str,
                  slack_update_period: Decimal,
                  logging_options: int = OPTION_LOG_ORDER_COMPLETED,
@@ -97,7 +96,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self._cool_off_logged = False
         self.two_sided_mirroring = two_sided_mirroring
         self.order_replacement_threshold = order_replacement_threshold
-        self.order_replacement_scale_factor = order_replacement_scale_factor
         self._failed_market_order_count = 0
         self._last_failed_market_order_timestamp = Decimal(0)
                                                                 
@@ -779,8 +777,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 current_level += 1
                 bid_levels.append({"price": bids[i].price, "amount": bids[i].amount})
                 current_bid_price = bids[i].price
-                percentage_from_midpoint = 
-                threshold = self.previous_buys[current_level] * (midpoint - self.previous_buys[current_level]) * self.order_replacement_threshold
+                percentage_from_midpoint = (midpoint - self.previous_buys[current_level])/midpoint
+                threshold = (1 + percentage_from_midpoint) * self.order_replacement_threshold * self.previous_buys[current_level]
 
                 if (abs(current_bid_price - self.previous_buys[current_level]) > threshold):
                     self.previous_buys[current_level] = current_bid_price
@@ -801,7 +799,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 current_level += 1
                 ask_levels.append({"price": asks[i].price, "amount": asks[i].amount})
                 current_ask_price = asks[i].price
-                threshold = self.previous_sells[current_level] * (self.previous_sells[current_level] - midpoint) * Decimal(0.0005)
+                percentage_from_midpoint = (self.previous_sells[current_level] - midpoint)/midpoint
+                threshold = (1 + percentage_from_midpoint) * self.order_replacement_threshold * self.previous_sells[current_level]
                 if (abs(current_ask_price - self.previous_sells[current_level]) > threshold):
                     self.previous_sells[current_level] = current_ask_price
                     if current_level not in self.ask_replace_ranks:

@@ -30,7 +30,6 @@ paper_trade_offset: null
 slack_update_period: null
 max_offsetting_exposure: null
 order_replacement_threshold: null
-order_replacement_scale_factor: null
 
 # For more detailed information, see:
 # https://docs.hummingbot.io/strategies/arbitrage/#configuration-parameters
