@@ -37,6 +37,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         object order_replacement_scale_factor
         bint two_sided_mirroring
         bint funds_message_sent
+        bint offset_beyond_threshold_message_sent
         bint fail_message_sent
         object start_time
         object start_wallet_check_time
