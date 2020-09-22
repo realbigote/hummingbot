@@ -146,6 +146,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.mirrored_quote_total_balance = Decimal(0)
         self.balances_set = False     
         self.funds_message_sent = False
+        self.offset_beyond_threshold_message_sent = False
         self.fail_message_sent = False
 
         self.min_primary_amount = Decimal(min_primary_amount)
@@ -815,6 +816,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             if (time_elapsed > 1800):
                 if self.funds_message_sent == True:
                     self.funds_message_sent = False
+            if (time_elapsed > 600):
+                if self.offset_beyond_threshold_message_sent == True:
+                    self.offset_beyond_threshold_message_sent = False
             if (time_elapsed > 60):
                 if self.fail_message_sent == True:
                     self.fail_message_sent = False
@@ -1022,8 +1026,14 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                 break
 
     def adjust_mirrored_orderbook(self,mirrored_market_pair,best_bid,best_ask):
-        if (abs(self.pm.amount_to_offset) > self.max_offsetting_exposure):
-            SlackPusher(self.slack_url, "Offsetting exposure beyond threshold")
+        if not self.offset_beyond_threshold_message_sent:
+            if (abs(self.pm.amount_to_offset) > self.max_offsetting_exposure):
+                SlackPusher(self.slack_url, "Offsetting exposure beyond threshold")
+                self.offset_beyond_threshold_message_sent = True
+        else:
+            if (abs(self.pm.amount_to_offset) < self.max_offsetting_exposure):
+                SlackPusher(self.slack_url, "Offsetting exposure within threshold")
+                self.offset_beyond_threshold_message_sent = False
         mirrored_market: MarketBase = mirrored_market_pair.market
         if self.pm.amount_to_offset.is_zero():
             return
