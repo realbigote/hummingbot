@@ -469,7 +469,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.mirrored_base_total_balance += buy_order_completed_event.base_asset_amount
                     self.mirrored_quote_total_balance -= buy_order_completed_event.quote_asset_amount
                     self.has_been_offset.append(f"{order_id}COMPLETE")
-                    self.slack_order_filled_message(self.primary_market_pairs[0].market.name, buy_order_completed_event.base_asset_amount, price, True)
+                    self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, buy_order_completed_event.base_asset_amount, price, True)
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id} ({price}, {buy_order_completed_event.base_asset_amount})")
