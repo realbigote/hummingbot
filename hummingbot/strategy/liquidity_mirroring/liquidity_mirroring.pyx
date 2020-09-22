@@ -67,6 +67,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                  min_mirroring_amount: Decimal,
                  bid_amount_percents: list,
                  ask_amount_percents: list,
+                 order_replacement_threshold: Decimal,
+                 order_replacement_scale_factor: Decimal,
                  slack_hook: str,
                  slack_update_period: Decimal,
                  logging_options: int = OPTION_LOG_ORDER_COMPLETED,
@@ -94,6 +96,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self._failed_order_tolerance = failed_order_tolerance
         self._cool_off_logged = False
         self.two_sided_mirroring = two_sided_mirroring
+        self.order_replacement_threshold = order_replacement_threshold
+        self.order_replacement_scale_factor = order_replacement_scale_factor
         self._failed_market_order_count = 0
         self._last_failed_market_order_timestamp = Decimal(0)
                                                                 
@@ -744,7 +748,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         midpoint = (best_ask.price + best_bid.price)/Decimal(2)
         #TODO Make this configurable
-        threshold = Decimal(0.0005) * self.previous_buys[0]
+        threshold = self.order_replacement_threshold * self.previous_buys[0]
 
         #TODO make these thresholds dynamic and sensible
         if (abs(best_bid.price - self.previous_buys[0]) > threshold):
@@ -755,7 +759,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if (self.best_bid_start.is_zero()):
             self.best_bid_start = best_bid.price
 
-        threshold = Decimal(0.0005) * self.previous_sells[0]
+        threshold = self.order_replacement_threshold * self.previous_sells[0]
         if (abs(best_ask.price - self.previous_sells[0]) > threshold):
             self.previous_sells[0] = best_ask.price
             if 0 not in self.ask_replace_ranks:
@@ -774,7 +778,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 current_level += 1
                 bid_levels.append({"price": bids[i].price, "amount": bids[i].amount})
                 current_bid_price = bids[i].price
-                threshold = self.previous_buys[current_level] * (midpoint - self.previous_buys[current_level]) * Decimal(0.0005)
+                percentage_from_midpoint = 
+                threshold = self.previous_buys[current_level] * (midpoint - self.previous_buys[current_level]) * self.order_replacement_threshold
 
                 if (abs(current_bid_price - self.previous_buys[current_level]) > threshold):
                     self.previous_buys[current_level] = current_bid_price
