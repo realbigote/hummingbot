@@ -95,7 +95,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self._failed_order_tolerance = failed_order_tolerance
         self._cool_off_logged = False
         self.two_sided_mirroring = two_sided_mirroring
-        self.order_replacement_threshold = order_replacement_threshold
+        self.order_replacement_threshold = Decimal(order_replacement_threshold)
         self._failed_market_order_count = 0
         self._last_failed_market_order_timestamp = Decimal(0)
                                                                 
