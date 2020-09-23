@@ -63,7 +63,7 @@ class BlocktaneOrderBookTracker(OrderBookTracker):
         return "blocktane"
 
     async def start(self):
-        await super().start()
+        super().start()
         self._order_book_trade_listener_task = safe_ensure_future(
             self.data_source.listen_for_trades(self._ev_loop, self._order_book_trade_stream)
         )
