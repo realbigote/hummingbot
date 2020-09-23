@@ -885,7 +885,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 else:
                     if order["price"] <= adjusted_bid:
                         self.crossed_books = True
-                        self.logger().warning("HERE")
                         try:
                             self.c_cancel_order(primary_market_pair,order_id)
                         except:
@@ -978,7 +977,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 else:
                     if order["price"] >= adjusted_ask:
                         self.crossed_books = True
-                        self.logger().warning("HERE")
                         try:
                             self.c_cancel_order(primary_market_pair,order_id)
                         except:
