@@ -148,6 +148,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.funds_message_sent = False
         self.offset_beyond_threshold_message_sent = False
         self.fail_message_sent = False
+        self.crossed_books = False
 
         self.min_primary_amount = Decimal(min_primary_amount)
         self.min_mirroring_amount = Decimal(min_mirroring_amount)
@@ -881,6 +882,18 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                 self.c_cancel_order(primary_market_pair,order_id)
                             except:
                                 break
+                else:
+                    if order["price"] <= adjusted_bid:
+                        self.crossed_books = True
+                        self.logger().warning("HERE")
+                        try:
+                            self.c_cancel_order(primary_market_pair,order_id)
+                        except:
+                            break 
+
+            if self.crossed_books:
+                self.no_more_bids = True
+                self.crossed_books = False
 
             self.bid_replace_ranks.clear()
             if not no_more_bids:
@@ -896,7 +909,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                               quant_price * quant_amount) and (self.check_flat_fee_coverage(primary_market, bid_fee_object.flat_fees)):
                                 order_id = self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                                 self.marked_for_deletion[order_id] = {"is_buy": True,
-                                                                      "rank": 0}
+                                                                      "rank": 0,
+                                                                      "price": adjusted_bid}
                             else:
                                 self.logger().warning(f"INSUFFICIENT FUNDS for buy on {primary_market.name}")
                                 if not self.funds_message_sent:
@@ -934,7 +948,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                   quant_price * quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
                                       order_id = self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                                       self.marked_for_deletion[order_id] = {"is_buy": True,
-                                                                            "rank": (i+1)}
+                                                                            "rank": (i+1),
+                                                                            "price": bid_price}
                                 else:
                                     self.logger().warning(f"INSUFFICIENT FUNDS for buy on {primary_market.name}")
                                     if not self.funds_message_sent:
@@ -960,6 +975,18 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                 self.c_cancel_order(primary_market_pair,order_id)
                             except:                            
                                 break
+                else:
+                    if order["price"] >= adjusted_ask:
+                        self.crossed_books = True
+                        self.logger().warning("HERE")
+                        try:
+                            self.c_cancel_order(primary_market_pair,order_id)
+                        except:
+                            break
+
+            if self.crossed_books:
+                self.no_more_asks = True
+                self.crossed_books = False
 
             self.ask_replace_ranks.clear()
 
@@ -976,7 +1003,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                               quant_amount) and (self.check_flat_fee_coverage(primary_market, ask_fee_object.flat_fees)):
                                   order_id = self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                                   self.marked_for_deletion[order_id] = {"is_buy": False,
-                                                                        "rank": 0}
+                                                                        "rank": 0,
+                                                                        "price": adjusted_ask}
                             else:
                                 self.logger().warning(f"INSUFFICIENT FUNDS for sell on {primary_market.name}")
                                 if not self.funds_message_sent:
@@ -1014,7 +1042,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                   quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
                                     order_id = self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                                     self.marked_for_deletion[order_id] = {"is_buy": False,
-                                                                          "rank": (i+1)}
+                                                                          "rank": (i+1),
+                                                                          "price": ask_price}
                                 else:
                                     self.logger().warning(f"INSUFFICIENT FUNDs for sell on {primary_market.name}!")
                                     if not self.funds_message_sent:

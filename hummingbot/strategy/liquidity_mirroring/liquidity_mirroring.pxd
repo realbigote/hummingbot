@@ -37,6 +37,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         bint funds_message_sent
         bint offset_beyond_threshold_message_sent
         bint fail_message_sent
+        bint crossed_books
         object start_time
         object start_wallet_check_time
         object primary_best_bid
