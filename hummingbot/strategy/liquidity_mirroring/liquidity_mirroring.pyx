@@ -888,7 +888,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
             self.bid_replace_ranks.clear()
             if not no_more_bids:
-                if 0 in self.buys_to_replace:
+                if 0 in self.buys_to_replace and (len(bids) > 0):
                     amount = Decimal(min(best_bid.amount, (self.bid_amounts[0])))
                     if (amount >= Decimal(self.min_primary_amount)):                                                     
                         self.buys_to_replace.remove(0)
@@ -912,7 +912,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                             pass
 
                 price = self.primary_best_bid
-                for i in range(0,len(self.bid_amounts) - 1):
+                for i in range(0,min(len(self.bid_amounts) - 1, len(bids) - 1)):
                     price -= bid_inc
                     if (i+1) in self.buys_to_replace:
                         if len(bids) > (i + 1):
@@ -967,7 +967,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
             self.ask_replace_ranks.clear()
 
-            if not no_more_asks:
+            if not no_more_asks and (len(asks) > 0):
                 if 0 in self.sells_to_replace:
                     amount = Decimal(min(best_ask.amount, self.ask_amounts[0]))
                     if (amount >= Decimal(self.min_primary_amount)):
@@ -992,7 +992,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                             pass
     
                 price = self.primary_best_ask
-                for i in range(0,len(self.ask_amounts) - 1):
+                for i in range(0,min(len(self.ask_amounts) - 1, len(asks) - 1)):
                     price += ask_inc
                     if (i+1) in self.sells_to_replace:
                         if len(asks) > (i + 1):
