@@ -677,7 +677,7 @@ cdef class FtxMarket(MarketBase):
         if quantized_amount < trading_rule.min_order_size:
             return s_decimal_0
 
-        if quantized_amount < trading_rule.min_order_value:
+        if (price > s_decimal_0) and (quantized_amount * price) < trading_rule.min_order_value:
             return s_decimal_0
 
         return quantized_amount
