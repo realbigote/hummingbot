@@ -130,6 +130,13 @@ liquidity_mirroring_config_map = {
         prompt_on_new=True,
         type_str="float"
     ),
+    "order_replacement_threshold": ConfigVar(
+        key="order_replacement_threshold",
+        prompt=("Enter the min percentage change in best bid/ask on taker exchange to trigger " 
+          "an order replacment for best bid/ask on the maker exchange (1% = 0.01) >>> "),
+        prompt_on_new=True,
+        type_str="float"
+    ),
     "bid_amount_ratio_type": ConfigVar(
         key="bid_amount_ratio_type",
         prompt="Enter the type of bid amount ratios you would like >>> ",

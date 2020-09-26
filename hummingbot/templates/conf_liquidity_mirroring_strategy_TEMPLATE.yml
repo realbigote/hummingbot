@@ -2,7 +2,7 @@
 ###   Liquidity Mirroring strategy config   ###
 ###############################################
 
-template_version: 3
+template_version: 4
 strategy: null
 
 # The following configuations are only required for the
@@ -29,6 +29,7 @@ ask_amount_ratios: null
 paper_trade_offset: null
 slack_update_period: null
 max_offsetting_exposure: null
+order_replacement_threshold: null
 
 # For more detailed information, see:
 # https://docs.hummingbot.io/strategies/arbitrage/#configuration-parameters

@@ -67,6 +67,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                  min_mirroring_amount: Decimal,
                  bid_amount_percents: list,
                  ask_amount_percents: list,
+                 order_replacement_threshold: Decimal,
                  slack_hook: str,
                  slack_update_period: Decimal,
                  logging_options: int = OPTION_LOG_ORDER_COMPLETED,
@@ -94,6 +95,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self._failed_order_tolerance = failed_order_tolerance
         self._cool_off_logged = False
         self.two_sided_mirroring = two_sided_mirroring
+        self.order_replacement_threshold = Decimal(order_replacement_threshold)
         self._failed_market_order_count = 0
         self._last_failed_market_order_timestamp = Decimal(0)
                                                                 
@@ -146,7 +148,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.mirrored_quote_total_balance = Decimal(0)
         self.balances_set = False     
         self.funds_message_sent = False
+        self.offset_beyond_threshold_message_sent = False
         self.fail_message_sent = False
+        self.crossed_books = False
 
         self.min_primary_amount = Decimal(min_primary_amount)
         self.min_mirroring_amount = Decimal(min_mirroring_amount)
@@ -468,7 +472,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     self.mirrored_base_total_balance += buy_order_completed_event.base_asset_amount
                     self.mirrored_quote_total_balance -= buy_order_completed_event.quote_asset_amount
                     self.has_been_offset.append(f"{order_id}COMPLETE")
-                    self.slack_order_filled_message(self.primary_market_pairs[0].market.name, buy_order_completed_event.base_asset_amount, price, True)
+                    self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, buy_order_completed_event.base_asset_amount, price, True)
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id} ({price}, {buy_order_completed_event.base_asset_amount})")
@@ -744,7 +748,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         midpoint = (best_ask.price + best_bid.price)/Decimal(2)
         #TODO Make this configurable
-        threshold = Decimal(0.0005) * self.previous_buys[0]
+        threshold = self.order_replacement_threshold * self.previous_buys[0]
 
         #TODO make these thresholds dynamic and sensible
         if (abs(best_bid.price - self.previous_buys[0]) > threshold):
@@ -755,7 +759,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         if (self.best_bid_start.is_zero()):
             self.best_bid_start = best_bid.price
 
-        threshold = Decimal(0.0005) * self.previous_sells[0]
+        threshold = self.order_replacement_threshold * self.previous_sells[0]
         if (abs(best_ask.price - self.previous_sells[0]) > threshold):
             self.previous_sells[0] = best_ask.price
             if 0 not in self.ask_replace_ranks:
@@ -774,7 +778,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 current_level += 1
                 bid_levels.append({"price": bids[i].price, "amount": bids[i].amount})
                 current_bid_price = bids[i].price
-                threshold = self.previous_buys[current_level] * (midpoint - self.previous_buys[current_level]) * Decimal(0.0005)
+                percentage_from_midpoint = (midpoint - self.previous_buys[current_level])/midpoint
+                threshold = (1 + percentage_from_midpoint) * self.order_replacement_threshold * self.previous_buys[current_level]
 
                 if (abs(current_bid_price - self.previous_buys[current_level]) > threshold):
                     self.previous_buys[current_level] = current_bid_price
@@ -795,7 +800,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 current_level += 1
                 ask_levels.append({"price": asks[i].price, "amount": asks[i].amount})
                 current_ask_price = asks[i].price
-                threshold = self.previous_sells[current_level] * (self.previous_sells[current_level] - midpoint) * Decimal(0.0005)
+                percentage_from_midpoint = (self.previous_sells[current_level] - midpoint)/midpoint
+                threshold = (1 + percentage_from_midpoint) * self.order_replacement_threshold * self.previous_sells[current_level]
                 if (abs(current_ask_price - self.previous_sells[current_level]) > threshold):
                     self.previous_sells[current_level] = current_ask_price
                     if current_level not in self.ask_replace_ranks:
@@ -815,6 +821,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             if (time_elapsed > 1800):
                 if self.funds_message_sent == True:
                     self.funds_message_sent = False
+            if (time_elapsed > 600):
+                if self.offset_beyond_threshold_message_sent == True:
+                    self.offset_beyond_threshold_message_sent = False
             if (time_elapsed > 60):
                 if self.fail_message_sent == True:
                     self.fail_message_sent = False
@@ -877,10 +886,21 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                 self.c_cancel_order(primary_market_pair,order_id)
                             except:
                                 break
+                else:
+                    if order["price"] <= adjusted_bid:
+                        self.crossed_books = True
+                        try:
+                            self.c_cancel_order(primary_market_pair,order_id)
+                        except:
+                            break 
+
+            if self.crossed_books:
+                self.no_more_bids = True
+                self.crossed_books = False
 
             self.bid_replace_ranks.clear()
             if not no_more_bids:
-                if 0 in self.buys_to_replace:
+                if 0 in self.buys_to_replace and (len(bids) > 0):
                     amount = Decimal(min(best_bid.amount, (self.bid_amounts[0])))
                     if (amount >= Decimal(self.min_primary_amount)):                                                     
                         self.buys_to_replace.remove(0)
@@ -892,7 +912,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                               quant_price * quant_amount) and (self.check_flat_fee_coverage(primary_market, bid_fee_object.flat_fees)):
                                 order_id = self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                                 self.marked_for_deletion[order_id] = {"is_buy": True,
-                                                                      "rank": 0}
+                                                                      "rank": 0,
+                                                                      "price": adjusted_bid}
                             else:
                                 self.logger().warning(f"INSUFFICIENT FUNDS for buy on {primary_market.name}")
                                 if not self.funds_message_sent:
@@ -904,7 +925,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                             pass
 
                 price = self.primary_best_bid
-                for i in range(0,len(self.bid_amounts) - 1):
+                for i in range(0,min(len(self.bid_amounts) - 1, len(bids) - 1)):
                     price -= bid_inc
                     if (i+1) in self.buys_to_replace:
                         if len(bids) > (i + 1):
@@ -930,7 +951,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                   quant_price * quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
                                       order_id = self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                                       self.marked_for_deletion[order_id] = {"is_buy": True,
-                                                                            "rank": (i+1)}
+                                                                            "rank": (i+1),
+                                                                            "price": bid_price}
                                 else:
                                     self.logger().warning(f"INSUFFICIENT FUNDS for buy on {primary_market.name}")
                                     if not self.funds_message_sent:
@@ -956,10 +978,21 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                 self.c_cancel_order(primary_market_pair,order_id)
                             except:                            
                                 break
+                else:
+                    if order["price"] >= adjusted_ask:
+                        self.crossed_books = True
+                        try:
+                            self.c_cancel_order(primary_market_pair,order_id)
+                        except:
+                            break
+
+            if self.crossed_books:
+                self.no_more_asks = True
+                self.crossed_books = False
 
             self.ask_replace_ranks.clear()
 
-            if not no_more_asks:
+            if not no_more_asks and (len(asks) > 0):
                 if 0 in self.sells_to_replace:
                     amount = Decimal(min(best_ask.amount, self.ask_amounts[0]))
                     if (amount >= Decimal(self.min_primary_amount)):
@@ -972,7 +1005,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                               quant_amount) and (self.check_flat_fee_coverage(primary_market, ask_fee_object.flat_fees)):
                                   order_id = self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                                   self.marked_for_deletion[order_id] = {"is_buy": False,
-                                                                        "rank": 0}
+                                                                        "rank": 0,
+                                                                        "price": adjusted_ask}
                             else:
                                 self.logger().warning(f"INSUFFICIENT FUNDS for sell on {primary_market.name}")
                                 if not self.funds_message_sent:
@@ -984,7 +1018,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                             pass
     
                 price = self.primary_best_ask
-                for i in range(0,len(self.ask_amounts) - 1):
+                for i in range(0,min(len(self.ask_amounts) - 1, len(asks) - 1)):
                     price += ask_inc
                     if (i+1) in self.sells_to_replace:
                         if len(asks) > (i + 1):
@@ -1010,7 +1044,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                   quant_amount) and (self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
                                     order_id = self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                                     self.marked_for_deletion[order_id] = {"is_buy": False,
-                                                                          "rank": (i+1)}
+                                                                          "rank": (i+1),
+                                                                          "price": ask_price}
                                 else:
                                     self.logger().warning(f"INSUFFICIENT FUNDs for sell on {primary_market.name}!")
                                     if not self.funds_message_sent:
@@ -1022,8 +1057,14 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                                 break
 
     def adjust_mirrored_orderbook(self,mirrored_market_pair,best_bid,best_ask):
-        if (abs(self.pm.amount_to_offset) > self.max_offsetting_exposure):
-            SlackPusher(self.slack_url, "Offsetting exposure beyond threshold")
+        if not self.offset_beyond_threshold_message_sent:
+            if (abs(self.pm.amount_to_offset) > self.max_offsetting_exposure):
+                SlackPusher(self.slack_url, "Offsetting exposure beyond threshold")
+                self.offset_beyond_threshold_message_sent = True
+        else:
+            if (abs(self.pm.amount_to_offset) < self.max_offsetting_exposure):
+                SlackPusher(self.slack_url, "Offsetting exposure within threshold")
+                self.offset_beyond_threshold_message_sent = False
         mirrored_market: MarketBase = mirrored_market_pair.market
         if self.pm.amount_to_offset.is_zero():
             return
