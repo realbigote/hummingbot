@@ -895,7 +895,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                             break 
 
             if self.crossed_books:
-                self.no_more_bids = True
+                no_more_bids = True
                 self.crossed_books = False
 
             self.bid_replace_ranks.clear()
@@ -987,7 +987,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                             break
 
             if self.crossed_books:
-                self.no_more_asks = True
+                no_more_asks = True
                 self.crossed_books = False
 
             self.ask_replace_ranks.clear()
