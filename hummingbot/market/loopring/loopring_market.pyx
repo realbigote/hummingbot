@@ -494,7 +494,13 @@ cdef class LoopringMarket(MarketBase):
         if self._trading_required:
             exchange_info = await self.api_request("GET", EXCHANGE_INFO_ROUTE)
             
-            for token in self._token_configuration.get_tokens():
+            tokens = set()
+            for pair in self._trading_pairs:
+                (base, quote) = self.split_trading_pair(pair)
+                tokens.add(self.token_configuration.get_tokenid(base))
+                tokens.add(self.token_configuration.get_tokenid(quote))
+
+            for token in tokens:
                 await self._get_next_order_id(token, force_sync = True)
 
         self._polling_update_task = safe_ensure_future(self._polling_update())
