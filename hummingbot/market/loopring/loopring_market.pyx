@@ -88,7 +88,7 @@ ACCOUNT_INFO_ROUTE = "api/v2/account"
 MARKETS_INFO_ROUTE = "api/v2/exchange/markets"
 TOKENS_INFO_ROUTE = "api/v2/exchange/tokens"
 NEXT_ORDER_ID = "api/v2/orderId"
-ORDER_ROUTE = "api/v2/order"
+ORDER_ROUTE = "api/v3/order"
 ORDER_CANCEL_ROUTE = "api/v2/orders"
 MAXIMUM_FILL_COUNT = 16
 UNRECOGNIZED_ORDER_DEBOUCE = 20 #seconds
@@ -346,7 +346,12 @@ cdef class LoopringMarket(MarketBase):
             # Verify the response from the exchange
             if "data" not in creation_response.keys():
                 raise Exception(creation_response['resultInfo']['message'])
-            loopring_order_hash = creation_response["data"]
+
+            status = creation_response["data"]["status"]
+            if status != 'NEW_ACTIVED':
+                raise Exception(status)
+
+            loopring_order_hash = creation_response["data"]["orderHash"]
             in_flight_order.update_exchange_order_id(loopring_order_hash)
 
             # Begin tracking order
@@ -354,7 +359,7 @@ cdef class LoopringMarket(MarketBase):
                 f"Created {in_flight_order.description} order {client_order_id} for {amount} {trading_pair}.")
 
         except Exception as e:
-            self.logger().warning(f"Error submitting {order_side.name} {order_type.name} order to Loopring for "
+            self.logger().error(f"Error submitting {order_side.name} {order_type.name} order to Loopring for "
                                f"{amount} {trading_pair} at {price}.")
             self.logger().info(e)
             traceback.print_exc()
