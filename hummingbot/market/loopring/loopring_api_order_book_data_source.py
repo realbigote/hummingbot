@@ -20,6 +20,7 @@ from hummingbot.market.loopring.loopring_active_order_tracker import LoopringAct
 from hummingbot.market.loopring.loopring_order_book import LoopringOrderBook
 from hummingbot.market.loopring.loopring_order_book_tracker_entry import LoopringOrderBookTrackerEntry
 from hummingbot.market.loopring.loopring_api_token_configuration_data_source import LoopringAPITokenConfigurationDataSource
+from hummingbot.market.loopring.loopring_utils import get_ws_api_key
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
 from hummingbot.logger import HummingbotLogger
 from hummingbot.core.data_type.order_book_tracker_entry import OrderBookTrackerEntry
@@ -221,7 +222,8 @@ class LoopringAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         "op": "sub",
                         "topics": topics
                     }
-                async with websockets.connect(WS_URL) as ws:
+                ws_key: str = await get_ws_api_key()
+                async with websockets.connect(f"{WS_URL}?wsApiKey={ws_key}") as ws:
                     ws: websockets.WebSocketClientProtocol = ws
                     await ws.send(ujson.dumps(subscribe_request))
                     async for raw_msg in self._inner_messages(ws):
@@ -243,7 +245,8 @@ class LoopringAPIOrderBookDataSource(OrderBookTrackerDataSource):
             try:
                 trading_pairs: List[str] = await self.get_trading_pairs()
 
-                async with websockets.connect(WS_URL) as ws:
+                ws_key: str = await get_ws_api_key()
+                async with websockets.connect(f"{WS_URL}?wsApiKey={ws_key}") as ws:
                     ws: websockets.WebSocketClientProtocol = ws
                     for pair in trading_pairs:
                         topics: List[dict] = [{"topic": "orderbook", "market": pair, "level": 0 }]
@@ -270,7 +273,8 @@ class LoopringAPIOrderBookDataSource(OrderBookTrackerDataSource):
             try:
                 trading_pairs: List[str] = await self.get_trading_pairs()
 
-                async with websockets.connect(WS_URL) as ws:
+                ws_key: str = await get_ws_api_key()
+                async with websockets.connect(f"{WS_URL}?wsApiKey={ws_key}") as ws:
                     ws: websockets.WebSocketClientProtocol = ws
                     for pair in trading_pairs:
                         topics: List[dict] = [{"topic": "orderbook", "market": pair, "level": 0, "count": 50, "snapshot": True }]
