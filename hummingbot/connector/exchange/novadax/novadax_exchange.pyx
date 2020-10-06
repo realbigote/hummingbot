@@ -62,7 +62,7 @@ from hummingbot.connector.exchange.novadax.novadax_in_flight_order import Novada
 from hummingbot.core.data_type.user_stream_tracker import UserStreamTrackerDataSourceType
 from hummingbot.core.data_type.cancellation_result import CancellationResult
 from hummingbot.core.data_type.transaction_tracker import TransactionTracker
-from hummingbot.market.trading_rule cimport TradingRule
+from hummingbot.connector.exchange.trading_rule cimport TradingRule
 from hummingbot.core.utils.tracking_nonce import get_tracking_nonce
 from hummingbot.client.config.fee_overrides_config_map import fee_overrides_config_map
 
