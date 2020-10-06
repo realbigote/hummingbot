@@ -351,24 +351,15 @@ cdef class BlocktaneMarket(MarketBase):
                 self.logger().info("Running the _update_order_status loop")
                 tracked_orders = list(self._in_flight_orders.values())
                 for tracked_order in tracked_orders:
-                    exchange_order_id = await tracked_order.get_exchange_order_id()
-                    if exchange_order_id is None:
-                        continue
                     client_order_id = tracked_order.client_order_id
-                
+                    exchange_order_id = tracked_order.exchange_order_id
                     order = await self.get_order(exchange_order_id)
-                    if order is None:  # Handles order that are currently tracked but no longer open in exchange
-                        self._order_not_found_records[client_order_id] = \
-                            self._order_not_found_records.get(client_order_id, 0) + 1
-
-                        if self._order_not_found_records[client_order_id] < self.ORDER_NOT_EXIST_CONFIRMATION_COUNT:
-                            # Wait until the order not found error have repeated for a few times before actually treating
-                            # it as a fail. See: https://github.com/CoinAlpha/hummingbot/issues/601
-                            continue
+                    if order is None and (abs(self._current_timestamp - tracked_order.created_at) > 0.002):
                         last_state = tracked_order.last_state
+
                         tracked_order.last_state = "done"
                         marked_as = 'canceled'
-                        if last_state == 'pending':
+                        if last_state == 'NEW':
                             self.c_trigger_event(
                                 self.MARKET_ORDER_FAILURE_EVENT_TAG,
                                 MarketOrderFailureEvent(self._current_timestamp,
@@ -491,16 +482,12 @@ cdef class BlocktaneMarket(MarketBase):
                 if stream_message.get('order'): # Updates tracked orders
                     order = stream_message.get('order')
                     order_status = order["state"]
-                    order_id = order["id"] #temporary, perhaps
+
+                    order_id = order["client_id"]
 
                     in_flight_orders = self._in_flight_orders.copy()
-                    tracked_order = None
-                    for o in in_flight_orders.values():
-                        exchange_order_id = await o.get_exchange_order_id() 
-                        if exchange_order_id is not None and int(exchange_order_id) == int(order_id):
-                            tracked_order = o
-                            break
-
+                    tracked_order = in_flight_orders.get(order_id)
+                    
                     if tracked_order is None:
                         self.logger().debug(f"Unrecognized order ID from user stream: {order_id}.")
                         continue
@@ -580,6 +567,7 @@ cdef class BlocktaneMarket(MarketBase):
                         continue
 
                     if order_status == "cancel":  # CANCEL
+
                         self.logger().info(f"The order {tracked_order.client_order_id} has been cancelled "
                                             f"according to Blocktane WebSocket API.")
                         tracked_order.last_state = "cancel"
@@ -659,7 +647,8 @@ cdef class BlocktaneMarket(MarketBase):
             order_type,
             trade_type,
             price,
-            amount
+            amount,
+            self._current_timestamp
         )
 
     cdef c_stop_tracking_order(self, str order_id):
@@ -729,14 +718,16 @@ cdef class BlocktaneMarket(MarketBase):
                 "side": "buy" if is_buy else "sell",
                 "volume": f"{amount:f}",
                 "ord_type": "limit",
-                "price": f"{price:f}"
+                "price": f"{price:f}",
+                "client_id": str(order_id)
             }
         elif order_type is OrderType.MARKET:
             params = {
                 "market": str(trading_pair),
                 "side": "buy" if is_buy else "sell",
                 "volume": str(amount),
-                "ord_type": "market"
+                "ord_type": "market",
+                "client_id": str(order_id)
             }
 
         api_response = await self._api_request("POST", path_url=path_url, params=params)
@@ -774,7 +765,7 @@ cdef class BlocktaneMarket(MarketBase):
                 order_type,
                 TradeType.BUY,
                 decimal_price,
-                decimal_amount
+                decimal_amount,
             )
 
             if order_type is OrderType.LIMIT:
@@ -815,24 +806,8 @@ cdef class BlocktaneMarket(MarketBase):
                                      ))
 
         except Exception:
-            tracked_order = self._in_flight_orders.get(order_id)
-            tracked_order.last_state = "FAILURE"
-            tracked_order.update_exchange_order_id(tracked_order.exchange_order_id) # a symantic no-op, but prevents deadlock on get_exchange_order_id()
-            self.c_stop_tracking_order(order_id)
-            order_type_str = "LIMIT" if order_type is OrderType.LIMIT else "MARKET"
-            self.logger().error(
-                f"Error submitting buy {order_type_str} order to Blocktane for "
-                f"{decimal_amount} {trading_pair} "
-                f"{decimal_price}.",
-                exc_info=True
-            )
-            self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG,
-                                 MarketOrderFailureEvent(
-                                     self._current_timestamp,
-                                     order_id,
-                                     order_type
-                                 ))
-
+            self.logger().warning("Possible order failure")
+            
     cdef str c_buy(self,
                    str trading_pair,
                    object amount,
@@ -878,7 +853,7 @@ cdef class BlocktaneMarket(MarketBase):
                 order_type,
                 TradeType.SELL,
                 decimal_price,
-                decimal_amount
+                decimal_amount,
             )
 
             if order_type is OrderType.LIMIT:
@@ -917,19 +892,7 @@ cdef class BlocktaneMarket(MarketBase):
                                          order_id
                                      ))
         except Exception:
-            tracked_order = self._in_flight_orders.get(order_id)
-            tracked_order.last_state = "FAILURE"
-            tracked_order.update_exchange_order_id(tracked_order.exchange_order_id) # a symantic no-op, but prevents deadlock on get_exchange_order_id()
-            self.c_stop_tracking_order(order_id)
-            order_type_str = "LIMIT" if order_type is OrderType.LIMIT else "MARKET"
-            self.logger().error(
-                f"Error submitting sell {order_type_str} order to Blocktane for "
-                f"{decimal_amount} {trading_pair} "
-                f"{decimal_price if order_type is OrderType.LIMIT else ''}.",
-                exc_info=True,
-            )
-            self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG,
-                                 MarketOrderFailureEvent(self._current_timestamp, order_id, order_type))
+            self.logger().warning("Possible order failure")
 
     cdef str c_sell(self,
                     str trading_pair,
