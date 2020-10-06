@@ -82,7 +82,7 @@ cdef class NovadaxExchangeTransactionTracker(TransactionTracker):
         self._owner.c_did_timeout_tx(tx_id)
 
 
-cdef class NovadaxExchange(MarketBase):
+cdef class NovadaxExchange(ExchangeBase):
     MARKET_RECEIVED_ASSET_EVENT_TAG = MarketEvent.ReceivedAsset.value
     MARKET_BUY_ORDER_COMPLETED_EVENT_TAG = MarketEvent.BuyOrderCompleted.value
     MARKET_SELL_ORDER_COMPLETED_EVENT_TAG = MarketEvent.SellOrderCompleted.value
@@ -622,10 +622,10 @@ cdef class NovadaxExchange(MarketBase):
 
     cdef c_start(self, Clock clock, double timestamp):
         self._tx_tracker.c_start(clock, timestamp)
-        MarketBase.c_start(self, clock, timestamp)
+        ExchangeBase.c_start(self, clock, timestamp)
 
     cdef c_stop(self, Clock clock):
-        MarketBase.c_stop(self, clock)
+        ExchangeBase.c_stop(self, clock)
         self._async_scheduler.stop()
 
     async def start_network(self):
@@ -669,7 +669,7 @@ cdef class NovadaxExchange(MarketBase):
                                     else self.LONG_POLL_INTERVAL)
             int64_t last_tick = <int64_t>(self._last_timestamp / poll_interval)
             int64_t current_tick = <int64_t>(timestamp / poll_interval)
-        MarketBase.c_tick(self, timestamp)
+        ExchangeBase.c_tick(self, timestamp)
         self._tx_tracker.c_tick(timestamp)
         if current_tick > last_tick:
             if not self._poll_notifier.is_set():
@@ -984,7 +984,7 @@ cdef class NovadaxExchange(MarketBase):
             object current_price = self.c_get_price(trading_pair, False)
             object notional_size
         global s_decimal_0
-        quantized_amount = MarketBase.c_quantize_order_amount(self, trading_pair, amount)
+        quantized_amount = ExchangeBase.c_quantize_order_amount(self, trading_pair, amount)
 
         # Check against min_order_size and min_notional_size. If not passing either check, return 0.
         if quantized_amount < trading_rule.min_order_size:
