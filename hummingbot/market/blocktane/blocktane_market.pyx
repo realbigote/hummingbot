@@ -75,7 +75,7 @@ cdef class BlocktaneMarket(MarketBase):
 
     API_CALL_TIMEOUT = 10.0
     UPDATE_ORDERS_INTERVAL = 10.0
-    ORDER_NOT_EXIST_CONFIRMATION_COUNT = 3
+    ORDER_NOT_EXIST_WAIT_TIME = 0.002
 
     BLOCKTANE_API_ENDPOINT = "https://bolsa.tokamaktech.net/api/v2/xt"
 
@@ -354,7 +354,7 @@ cdef class BlocktaneMarket(MarketBase):
                     client_order_id = tracked_order.client_order_id
                     exchange_order_id = tracked_order.exchange_order_id
                     order = await self.get_order(exchange_order_id)
-                    if order is None and (abs(self._current_timestamp - tracked_order.created_at) > 0.002):
+                    if order is None and (abs(self._current_timestamp - tracked_order.created_at) > self.ORDER_NOT_EXIST_WAIT_TIME):
                         last_state = tracked_order.last_state
 
                         tracked_order.last_state = "done"
