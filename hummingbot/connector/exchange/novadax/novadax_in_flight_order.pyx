@@ -10,7 +10,7 @@ from hummingbot.core.event.events import (
     TradeType
 )
 from hummingbot.connector.exchange.novadax.novadax_exchange import NovadaxExchange
-from hummingbot.connector.exchange.in_flight_order_base import InFlightOrderBase
+from hummingbot.connector.in_flight_order_base import InFlightOrderBase
 
 s_decimal_0 = Decimal(0)
 

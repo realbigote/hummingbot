@@ -49,10 +49,7 @@ from hummingbot.core.event.events import (
     TradeType,
     TradeFee
 )
-from hummingbot.connector.exchange.exchange_base import (
-    ExchangeBase,
-    s_decimal_NaN,
-)
+from hummingbot.connector.exchange_base cimport ExchangeBase
 from hummingbot.core.network_iterator import NetworkStatus
 from hummingbot.core.data_type.order_book_tracker import OrderBookTrackerDataSourceType
 from hummingbot.core.data_type.order_book cimport OrderBook
@@ -62,12 +59,13 @@ from hummingbot.connector.exchange.novadax.novadax_in_flight_order import Novada
 from hummingbot.core.data_type.user_stream_tracker import UserStreamTrackerDataSourceType
 from hummingbot.core.data_type.cancellation_result import CancellationResult
 from hummingbot.core.data_type.transaction_tracker import TransactionTracker
-from hummingbot.connector.exchange.trading_rule cimport TradingRule
+from hummingbot.connector.trading_rule cimport TradingRule
 from hummingbot.core.utils.tracking_nonce import get_tracking_nonce
 from hummingbot.client.config.fee_overrides_config_map import fee_overrides_config_map
 
 s_logger = None
 s_decimal_0 = Decimal(0)
+s_decimal_NaN = Decimal("NaN")
 
 cdef class NovadaxExchangeTransactionTracker(TransactionTracker):
     cdef:

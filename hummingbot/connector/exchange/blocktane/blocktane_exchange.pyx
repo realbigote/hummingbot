@@ -13,11 +13,8 @@ from typing import Optional, List, Dict, Any, AsyncIterable, Tuple
 
 
 from hummingbot.core.clock cimport Clock
-
-from hummingbot.connector.exchange_base import (
-    ExchangeBase,
-    NaN
-)
+from hummingbot.connector.exchange_base cimport ExchangeBase
+from hummingbot.connector.exchange_base import NaN
 from hummingbot.logger import HummingbotLogger
 from hummingbot.connector.trading_rule cimport TradingRule
 from hummingbot.core.network_iterator import NetworkStatus

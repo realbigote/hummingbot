@@ -35,8 +35,8 @@ from hummingbot.connector.exchange.ftx.ftx_auth import FtxAuth
 from hummingbot.connector.exchange.ftx.ftx_in_flight_order import FtxInFlightOrder
 from hummingbot.connector.exchange.ftx.ftx_order_book_tracker import FtxOrderBookTracker
 from hummingbot.connector.exchange.ftx.ftx_user_stream_tracker import FtxUserStreamTracker
-from hummingbot.exchange.exchange_base import NaN
-from hummingbot.exchange.trading_rule cimport TradingRule
+from hummingbot.connector.exchange_base import NaN
+from hummingbot.connector.trading_rule cimport TradingRule
 from hummingbot.core.utils.tracking_nonce import get_tracking_nonce
 from hummingbot.client.config.fee_overrides_config_map import fee_overrides_config_map
 from hummingbot.core.utils.estimate_fee import estimate_fee
