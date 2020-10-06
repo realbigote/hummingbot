@@ -41,8 +41,8 @@ KEYS = {
                   required_if=using_exchange("ftx"),
                   is_secure=True,
                   is_connect_key=True),
-    "ftx_api_secret":
-        ConfigVar(key="ftx_api_secret",
+    "ftx_secret_key":
+        ConfigVar(key="ftx_secret_key",
                   prompt="Enter your FTX API secret >>> ",
                   required_if=using_exchange("ftx"),
                   is_secure=True,

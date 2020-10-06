@@ -114,7 +114,7 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
         result = (Decimal(record.get("bid", "0")) + Decimal(record.get("ask", "0"))) / Decimal("2")
         return result if result else None
 
-    async def fetch_ftx_trading_pairs(self) -> List[str]:
+    async def fetch_trading_pairs(self) -> List[str]:
         try:
             async with aiohttp.ClientSession() as client:
                 async with client.get(f"{FTX_REST_URL}{FTX_EXCHANGE_INFO_PATH}", timeout=API_CALL_TIMEOUT) as response:
