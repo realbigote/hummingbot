@@ -1,10 +1,10 @@
 from libc.stdint cimport int64_t
 
-from hummingbot.market.market_base cimport MarketBase
+from hummingbot.connector.exchange_base import ExchangeBase
 from hummingbot.core.data_type.transaction_tracker cimport TransactionTracker
 
 
-cdef class BlocktaneExchange(MarketBase):
+cdef class BlocktaneExchange(ExchangeBase):
     cdef:
         str _account_id
         object _blocktane_auth

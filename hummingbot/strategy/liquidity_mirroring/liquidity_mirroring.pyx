@@ -14,7 +14,7 @@ from typing import (
 )
 from datetime import datetime, timedelta
 from hummingbot.core.utils.async_utils import safe_ensure_future
-from hummingbot.market.market_base cimport MarketBase
+from hummingbot.connector.exchange_base import ExchangeBase
 from hummingbot.core.event.events import (
     TradeType,
     OrderType,
@@ -181,11 +181,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.slack_update_period = slack_update_period
 
     @property
-    def tracked_taker_orders(self) -> List[Tuple[MarketBase, MarketOrder]]:
+    def tracked_taker_orders(self) -> List[Tuple[ExchangeBase, MarketOrder]]:
         return self._sb_order_tracker.tracked_taker_orders
 
     @property
-    def tracked_maker_orders(self) -> List[Tuple[MarketBase, MarketOrder]]:
+    def tracked_maker_orders(self) -> List[Tuple[ExchangeBase, MarketOrder]]:
         return self._sb_order_tracker.tracked_maker_orders
 
     @property
@@ -671,7 +671,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 break
         return covered
 
-    def factor_in_fees(self, market: MarketBase, market_pair, price, amount, is_buy, is_primary):
+    def factor_in_fees(self, market: ExchangeBase, market_pair, price, amount, is_buy, is_primary):
         fee_object = market.c_get_fee(
             market_pair.base_asset,
             market_pair.quote_asset,
@@ -837,8 +837,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             self.adjust_mirrored_orderbook(market_pair, best_bid, best_ask)
 
     def adjust_primary_orderbook(self, primary_market_pair, best_bid, best_ask, bids, asks):
-        primary_market: MarketBase = primary_market_pair.market
-        mirrored_market: MarketBase = self.mirrored_market_pairs[0].market
+        primary_market: ExchangeBase = primary_market_pair.market
+        mirrored_market: ExchangeBase = self.mirrored_market_pairs[0].market
         mirrored_market_pair = self.mirrored_market_pairs[0]
         available_quote_exposure = self.max_exposure_quote - self.offset_quote_exposure
         available_base_exposure = self.max_exposure_base - self.offset_base_exposure
@@ -1065,7 +1065,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             if (abs(self.pm.amount_to_offset) < self.max_offsetting_exposure):
                 SlackPusher(self.slack_url, "Offsetting exposure within threshold")
                 self.offset_beyond_threshold_message_sent = False
-        mirrored_market: MarketBase = mirrored_market_pair.market
+        mirrored_market: ExchangeBase = mirrored_market_pair.market
         if self.pm.amount_to_offset.is_zero():
             return
         else:

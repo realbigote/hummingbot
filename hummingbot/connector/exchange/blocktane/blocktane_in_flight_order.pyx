@@ -11,7 +11,7 @@ from hummingbot.core.event.events import (
     TradeType
 )
 from hummingbot.connector.exchange.blocktane.blocktane_exchange import BlocktaneExchange
-from hummingbot.market.in_flight_order_base import InFlightOrderBase
+from hummingbot.connector.in_flight_order_base import InFlightOrderBase
 
 s_decimal_0 = Decimal(0)
 

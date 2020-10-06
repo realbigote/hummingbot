@@ -19,8 +19,7 @@ from hummingbot.connector.exchange_base import (
     NaN
 )
 from hummingbot.logger import HummingbotLogger
-from hummingbot.market.deposit_info import DepositInfo
-from hummingbot.market.trading_rule cimport TradingRule
+from hummingbot.connector.trading_rule cimport TradingRule
 from hummingbot.core.network_iterator import NetworkStatus
 from hummingbot.core.data_type.order_book cimport OrderBook
 from hummingbot.core.data_type.limit_order import LimitOrder
@@ -185,14 +184,14 @@ cdef class BlocktaneExchange(ExchangeBase):
 
     cdef c_start(self, Clock clock, double timestamp):
         self._tx_tracker.c_start(clock, timestamp)
-        MarketBase.c_start(self, clock, timestamp)
+        ExchangeBase.c_start(self, clock, timestamp)
 
     cdef c_tick(self, double timestamp):
         cdef:
             int64_t last_tick = <int64_t> (self._last_timestamp / self._poll_interval)
             int64_t current_tick = <int64_t> (timestamp / self._poll_interval)
 
-        MarketBase.c_tick(self, timestamp)
+        ExchangeBase.c_tick(self, timestamp)
         self._tx_tracker.c_tick(timestamp)
         if current_tick > last_tick:
             if not self._poll_notifier.is_set():
@@ -615,15 +614,6 @@ cdef class BlocktaneExchange(ExchangeBase):
                                       exc_info=True)
                 await asyncio.sleep(0.5)
 
-    async def get_deposit_address(self, currency: str) -> str:
-        path_url = f"/account/deposit_address/{currency}"
-
-        deposit_result = await self._api_request("GET", path_url=path_url)
-        return deposit_result.get("cryptoAddress")
-
-    async def get_deposit_info(self, asset: str) -> DepositInfo:
-        return DepositInfo(await self.get_deposit_address(asset))
-
     cdef OrderBook c_get_order_book(self, str trading_pair):
         cdef:
             dict order_books = self._order_book_tracker.order_books
@@ -671,7 +661,7 @@ cdef class BlocktaneExchange(ExchangeBase):
     cdef object c_quantize_order_amount(self, str trading_pair, object amount, object price=0.0):
         cdef:
             TradingRule trading_rule = self._trading_rules[trading_pair]
-            object quantized_amount = MarketBase.c_quantize_order_amount(self, trading_pair, amount)
+            object quantized_amount = ExchangeBase.c_quantize_order_amount(self, trading_pair, amount)
 
         global s_decimal_0
         if quantized_amount < trading_rule.min_order_size:

@@ -35,7 +35,6 @@ from hummingbot.connector.exchange.ftx.ftx_auth import FtxAuth
 from hummingbot.connector.exchange.ftx.ftx_in_flight_order import FtxInFlightOrder
 from hummingbot.connector.exchange.ftx.ftx_order_book_tracker import FtxOrderBookTracker
 from hummingbot.connector.exchange.ftx.ftx_user_stream_tracker import FtxUserStreamTracker
-from hummingbot.market.deposit_info import DepositInfo
 from hummingbot.exchange.exchange_base import NaN
 from hummingbot.exchange.trading_rule cimport TradingRule
 from hummingbot.core.utils.tracking_nonce import get_tracking_nonce
@@ -597,15 +596,6 @@ cdef class FtxExchange(ExchangeBase):
                                       app_warning_msg=f"Could not fetch updates from ftx. "
                                                       f"Check API key and network connection.")
                 await asyncio.sleep(0.5)
-
-    async def get_deposit_address(self, currency: str) -> str:
-        path_url = f"/addresses/{currency}"
-
-        deposit_result = await self._api_request("GET", path_url=path_url)
-        return deposit_result.get("cryptoAddress")
-
-    async def get_deposit_info(self, asset: str) -> DepositInfo:
-        return DepositInfo(await self.get_deposit_address(asset))
 
     cdef OrderBook c_get_order_book(self, str trading_pair):
         cdef:
