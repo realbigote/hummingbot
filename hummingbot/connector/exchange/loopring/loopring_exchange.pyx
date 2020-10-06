@@ -378,7 +378,6 @@ cdef class LoopringExchange(ExchangeBase):
                 # issues that prevented the submission from taking place. We'll assume that the order is live and let our order status 
                 # updates mark this as cancelled if it doesn't actually exist.             
                 return
-                    raise e
                 
             # Verify the response from the exchange
             if "data" not in creation_response.keys():
