@@ -10,7 +10,8 @@ CENTRALIZED = True
 
 EXAMPLE_PAIR = "BRL-BTC"
 
-DEFAULT_FEES = [0.0, 0.2]
+# DEFAULT_FEES = [0.35, 0.45]  # The actual fees
+DEFAULT_FEES = [0.01, 0.01]  # Our special liquidity provider rates
 
 KEYS = {
     "blocktane_api_key":
