@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Optional
  
 from hummingbot.core.utils.async_utils import safe_ensure_future
-from hummingbot.market.blocktane.blocktane_auth import BlocktaneAuth
+from hummingbot.connector.exchange.blocktane.blocktane_auth import BlocktaneAuth
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
 from hummingbot.logger import HummingbotLogger
 

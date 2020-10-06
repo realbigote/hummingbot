@@ -3,6 +3,7 @@
 import asyncio
 import aiohttp
 from collections import namedtuple
+from decimal import Decimal
 import logging
 import pandas as pd
 from typing import (
@@ -13,6 +14,7 @@ from typing import (
     Optional
 )
 import re
+import requests
 import time
 import ujson
 import websockets
@@ -25,15 +27,18 @@ from hummingbot.core.data_type.order_book_tracker_entry import OrderBookTrackerE
 from hummingbot.core.data_type.order_book_message import OrderBookMessage
 from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.logger import HummingbotLogger
-from hummingbot.market.blocktane.blocktane_order_book import BlocktaneOrderBook
+from hummingbot.connector.exchange.blocktane.blocktane_order_book import BlocktaneOrderBook
+from hummingbot.connector.exchange.blocktane.blocktane_utils import convert_to_exchange_trading_pair, convert_from_exchange_trading_pair
 
 BLOCKTANE_REST_URL = "https://bolsa.tokamaktech.net/api/v2/xt/public"
 DIFF_STREAM_URL = "wss://bolsa.tokamaktech.net/api/v2/ws/public"
 TICKER_PRICE_CHANGE_URL = "https://bolsa.tokamaktech.net/api/v2/xt/public/markets/tickers"
+SINGLE_MARKET_DEPTH_URL = "https://trade.bolsacripto.com/api/v2/xt/public/markets/{}/depth"
 EXCHANGE_INFO_URL = "https://bolsa.tokamaktech.net/api/v2/xt/public/markets"
 
 OrderBookRow = namedtuple("Book", ["price", "amount"])
 
+API_CALL_TIMEOUT = 5
 
 class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
@@ -108,6 +113,41 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     exc_info=True
                 )
         return self._trading_pairs
+
+    @staticmethod
+    @cachetools.func.ttl_cache(ttl=10)
+    def get_mid_price(trading_pair: str) -> Optional[Decimal]:
+        exchange_trading_pair: str = convert_to_exchange_trading_pair(trading_pair)
+
+        try:
+            resp = requests.get(url=f"{SINGLE_MARKET_DEPTH_URL.format(exchange_trading_pair)}?limit=1").json()
+            best_bid: Decimal = Decimal(resp["bids"][0][0])
+            best_ask: Decimal = Decimal(resp["ask"][0][0])
+
+            return (best_ask + best_bid) / 2
+        except:
+            return None
+
+    @staticmethod
+    async def fetch_trading_pairs() -> List[str]:
+        try:
+            async with aiohttp.ClientSession() as client:
+                async with client.get(EXCHANGE_INFO_URL, timeout=API_CALL_TIMEOUT) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        raw_trading_pairs = [d["id"] for d in data if d["state"] == "enabled"]
+                        trading_pair_list: List[str] = []
+                        for raw_trading_pair in raw_trading_pairs:
+                            converted_trading_pair: Optional[str] = convert_from_exchange_trading_pair(raw_trading_pair)
+                            if converted_trading_pair is not None:
+                                trading_pair_list.append(converted_trading_pair)
+                        return trading_pair_list
+
+        except Exception:
+            # Do nothing if the request fails -- there will be no autocomplete for blocktane trading pairs
+            pass
+
+        return []
 
     @staticmethod
     async def get_snapshot(client: aiohttp.ClientSession, trading_pair: str, limit: int = 1000) -> Dict[str, Any]:

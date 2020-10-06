@@ -13,8 +13,9 @@ from typing import Optional, List, Dict, Any, AsyncIterable, Tuple
 
 
 from hummingbot.core.clock cimport Clock
-from hummingbot.market.market_base import (
-    MarketBase,
+
+from hummingbot.connector.exchange_base import (
+    ExchangeBase,
     NaN
 )
 from hummingbot.logger import HummingbotLogger
@@ -24,7 +25,7 @@ from hummingbot.core.network_iterator import NetworkStatus
 from hummingbot.core.data_type.order_book cimport OrderBook
 from hummingbot.core.data_type.limit_order import LimitOrder
 from hummingbot.core.utils.tracking_nonce import get_tracking_nonce
-from hummingbot.market.blocktane.blocktane_auth import BlocktaneAuth
+from hummingbot.connector.exchange.blocktane.blocktane_auth import BlocktaneAuth
 from hummingbot.core.data_type.transaction_tracker import TransactionTracker
 from hummingbot.core.data_type.cancellation_result import CancellationResult
 from hummingbot.core.utils.async_utils import safe_ensure_future, safe_gather
@@ -40,20 +41,20 @@ from hummingbot.core.event.events import (
 )
 from hummingbot.client.config.fee_overrides_config_map import fee_overrides_config_map
 from hummingbot.core.data_type.order_book_tracker import OrderBookTrackerDataSourceType
-from hummingbot.market.blocktane.blocktane_in_flight_order import BlocktaneInFlightOrder
-from hummingbot.market.blocktane.blocktane_order_book_tracker import BlocktaneOrderBookTracker
-from hummingbot.market.blocktane.blocktane_user_stream_tracker import BlocktaneUserStreamTracker
-from hummingbot.market.blocktane.blocktane_api_order_book_data_source import BlocktaneAPIOrderBookDataSource
+from hummingbot.connector.exchange.blocktane.blocktane_in_flight_order import BlocktaneInFlightOrder
+from hummingbot.connector.exchange.blocktane.blocktane_order_book_tracker import BlocktaneOrderBookTracker
+from hummingbot.connector.exchange.blocktane.blocktane_user_stream_tracker import BlocktaneUserStreamTracker
+from hummingbot.connector.exchange.blocktane.blocktane_api_order_book_data_source import BlocktaneAPIOrderBookDataSource
+from hummingbot.connector.exchange.blocktane.blocktane_utils import convert_from_exchange_trading_pair, convert_to_exchange_trading_pair, split_trading_pair
 
 bm_logger = None
 s_decimal_0 = Decimal(0)
-TRADING_PAIR_SPLITTER = re.compile(r"^(\w+)(BTC|btc|ETH|eth|BRL|brl|PAX|pax)$")
 
-cdef class BlocktaneMarketTransactionTracker(TransactionTracker):
+cdef class BlocktaneExchangeTransactionTracker(TransactionTracker):
     cdef:
-        BlocktaneMarket _owner
+        BlocktaneExchange _owner
 
-    def __init__(self, owner: BlocktaneMarket):
+    def __init__(self, owner: BlocktaneExchange):
         super().__init__()
         self._owner = owner
 
@@ -61,7 +62,7 @@ cdef class BlocktaneMarketTransactionTracker(TransactionTracker):
         TransactionTracker.c_did_timeout_tx(self, tx_id)
         self._owner.c_did_timeout_tx(tx_id)
 
-cdef class BlocktaneMarket(MarketBase):
+cdef class BlocktaneExchange(ExchangeBase):
     MARKET_RECEIVED_ASSET_EVENT_TAG = MarketEvent.ReceivedAsset.value
     MARKET_BUY_ORDER_COMPLETED_EVENT_TAG = MarketEvent.BuyOrderCompleted.value
     MARKET_SELL_ORDER_COMPLETED_EVENT_TAG = MarketEvent.SellOrderCompleted.value
@@ -117,7 +118,7 @@ cdef class BlocktaneMarket(MarketBase):
         self._trading_required = trading_required
         self._trading_rules = {}
         self._trading_rules_polling_task = None
-        self._tx_tracker = BlocktaneMarketTransactionTracker(self)
+        self._tx_tracker = BlocktaneExchangeTransactionTracker(self)
         self._user_stream_event_listener_task = None
         self._user_stream_tracker = BlocktaneUserStreamTracker(blocktane_auth=self._blocktane_auth, trading_pairs=trading_pairs)
         self._user_stream_tracker_task = None
@@ -125,28 +126,15 @@ cdef class BlocktaneMarket(MarketBase):
 
     @staticmethod
     def split_trading_pair(trading_pair: str) -> Optional[Tuple[str, str]]:
-        try:
-            if ('/' in trading_pair):
-                m = trading_pair.split('/')
-                return m[0], m[1]
-            else:
-                m = TRADING_PAIR_SPLITTER.match(trading_pair)
-                return m.group(1), m.group(2)
-        # Exceptions are now logged as warnings in trading pair fetcher
-        except Exception as e:
-            return None
+        return split_trading_pair(trading_pair)
 
     @staticmethod
     def convert_from_exchange_trading_pair(exchange_trading_pair: str) -> Optional[str]:
-        if BlocktaneMarket.split_trading_pair(exchange_trading_pair) is None:
-            return None
-        # Blocktane does not split BASEQUOTE (fthusd)
-        base_asset, quote_asset = BlocktaneMarket.split_trading_pair(exchange_trading_pair)
-        return f"{base_asset}-{quote_asset}".upper()
+        return convert_from_exchange_trading_pair(exchange_trading_pair)
     
     @staticmethod
     def convert_to_exchange_trading_pair(hb_trading_pair: str) -> str:
-        return hb_trading_pair.lower().replace("-","")
+        return convert_to_exchange_trading_pair(hb_trading_pair)
 
     @property
     def name(self) -> str:

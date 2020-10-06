@@ -16,8 +16,8 @@ from hummingbot.core.utils.async_utils import (
     safe_ensure_future,
     safe_gather,
 )
-from hummingbot.market.blocktane.blocktane_api_user_stream_data_source import BlocktaneAPIUserStreamDataSource
-from hummingbot.market.blocktane.blocktane_auth import BlocktaneAuth
+from hummingbot.connector.exchange.blocktane.blocktane_api_user_stream_data_source import BlocktaneAPIUserStreamDataSource
+from hummingbot.connector.exchange.blocktane.blocktane_auth import BlocktaneAuth
 
 class BlocktaneUserStreamTracker(UserStreamTracker):
     _bust_logger: Optional[HummingbotLogger] = None
