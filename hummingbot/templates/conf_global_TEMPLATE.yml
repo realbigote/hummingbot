@@ -83,12 +83,9 @@ paper_trade_account_balance:
   WETH: 10
   USDC: 1000
   DAI: 1000
-- - USD
-  - 1000
-- - FTH
-  - 10
-- - XETH
-  - 10
+  USD: 1000
+  FTH: 10
+  XETH: 10
 
 telegram_enabled: false
 telegram_token: null

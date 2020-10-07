@@ -2,8 +2,12 @@
 
 import asyncio
 import aiohttp
+import cachetools.func
+from decimal import Decimal
 import logging
 import pandas as pd
+import re
+import requests
 from typing import (
     Any,
     AsyncIterable,
@@ -11,7 +15,6 @@ from typing import (
     List,
     Optional
 )
-import re
 import time
 import ujson
 import websockets
@@ -122,14 +125,13 @@ class NovadaxAPIOrderBookDataSource(OrderBookTrackerDataSource):
     @staticmethod
     @cachetools.func.ttl_cache(ttl=10)
     def get_mid_price(trading_pair: str) -> Optional[Decimal]:
-        from hummingbot.connector.exchange.novadax.novadax_utils import convert_to_exchange_trading_pair
-
         resp = requests.get(url=f"{TICKER_PRICE_CHANGE_URL}/?symbol={convert_to_exchange_trading_pair(trading_pair)}")
         record = resp.json()
         result = (Decimal(record.get("bid", "0")) + Decimal(record.get("ask", "0"))) / Decimal("2")
         return result if result else None
 
-    async def fetch_trading_pairs(self) -> List[str]:
+    @staticmethod
+    async def fetch_trading_pairs() -> List[str]:
         try:
             async with aiohttp.ClientSession() as client:
                 async with client.get(NOVADAX_ENDPOINT, timeout=API_CALL_TIMEOUT) as response:
@@ -150,6 +152,7 @@ class NovadaxAPIOrderBookDataSource(OrderBookTrackerDataSource):
             pass
 
         return []
+        
     @staticmethod
     async def get_snapshot(client: aiohttp.ClientSession, trading_pair: str, limit: int = 1000) -> Dict[str, Any]:
         async with client.get(f"{SNAPSHOT_REST_URL}?symbol={trading_pair}") as response:

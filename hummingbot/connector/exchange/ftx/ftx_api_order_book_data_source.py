@@ -1,23 +1,29 @@
 #!/usr/bin/env python
-import asyncio
-import logging
-import time
-from base64 import b64decode
-from decimal import Decimal
-from typing import Optional, List, Dict, AsyncIterable, Any
-from zlib import decompress, MAX_WBITS
-import websockets
-from websockets.exceptions import ConnectionClosed
-
 import aiohttp
+import asyncio
+import cachetools.func
+import logging
 import pandas as pd
+import requests
 import signalr_aio
 import simplejson
+import time
 import ujson
+import websockets
+
+from async_timeout import timeout
+from base64 import b64decode
+from decimal import Decimal
 from signalr_aio import Connection
 from signalr_aio.hubs import Hub
-from async_timeout import timeout
+from typing import Optional, List, Dict, AsyncIterable, Any
+from websockets.exceptions import ConnectionClosed
+from zlib import decompress, MAX_WBITS
 
+from hummingbot.connector.exchange.ftx.ftx_active_order_tracker import FtxActiveOrderTracker
+from hummingbot.connector.exchange.ftx.ftx_order_book import FtxOrderBook
+from hummingbot.connector.exchange.ftx.ftx_order_book_tracker_entry import FtxOrderBookTrackerEntry
+from hummingbot.connector.exchange.ftx.ftx_utils import convert_from_exchange_trading_pair, convert_to_exchange_trading_pair
 from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.core.data_type.order_book_message import OrderBookMessage
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
@@ -25,10 +31,6 @@ from hummingbot.core.data_type.order_book_tracker_entry import OrderBookTrackerE
 from hummingbot.core.utils import async_ttl_cache
 from hummingbot.core.utils.async_utils import safe_gather
 from hummingbot.logger import HummingbotLogger
-from hummingbot.connector.exchange.ftx.ftx_active_order_tracker import FtxActiveOrderTracker
-from hummingbot.connector.exchange.ftx.ftx_order_book import FtxOrderBook
-from hummingbot.connector.exchange.ftx.ftx_order_book_tracker_entry import FtxOrderBookTrackerEntry
-from hummingbot.connector.exchange.ftx_utils import convert_from_exchange_trading_pair
 
 EXCHANGE_NAME = "ftx"
 
@@ -37,9 +39,9 @@ FTX_EXCHANGE_INFO_PATH = "/markets"
 FTX_WS_FEED = "wss://ftx.com/ws/"
 
 MAX_RETRIES = 20
-MESSAGE_TIMEOUT = 30.0
 SNAPSHOT_TIMEOUT = 10.0
 NaN = float("nan")
+API_CALL_TIMEOUT = 5.0
 
 
 class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
@@ -87,7 +89,7 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
             all_markets.rename(
                 {"baseCurrency": "baseAsset", "quoteCurrency": "quoteAsset", "volumeUsd24h": "USDVolume"}, axis="columns", inplace=True
             )
-            
+
             await client.close()
             return all_markets.sort_values("USDVolume", ascending=False)
 
@@ -107,14 +109,13 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
     @staticmethod
     @cachetools.func.ttl_cache(ttl=10)
     def get_mid_price(trading_pair: str) -> Optional[Decimal]:
-        from hummingbot.connector.exchange.ftx.ftx_utils import convert_to_exchange_trading_pair
-
         resp = requests.get(url=f"{FTX_REST_URL}{FTX_EXCHANGE_INFO_PATH}/{convert_to_exchange_trading_pair(trading_pair)}")
         record = resp.json()
         result = (Decimal(record.get("bid", "0")) + Decimal(record.get("ask", "0"))) / Decimal("2")
         return result if result else None
 
-    async def fetch_trading_pairs(self) -> List[str]:
+    @staticmethod
+    async def fetch_trading_pairs() -> List[str]:
         try:
             async with aiohttp.ClientSession() as client:
                 async with client.get(f"{FTX_REST_URL}{FTX_EXCHANGE_INFO_PATH}", timeout=API_CALL_TIMEOUT) as response:
