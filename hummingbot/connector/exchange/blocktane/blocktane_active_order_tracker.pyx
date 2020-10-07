@@ -61,10 +61,11 @@ cdef class BlocktaneActiveOrderTracker:
         if len(bid_entries) > 0:
             bids = np.array(
                 [[timestamp,
-                  float(price),
-                  float(quantity),
+                  x[0],
+                  x[1],
                   message.update_id]
-                 for price, quantity in [self.get_rates_and_quantities(bid_entries)]],
+                  for x in [self.get_rates_and_quantities(entry) for entry in bid_entries]
+                ],
                 dtype="float64",
                 ndmin=2
             )
@@ -72,10 +73,11 @@ cdef class BlocktaneActiveOrderTracker:
         if len(ask_entries) > 0:
             asks = np.array(
                 [[timestamp,
-                  float(price),
-                  float(quantity),
+                  x[0],
+                  x[1],
                   message.update_id]
-                 for price, quantity in [self.get_rates_and_quantities(ask_entries)]],
+                  for x in [self.get_rates_and_quantities(entry) for entry in ask_entries]
+                ],
                 dtype="float64",
                 ndmin=2
             )

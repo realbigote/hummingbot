@@ -22,7 +22,7 @@ from hummingbot.connector.exchange.blocktane.blocktane_api_order_book_data_sourc
 from hummingbot.connector.exchange.blocktane.blocktane_active_order_tracker import BlocktaneActiveOrderTracker
 from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.core.data_type.order_book_message import OrderBookMessage, OrderBookMessageType
-
+from hummingbot.connector.exchange.blocktane.blocktane_utils import convert_to_exchange_trading_pair, convert_from_exchange_trading_pair
 
 class BlocktaneOrderBookTracker(OrderBookTracker):
     _bobt_logger: Optional[HummingbotLogger] = None
@@ -60,9 +60,6 @@ class BlocktaneOrderBookTracker(OrderBookTracker):
         )
         self._order_book_snapshot_listener_task = safe_ensure_future(
             self.data_source.listen_for_order_book_snapshots(self._ev_loop, self._order_book_snapshot_stream)
-        )
-        self._refresh_tracking_task = safe_ensure_future(
-            self._refresh_tracking_loop()
         )
         self._order_book_diff_router_task = safe_ensure_future(
             self._order_book_diff_router()

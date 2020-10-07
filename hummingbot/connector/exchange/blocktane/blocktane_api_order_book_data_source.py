@@ -64,7 +64,8 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
             resp = await client.get(TICKER_PRICE_CHANGE_URL)
             resp_json = await resp.json()
 
-            return {convert_from_exchange_trading_pair(market): data["ticker"]["last"] for market, data in resp_json}
+            return {convert_from_exchange_trading_pair(market): float(data["ticker"]["last"]) for market, data in resp_json.items()
+                    if convert_from_exchange_trading_pair(market) in trading_pairs}
 
     @property
     def trading_pairs(self) -> List[str]:
@@ -81,7 +82,7 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
             best_ask: Decimal = Decimal(resp["ask"][0][0])
 
             return (best_ask + best_bid) / 2
-        except:
+        except Exception:
             return None
 
     @staticmethod
@@ -107,7 +108,7 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
     @staticmethod
     async def get_snapshot(client: aiohttp.ClientSession, trading_pair: str, limit: int = 1000) -> Dict[str, Any]:
-        request_url: str = f"{BLOCKTANE_REST_URL}/markets/{trading_pair}/depth"
+        request_url: str = f"{BLOCKTANE_REST_URL}/markets/{convert_to_exchange_trading_pair(trading_pair)}/depth"
 
         async with client.get(request_url) as response:
             response: aiohttp.ClientResponse = response
@@ -122,39 +123,6 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
             # snapshot belongs to.
 
             return _prepare_snapshot(trading_pair, data["bids"], data["asks"])
-
-    def _parse_raw_update(self, pair: str, raw_response: str) -> OrderBookMessage:
-        """
-        Parses raw update, if price for a tracked order identified by ID is 0, then order is deleted
-        Returns OrderBookMessage
-        """
-        _, content = ujson.loads(raw_response)
-
-        if isinstance(content, list) and len(content) == 3:
-            order_id = content[0]
-            price = content[1]
-            amount = content[2]
-
-            os = self._get_tracked_order_by_id(order_id)
-            order = os["order"]
-            side = os["side"]
-
-            if order is not None:
-                # this is not a new order. Either update it or delete it
-                if price == 0:
-                    self._untrack_order(order_id)
-                    # print("-------------- Deleted order %d" % (order_id))
-                    return self._generate_delete_message(pair, order.price, side)
-                else:
-                    self._track_order(order_id, OrderBookRow(price, abs(amount), order.update_id), side)
-                    return None
-            else:
-                # this is a new order unless the price is 0, just track it and create message that
-                # will add it to the order book
-                if price != 0:
-                    # print("-------------- Add order %d" % (order_id))
-                    return self._generate_add_message(pair, price, amount)
-        return None
 
     async def get_new_order_book(self, trading_pair: str) -> OrderBook:
         async with aiohttp.ClientSession() as client:
@@ -194,7 +162,7 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def listen_for_trades(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         while True:
             try:
-                ws_path: str = "&stream=".join([f"{trading_pair}.trades" for trading_pair in self._trading_pairs])
+                ws_path: str = "&stream=".join([f"{convert_to_exchange_trading_pair(trading_pair)}.trades" for trading_pair in self._trading_pairs])
                 stream_url: str = f"{DIFF_STREAM_URL}/?stream={ws_path}"
 
                 async with websockets.connect(stream_url) as ws:
@@ -214,7 +182,7 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def listen_for_order_book_diffs(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         while True:
             try:
-                ws_path: str = "&stream=".join([f"{trading_pair}.ob-inc" for trading_pair in self._trading_pairs])
+                ws_path: str = "&stream=".join([f"{convert_to_exchange_trading_pair(trading_pair)}.ob-inc" for trading_pair in self._trading_pairs])
                 stream_url: str = f"{DIFF_STREAM_URL}/?stream={ws_path}"
 
                 async with websockets.connect(stream_url) as ws:
@@ -224,7 +192,7 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         key = list(msg.keys())[0]
                         if ('ob-inc' in key):
                             pair = re.sub(r'\.ob-inc', '', key)
-                            parsed_msg = {"pair": pair,
+                            parsed_msg = {"pair": convert_from_exchange_trading_pair(pair),
                                           "bids": msg[key]["bids"] if "bids" in msg[key] else [],
                                           "asks": msg[key]["asks"] if "asks" in msg[key] else []}
                             order_book_message: OrderBookMessage = BlocktaneOrderBook.diff_message_from_exchange(parsed_msg, time.time())

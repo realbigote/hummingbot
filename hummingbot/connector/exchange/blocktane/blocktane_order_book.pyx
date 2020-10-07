@@ -16,9 +16,9 @@ from hummingbot.core.data_type.order_book_message import (
     OrderBookMessage,
     OrderBookMessageType
 )
+from hummingbot.connector.exchange.blocktane.blocktane_utils import convert_to_exchange_trading_pair, convert_from_exchange_trading_pair
 
 _bob_logger = None
-
 
 cdef class BlocktaneOrderBook(OrderBook):
     @classmethod
@@ -47,13 +47,24 @@ cdef class BlocktaneOrderBook(OrderBook):
                                    msg: Dict[str, any],
                                    timestamp: Optional[float] = None,
                                    metadata: Optional[Dict] = None) -> OrderBookMessage:
+        def adjust_empty_amounts(levels):
+            result = []
+            for level in levels:
+                if len(level) == 0:
+                    continue
+                if len(level) < 2 or level[1] == '':
+                    result.append([level[0], "0"])
+                else:
+                    result.append(level)
+            return result
+            
         if metadata:
             msg.update(metadata)
         return OrderBookMessage(OrderBookMessageType.DIFF, {
             "trading_pair": msg["pair"],
             "update_id": timestamp,
-            "bids": msg["bids"],
-            "asks": msg["asks"]
+            "bids": adjust_empty_amounts([msg["bids"]]),
+            "asks": adjust_empty_amounts([msg["asks"]])
         }, timestamp=timestamp)
 
     @classmethod
@@ -131,7 +142,7 @@ cdef class BlocktaneOrderBook(OrderBook):
         msg = msg.popitem()
         # cls.logger().error(str(msg))
 
-        market = msg[0].split('.')[0]
+        market = convert_from_exchange_trading_pair(msg[0].split('.')[0])
         trade = msg[1]["trades"][0]
         ts = trade['date']
         # cls.logger().error(str(market) + " " + str(trade) + " " + str(ts))

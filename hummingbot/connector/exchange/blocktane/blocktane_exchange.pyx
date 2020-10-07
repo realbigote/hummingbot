@@ -2,6 +2,7 @@ import re
 import time
 import asyncio
 import aiohttp
+import copy
 import logging
 import pandas as pd
 import simplejson
@@ -90,7 +91,7 @@ cdef class BlocktaneExchange(ExchangeBase):
                  trading_pairs: Optional[List[str]] = None,
                  trading_required: bool = True):
         super().__init__()
-        self._real_time_balance_update = True
+        self._real_time_balance_update = False
         self._account_id = ""
         self._account_available_balances = {}
         self._account_balances = {}
@@ -221,7 +222,7 @@ cdef class BlocktaneExchange(ExchangeBase):
         account_balances = await self._api_request("GET", path_url=path_url)
 
         for balance_entry in account_balances:
-            asset_name = balance_entry["currency"]
+            asset_name = balance_entry["currency"].upper()
             available_balance = Decimal(balance_entry["balance"])
             total_balance = available_balance + Decimal(balance_entry["locked"]) 
             self._account_available_balances[asset_name] = available_balance
@@ -233,6 +234,9 @@ cdef class BlocktaneExchange(ExchangeBase):
             del self._account_available_balances[asset_name]
             del self._account_balances[asset_name]
 
+        self._in_flight_orders_snapshot = {k: copy.copy(v) for k, v in self._in_flight_orders.items()}
+        self._in_flight_orders_snapshot_timestamp = self._current_timestamp
+
     def _format_trading_rules(self, market_dict: Dict[str, Dict[str, Any]]) -> List[TradingRule]:
         cdef:
             list trading_rules = []
@@ -240,7 +244,7 @@ cdef class BlocktaneExchange(ExchangeBase):
         for pair, info in market_dict.items():
             try:
                 trading_rules.append(
-                    TradingRule(trading_pair=info["id"],
+                    TradingRule(trading_pair=convert_from_exchange_trading_pair(info["id"]),
                                 min_order_size=Decimal(info["min_amount"]),
                                 min_price_increment=Decimal(f"1e-{info['price_precision']}"),
                                 min_quote_amount_increment=Decimal(f"1e-{info['amount_precision']}"),
@@ -702,7 +706,7 @@ cdef class BlocktaneExchange(ExchangeBase):
         params = {}
         if order_type is OrderType.LIMIT:  # Blocktane supports CEILING_LIMIT
             params = {
-                "market": str(trading_pair),
+                "market": convert_to_exchange_trading_pair(trading_pair),
                 "side": "buy" if is_buy else "sell",
                 "volume": f"{amount:f}",
                 "ord_type": "limit",
@@ -710,7 +714,7 @@ cdef class BlocktaneExchange(ExchangeBase):
             }
         elif order_type is OrderType.MARKET:
             params = {
-                "market": str(trading_pair),
+                "market": convert_to_exchange_trading_pair(trading_pair),
                 "side": "buy" if is_buy else "sell",
                 "volume": str(amount),
                 "ord_type": "market"
