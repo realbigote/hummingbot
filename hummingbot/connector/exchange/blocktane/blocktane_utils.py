@@ -1,7 +1,7 @@
 import aiohttp
 import re
 
-from typing import Dict, Any
+from typing import Any, Optional, Tuple
 
 from hummingbot.client.config.config_var import ConfigVar
 from hummingbot.client.config.config_methods import using_exchange

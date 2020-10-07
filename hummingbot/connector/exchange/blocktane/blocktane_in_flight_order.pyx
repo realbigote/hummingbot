@@ -27,7 +27,6 @@ cdef class BlocktaneInFlightOrder(InFlightOrderBase):
                  amount: Decimal,
                  initial_state: str = "NEW"):
         super().__init__(
-            BlocktaneExchange,
             client_order_id,
             exchange_order_id,
             trading_pair,

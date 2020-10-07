@@ -2,6 +2,7 @@
 
 import asyncio
 import aiohttp
+import cachetools.func
 from collections import namedtuple
 from decimal import Decimal
 import logging
@@ -54,64 +55,19 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
         return cls._baobds_logger
 
     def __init__(self, trading_pairs: Optional[List[str]] = None):
-        super().__init__()
-        self._trading_pairs: Optional[List[str]] = trading_pairs
+        super().__init__(trading_pairs)
         self._order_book_create_function = lambda: OrderBook()
 
     @classmethod
-    @async_ttl_cache(ttl=60 * 30, maxsize=1)
-    async def get_active_exchange_markets(cls) -> pd.DataFrame:
+    async def get_last_traded_prices(cls, trading_pairs: List[str]) -> Dict[str, float]:
         async with aiohttp.ClientSession() as client:
+            resp = await client.get(TICKER_PRICE_CHANGE_URL)
+            resp_json = await resp.json()
 
-            market_response, ticker_response = await safe_gather(
-                client.get(f"{BLOCKTANE_REST_URL}/markets"),
-                client.get(f"{BLOCKTANE_REST_URL}/markets/tickers")
-            )
-            market_response: aiohttp.ClientResponse = market_response
+            return {convert_from_exchange_trading_pair(market): data["ticker"]["last"] for market, data in resp_json}
 
-            if market_response.status != 200:
-                raise IOError(f"Error fetching blocktane markets information. "
-                              f"HTTP status is {market_response.status}.")
-
-            if ticker_response.status != 200:
-                raise IOError(f"Error fetching blocktane tickers information. "
-                              f"HTTP status is {ticker_response.status}.")
-
-            market_data = await market_response.json()
-            ticker_data = await ticker_response.json()
-
-            exchange_markets: Dict[str, Any] = {item["id"]: {"baseAsset": item["base_unit"],
-                                                             "quoteAsset": item["quote_unit"],
-                                                             "volume": ticker_data[item["id"]]["ticker"]["volume"],
-                                                             "lastPrice": ticker_data[item["id"]]["ticker"]["last"]}
-                                                for item in market_data if item["state"] == "enabled"}
-            columns = [item["id"] for item in market_data if item["state"] == "enabled"]
-            
-            all_markets: pd.DataFrame = pd.DataFrame(exchange_markets, columns = columns)
-            all_markets = all_markets.swapaxes("index", "columns")
-            btc_price: float = float(all_markets.loc["btcpax"].lastPrice)
-            usd_volume: float = [
-                (
-                    volume * btc_price if trading_pair.endswith("btc") else
-                    volume
-                )
-                for trading_pair, volume in zip(all_markets.index, all_markets.volume.astype("float"))]
-            all_markets.loc[:, "USDVolume"] = usd_volume
-            all_markets.loc[:, "volume"] = all_markets.volume
-
-            return all_markets.sort_values("USDVolume", ascending=False)
-
-    async def get_trading_pairs(self) -> List[str]:
-        if not self._trading_pairs:
-            try:
-                active_markets: pd.DataFrame = await self.get_active_exchange_markets()
-                self._trading_pairs = active_markets.index.tolist()
-            except Exception:
-                self._trading_pairs = []
-                self.logger().error(
-                    f"Error getting active exchange information.",
-                    exc_info=True
-                )
+    @property
+    def trading_pairs(self) -> List[str]:
         return self._trading_pairs
 
     @staticmethod
@@ -200,33 +156,18 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     return self._generate_add_message(pair, price, amount)
         return None
 
-    async def get_tracking_pairs(self) -> Dict[str, OrderBookTrackerEntry]:
-        # Get the currently active markets
+    async def get_new_order_book(self, trading_pair: str) -> OrderBook:
         async with aiohttp.ClientSession() as client:
-            trading_pairs: Dict[str, Any] = await self.get_trading_pairs()
-            retval: Dict[str, OrderBookTrackerEntry] = {}
-
-            number_of_pairs: int = len(trading_pairs)
-            for index, trading_pair in enumerate(trading_pairs):
-                try:
-                    snapshot: Dict[str, Any] = await self.get_snapshot(client, trading_pair, 1000)
-                    snapshot_timestamp: float = time.time()
-                    snapshot_msg: OrderBookMessage = BlocktaneOrderBook.snapshot_message_from_exchange(
-                        snapshot,
-                        snapshot_timestamp,
-                        metadata={"trading_pair": trading_pair}
-                    )
-                    order_book: OrderBook = self.order_book_create_function()
-                    order_book.apply_snapshot(snapshot_msg.bids, snapshot_msg.asks, snapshot_msg.update_id)
-                    retval[trading_pair] = OrderBookTrackerEntry(trading_pair, snapshot_timestamp, order_book)
-                    self.logger().info(f"Initialized order book for {trading_pair}. "
-                                       f"{index+1}/{number_of_pairs} completed.")
-                    # Each 1000 limit snapshot costs 10 requests and blocktane rate limit is 20 requests per second.
-                    await asyncio.sleep(1.0)
-                except Exception:
-                    self.logger().error(f"Error getting snapshot for {trading_pair}. ", exc_info=True)
-                    await asyncio.sleep(5)
-            return retval
+            snapshot: Dict[str, Any] = await self.get_snapshot(client, trading_pair, 1000)
+            snapshot_timestamp: float = time.time()
+            snapshot_msg: OrderBookMessage = BlocktaneOrderBook.snapshot_message_from_exchange(
+                snapshot,
+                snapshot_timestamp,
+                metadata={"trading_pair": trading_pair}
+            )
+            order_book: OrderBook = self.order_book_create_function()
+            order_book.apply_snapshot(snapshot_msg.bids, snapshot_msg.asks, snapshot_msg.update_id)
+            return order_book
 
     async def _inner_messages(self,
                               ws: websockets.WebSocketClientProtocol) -> AsyncIterable[str]:
@@ -253,8 +194,7 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def listen_for_trades(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         while True:
             try:
-                trading_pairs: List[str] = await self.get_trading_pairs()
-                ws_path: str = "&stream=".join([f"{trading_pair}.trades" for trading_pair in trading_pairs])
+                ws_path: str = "&stream=".join([f"{trading_pair}.trades" for trading_pair in self._trading_pairs])
                 stream_url: str = f"{DIFF_STREAM_URL}/?stream={ws_path}"
 
                 async with websockets.connect(stream_url) as ws:
@@ -274,8 +214,7 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def listen_for_order_book_diffs(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         while True:
             try:
-                trading_pairs: List[str] = await self.get_trading_pairs()
-                ws_path: str = "&stream=".join([f"{trading_pair}.ob-inc" for trading_pair in trading_pairs])
+                ws_path: str = "&stream=".join([f"{trading_pair}.ob-inc" for trading_pair in self._trading_pairs])
                 stream_url: str = f"{DIFF_STREAM_URL}/?stream={ws_path}"
 
                 async with websockets.connect(stream_url) as ws:
@@ -300,9 +239,8 @@ class BlocktaneAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def listen_for_order_book_snapshots(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         while True:
             try:
-                trading_pairs: List[str] = await self.get_trading_pairs()
                 async with aiohttp.ClientSession() as client:
-                    for trading_pair in trading_pairs:
+                    for trading_pair in self._trading_pairs:
                         try:
                             snapshot: Dict[str, Any] = await self.get_snapshot(client, trading_pair)
                             snapshot_timestamp: float = time.time()

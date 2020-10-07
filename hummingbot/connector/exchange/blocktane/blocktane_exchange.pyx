@@ -85,26 +85,21 @@ cdef class BlocktaneExchange(ExchangeBase):
 
     def __init__(self,
                  blocktane_api_key: str,
-                 blocktane_secret_key: str,
+                 blocktane_api_secret: str,
                  poll_interval: float = 5.0,
-                 order_book_tracker_data_source_type: OrderBookTrackerDataSourceType =
-                 OrderBookTrackerDataSourceType.EXCHANGE_API,
                  trading_pairs: Optional[List[str]] = None,
                  trading_required: bool = True):
         super().__init__()
+        self._real_time_balance_update = True
         self._account_id = ""
         self._account_available_balances = {}
         self._account_balances = {}
-        self._blocktane_auth = BlocktaneAuth(blocktane_api_key, blocktane_secret_key)
-        self._data_source_type = order_book_tracker_data_source_type
+        self._blocktane_auth = BlocktaneAuth(blocktane_api_key, blocktane_api_secret)
         self._ev_loop = asyncio.get_event_loop()
         self._in_flight_orders = {}
         self._last_poll_timestamp = 0
         self._last_timestamp = 0
-        self._order_book_tracker = BlocktaneOrderBookTracker(
-            data_source_type=order_book_tracker_data_source_type,
-            trading_pairs=trading_pairs
-        )
+        self._order_book_tracker = BlocktaneOrderBookTracker(trading_pairs=trading_pairs)
         self._order_not_found_records = {}
         self._order_tracker_task = None
         self._poll_notifier = asyncio.Event()
@@ -280,6 +275,13 @@ cdef class BlocktaneExchange(ExchangeBase):
             self._trading_rules.clear()
             for trading_rule in trading_rules_list:
                 self._trading_rules[trading_rule.trading_pair] = trading_rule
+
+    @property
+    def in_flight_orders(self) -> Dict[str, BlocktaneInFlightOrder]:
+        return self._in_flight_orders
+
+    def supported_order_types(self):
+        return [OrderType.LIMIT, OrderType.MARKET]
 
     async def list_orders(self) -> List[Any]:
         """
