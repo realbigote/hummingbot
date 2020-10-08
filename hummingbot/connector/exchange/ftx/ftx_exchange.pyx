@@ -649,7 +649,7 @@ cdef class FtxExchange(ExchangeBase):
                 "type": "limit",
                 "reduceOnly": False,
                 "ioc": False,
-                "postOnly": False, #order_type is OrderType.LIMIT_MAKER,
+                "postOnly": order_type is OrderType.LIMIT_MAKER,
                 "clientId": str(order_id),
             }
         elif order_type is OrderType.MARKET:
