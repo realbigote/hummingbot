@@ -81,3 +81,4 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
     cdef c_process_market_pair(self, object market_pair)
     cdef bint c_ready_for_new_orders(self, list market_trading_pairs)
+    cdef object factor_in_fees(self, market_pair: MarketTradingPairTuple, price: object, amount: object, is_buy: bool, is_primary: bool)
