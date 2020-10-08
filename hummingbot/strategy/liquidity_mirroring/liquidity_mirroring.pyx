@@ -14,7 +14,8 @@ from typing import (
 )
 from datetime import datetime, timedelta
 from hummingbot.core.utils.async_utils import safe_ensure_future
-from hummingbot.market.market_base cimport MarketBase
+from hummingbot.connector.exchange_base import ExchangeBase
+from hummingbot.connector.exchange_base cimport ExchangeBase
 from hummingbot.core.event.events import (
     TradeType,
     OrderType,
@@ -86,7 +87,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self._logging_options = logging_options
         self.primary_market_pairs = primary_market_pairs
         self.mirrored_market_pairs = mirrored_market_pairs
-        
         self._all_markets_ready = False
         self._status_report_interval = status_report_interval
         self._last_timestamp = 0
@@ -181,11 +181,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.slack_update_period = slack_update_period
 
     @property
-    def tracked_taker_orders(self) -> List[Tuple[MarketBase, MarketOrder]]:
+    def tracked_taker_orders(self) -> List[Tuple[ExchangeBase, MarketOrder]]:
         return self._sb_order_tracker.tracked_taker_orders
 
     @property
-    def tracked_maker_orders(self) -> List[Tuple[MarketBase, MarketOrder]]:
+    def tracked_maker_orders(self) -> List[Tuple[ExchangeBase, MarketOrder]]:
         return self._sb_order_tracker.tracked_maker_orders
 
     @property
@@ -671,15 +671,17 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 break
         return covered
 
-    def factor_in_fees(self, market: MarketBase, market_pair, price, amount, is_buy, is_primary):
-        fee_object = market.c_get_fee(
-            market_pair.base_asset,
-            market_pair.quote_asset,
-            OrderType.LIMIT,
-            TradeType.BUY if is_buy else TradeType.SELL,
-            amount,
-            price
-        )
+    cdef object factor_in_fees(self, market_pair: MarketTradingPairTuple, price: object, amount: object, is_buy: bool, is_primary: bool):
+        cdef:
+            ExchangeBase market = market_pair.market
+
+        fee_object = market.c_get_fee(market_pair.base_asset,
+                                          market_pair.quote_asset,
+                                          OrderType.LIMIT,
+                                          TradeType.BUY if is_buy else TradeType.SELL,
+                                          amount,
+                                          price
+                                      )
             
         total_flat_fees = self.c_sum_flat_fees(market_pair.quote_asset,
                                                    fee_object.flat_fees)
@@ -837,8 +839,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             self.adjust_mirrored_orderbook(market_pair, best_bid, best_ask)
 
     def adjust_primary_orderbook(self, primary_market_pair, best_bid, best_ask, bids, asks):
-        primary_market: MarketBase = primary_market_pair.market
-        mirrored_market: MarketBase = self.mirrored_market_pairs[0].market
+        primary_market: ExchangeBase = primary_market_pair.market
+        mirrored_market: ExchangeBase = self.mirrored_market_pairs[0].market
         mirrored_market_pair = self.mirrored_market_pairs[0]
         available_quote_exposure = self.max_exposure_quote - self.offset_quote_exposure
         available_base_exposure = self.max_exposure_base - self.offset_base_exposure
@@ -857,16 +859,16 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         bid_amount = Decimal(min(best_bid.amount, self.bid_amounts[0]))
         if (bid_amount > 0):
-            primary_fees_bid, bid_fee_object = self.factor_in_fees(primary_market, primary_market_pair, best_bid.price, bid_amount, True, True)
-            both_fees_bid, fee_object_unused = self.factor_in_fees(mirrored_market, mirrored_market_pair, primary_fees_bid, bid_amount, False, False)
+            primary_fees_bid, bid_fee_object = self.factor_in_fees(primary_market_pair, best_bid.price, bid_amount, True, True)
+            both_fees_bid, fee_object_unused = self.factor_in_fees(mirrored_market_pair, primary_fees_bid, bid_amount, False, False)
             adjusted_bid = both_fees_bid * (1 - self.order_price_markup)
         else:
             adjusted_bid = best_bid.price * (1 - self.order_price_markup)
 
         ask_amount = Decimal(min(best_ask.amount, self.ask_amounts[0]))
         if (ask_amount > 0):
-            primary_fees_ask, ask_fee_object = self.factor_in_fees(primary_market, primary_market_pair, best_ask.price, ask_amount, False, True)
-            both_fees_ask, fee_object_unused = self.factor_in_fees(mirrored_market, mirrored_market_pair, primary_fees_ask, ask_amount, True, False)
+            primary_fees_ask, ask_fee_object = self.factor_in_fees(primary_market_pair, best_ask.price, ask_amount, False, True)
+            both_fees_ask, fee_object_unused = self.factor_in_fees(mirrored_market_pair, primary_fees_ask, ask_amount, True, False)
             adjusted_ask = both_fees_ask * (1 + self.order_price_markup)
         else:
             adjusted_ask = best_ask.price * (1 + self.order_price_markup)
@@ -938,8 +940,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         amount = Decimal(min(bid_amount, (self.bid_amounts[i+1])))
                         if (amount >= Decimal(self.min_primary_amount)):
                             self.buys_to_replace.remove(i+1)
-                            price_tx, fee_object = self.factor_in_fees(primary_market, primary_market_pair, bid_price, amount, True, True)
-                            min_price, fee_object_unused = self.factor_in_fees(mirrored_market, mirrored_market_pair, price_tx, amount, False, False)
+                            price_tx, fee_object = self.factor_in_fees(primary_market_pair, bid_price, amount, True, True)
+                            min_price, fee_object_unused = self.factor_in_fees(mirrored_market_pair, price_tx, amount, False, False)
                         
                             min_price = min(min_price * (1 - self.order_price_markup), bid_price)
 
@@ -1031,8 +1033,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         amount = Decimal(min(ask_amount, self.ask_amounts[i+1]))
                         if (amount >= Decimal(self.min_primary_amount)):
                             self.sells_to_replace.remove(i+1)
-                            price_tx, fee_object = self.factor_in_fees(primary_market, primary_market_pair, ask_price, amount, False, True)
-                            max_price, fee_object_unused = self.factor_in_fees(mirrored_market, mirrored_market_pair, price_tx, amount, True, False)
+                            price_tx, fee_object = self.factor_in_fees(primary_market_pair, ask_price, amount, False, True)
+                            max_price, fee_object_unused = self.factor_in_fees(mirrored_market_pair, price_tx, amount, True, False)
                         
                             max_price = max(max_price * (1 + self.order_price_markup), ask_price)
 
@@ -1065,7 +1067,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             if (abs(self.pm.amount_to_offset) < self.max_offsetting_exposure):
                 SlackPusher(self.slack_url, "Offsetting exposure within threshold")
                 self.offset_beyond_threshold_message_sent = False
-        mirrored_market: MarketBase = mirrored_market_pair.market
+        mirrored_market: ExchangeBase = mirrored_market_pair.market
         if self.pm.amount_to_offset.is_zero():
             return
         else:
@@ -1100,7 +1102,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     try:
                         self.c_buy_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                     except:
-                        pass
+                        self.logger.error(f"Failed to c_buy_with_specific_market: {mirrored_market_pair.trading_pair}"\
+                                          f" {Decimal(quant_amount)} {Decimal(quant_price)}")
 
             elif self.pm.amount_to_offset > Decimal(0):
             # we are at a surplus of base. get rid of buy orders
@@ -1127,4 +1130,5 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     try:
                         self.c_sell_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                     except:
-                        pass
+                        self.logger.error(f"Failed to c_sell_with_specific_market: {mirrored_market_pair.trading_pair}"\
+                                          f" {Decimal(quant_amount)} {Decimal(quant_price)}")

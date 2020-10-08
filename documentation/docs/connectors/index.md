@@ -13,12 +13,20 @@ Connectors are packages of code that link Hummingbot's internal trading algorith
 ## Hummingbot-Supported Connectors
 
 * [Binance](/connectors/binance)
+* [Bittrex Global](/connectors/bittrex)
+* [Bitfinex](/connectors/bitfinex)
 * [Coinbase Pro](/connectors/coinbase)
+* [Crypto.com](/connectors/crypto-com)
+* [Eterbase](/connectors/eterbase)
 * [Huobi Global](/connectors/huobi)
 * [Bittrex Global](/connectors/bittrex)
 * [Liquid](/connectors/liquid)
+* [Loopring](/connectors/loopring)
+* [Bitfinex](/connectors/bitfinex)
 * [KuCoin](/connectors/kucoin)
 * [Kraken](/connectors/kraken)
+* [KuCoin](/connectors/kucoin)
+* [Liquid](/connectors/liquid)
 * [Radar Relay](/connectors/radar-relay)
 
 ## Community-Contributed Exchange Connectors
@@ -40,9 +48,3 @@ Please contact the support contact listed in the above table for support questio
 1. Create a Github issue and tag the Github contact to inform them of the issue.
 1. Report the issue to the exchange connector support contact.
 1. Send a message through Discord in [#community-connectors](https://discordapp.com/channels/530578568154054663/642099307922718730) channel.
-
-
-## Coming Soon to Hummingbot
-
-* Bitfinex
-* HitBTC
