@@ -1102,7 +1102,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     try:
                         self.c_buy_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                     except:
-                        pass
+                        self.logger.error(f"Failed to c_buy_with_specific_market: {mirrored_market_pair.trading_pair}"\
+                                          f" {Decimal(quant_amount)} {Decimal(quant_price)}")
 
             elif self.pm.amount_to_offset > Decimal(0):
             # we are at a surplus of base. get rid of buy orders
@@ -1129,4 +1130,5 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     try:
                         self.c_sell_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
                     except:
-                        pass
+                        self.logger.error(f"Failed to c_sell_with_specific_market: {mirrored_market_pair.trading_pair}"\
+                                          f" {Decimal(quant_amount)} {Decimal(quant_price)}")
