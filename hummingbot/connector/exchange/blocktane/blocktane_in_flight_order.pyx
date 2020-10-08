@@ -25,6 +25,7 @@ cdef class BlocktaneInFlightOrder(InFlightOrderBase):
                  trade_type: TradeType,
                  price: Decimal,
                  amount: Decimal,
+                 created_at: float,
                  initial_state: str = "NEW"):
         super().__init__(
             client_order_id,
@@ -37,6 +38,7 @@ cdef class BlocktaneInFlightOrder(InFlightOrderBase):
             initial_state
         )
         self.trade_id_set = set()
+        self.created_at = created_at
 
     @property
     def is_done(self) -> bool:
@@ -60,7 +62,8 @@ cdef class BlocktaneInFlightOrder(InFlightOrderBase):
                 order_type=getattr(OrderType, data["order_type"]),
                 trade_type=getattr(TradeType, data["trade_type"]),
                 price=Decimal(data["price"]),
-                amount=Decimal(data["amount"]),
+                amount=Decimal(data["amount"],
+                created_at=data["created_at"]),
                 initial_state=data["last_state"]
             )
         retval.executed_amount_base = Decimal(data["executed_amount_base"])
