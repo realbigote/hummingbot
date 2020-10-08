@@ -15,9 +15,9 @@ cdef class FtxInFlightOrder(InFlightOrderBase):
                  trade_type: TradeType,
                  price: Decimal,
                  amount: Decimal,
+                 created_at : float,
                  initial_state: str = "OPEN"):
         super().__init__(
-            FtxExchange,
             client_order_id,
             exchange_order_id,
             trading_pair,
@@ -27,6 +27,16 @@ cdef class FtxInFlightOrder(InFlightOrderBase):
             amount,
             initial_state
         )
+        self.created_at = created_at
+
+    def __repr__(self) -> str:
+        return f"super().__repr__()" \
+               f"created_at='{str(self.created_at)}'')"
+    
+    def to_json(self) -> Dict[str, Any]:
+        response = super().to_json()
+        response["created_at"] = str(self.created_at)
+        return response
 
     @property
     def is_done(self) -> bool:
@@ -57,6 +67,7 @@ cdef class FtxInFlightOrder(InFlightOrderBase):
                 getattr(TradeType, data["trade_type"]),
                 Decimal(data["price"]),
                 Decimal(data["amount"]),
+                float(data["created_at"] if "created_at" in data else 0),
                 data["last_state"]
             )
         retval.executed_amount_base = Decimal(data["executed_amount_base"])

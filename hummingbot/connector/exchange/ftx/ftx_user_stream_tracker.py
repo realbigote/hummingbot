@@ -5,7 +5,7 @@ import logging
 from typing import Optional, List
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
 from hummingbot.logger import HummingbotLogger
-from hummingbot.core.data_type.user_stream_tracker import UserStreamTrackerDataSourceType, UserStreamTracker
+from hummingbot.core.data_type.user_stream_tracker import UserStreamTracker
 from hummingbot.connector.exchange.ftx.ftx_api_user_stream_data_source import FtxAPIUserStreamDataSource
 from hummingbot.connector.exchange.ftx.ftx_auth import FtxAuth
 
@@ -21,11 +21,10 @@ class FtxUserStreamTracker(UserStreamTracker):
 
     def __init__(
         self,
-        data_source_type: UserStreamTrackerDataSourceType = UserStreamTrackerDataSourceType.EXCHANGE_API,
         ftx_auth: Optional[FtxAuth] = None,
         trading_pairs: Optional[List[str]] = [],
     ):
-        super().__init__(data_source_type=data_source_type)
+        super().__init__()
         self._ftx_auth: FtxAuth = ftx_auth
         self._trading_pairs: List[str] = trading_pairs
         self._ev_loop: asyncio.events.AbstractEventLoop = asyncio.get_event_loop()
@@ -35,12 +34,9 @@ class FtxUserStreamTracker(UserStreamTracker):
     @property
     def data_source(self) -> UserStreamTrackerDataSource:
         if not self._data_source:
-            if self._data_source_type is UserStreamTrackerDataSourceType.EXCHANGE_API:
-                self._data_source = FtxAPIUserStreamDataSource(
-                    ftx_auth=self._ftx_auth
-                )
-            else:
-                raise ValueError(f"data_source_type {self._data_source_type} is not supported.")
+           self._data_source = FtxAPIUserStreamDataSource(
+                ftx_auth=self._ftx_auth
+            )
         return self._data_source
 
     @property

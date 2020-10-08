@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import logging
 import time
 import requests
@@ -47,6 +48,7 @@ from hummingbot.connector.exchange.ftx.ftx_utils import (
 
 bm_logger = None
 s_decimal_0 = Decimal(0)
+UNRECOGNIZED_ORDER_DEBOUCE = 20  # seconds
 
 cdef class FtxExchangeTransactionTracker(TransactionTracker):
     cdef:
@@ -89,22 +91,19 @@ cdef class FtxExchange(ExchangeBase):
                  ftx_secret_key: str,
                  ftx_api_key: str,
                  poll_interval: float = 5.0,
-                 order_book_tracker_data_source_type: OrderBookTrackerDataSourceType =
-                 OrderBookTrackerDataSourceType.EXCHANGE_API,
                  trading_pairs: Optional[List[str]] = None,
                  trading_required: bool = True):
         super().__init__()
+        self._real_time_balance_update = False
         self._account_available_balances = {}
         self._account_balances = {}
         self._account_id = ""
         self._ftx_auth = FtxAuth(ftx_api_key, ftx_secret_key)
-        self._data_source_type = order_book_tracker_data_source_type
         self._ev_loop = asyncio.get_event_loop()
         self._in_flight_orders = {}
         self._last_poll_timestamp = 0
         self._last_timestamp = 0
-        self._order_book_tracker = FtxOrderBookTracker(data_source_type=order_book_tracker_data_source_type,
-                                                           trading_pairs=trading_pairs)
+        self._order_book_tracker = FtxOrderBookTracker(trading_pairs=trading_pairs)
         self._order_not_found_records = {}
         self._poll_notifier = asyncio.Event()
         self._poll_interval = poll_interval
@@ -231,13 +230,16 @@ cdef class FtxExchange(ExchangeBase):
             del self._account_available_balances[asset_name]
             del self._account_balances[asset_name]
 
+        self._in_flight_orders_snapshot = {k: copy.copy(v) for k, v in self._in_flight_orders.items()}
+        self._in_flight_orders_snapshot_timestamp = self._current_timestamp
+
     def _format_trading_rules(self, market_dict: Dict[str, Any]) -> List[TradingRule]:
         cdef:
             list retval = []
 
         for market in market_dict.values():
             try:
-                trading_pair = market.get("name")
+                trading_pair = convert_from_exchange_trading_pair(market.get("name"))
                 min_trade_size = Decimal(market.get("minProvideSize"))
                 price_increment = Decimal(market.get("priceIncrement"))
                 size_increment = Decimal(market.get("sizeIncrement"))
@@ -246,11 +248,11 @@ cdef class FtxExchange(ExchangeBase):
 
                 # Trading Rules info from ftx API response
                 retval.append(TradingRule(trading_pair,
-                                        min_order_size=Decimal(min_trade_size),
-                                        min_price_increment=Decimal(price_increment),
+                                        min_order_size=min_trade_size,
+                                        min_price_increment=price_increment,
                                         min_base_amount_increment=size_increment,
                                         min_quote_amount_increment=min_quote_amount_increment,
-                                        min_order_value=Decimal(min_order_value),
+                                        min_order_value=min_order_value,
                                         ))
             except Exception:
                 self.logger().error(f"Error parsing the trading pair rule {market}. Skipping.", exc_info=True)
@@ -274,41 +276,12 @@ cdef class FtxExchange(ExchangeBase):
             for trading_rule in trading_rules_list:
                 self._trading_rules[trading_rule.trading_pair] = trading_rule
 
-    async def list_orders(self) -> List[Any]:
-        """
-        Only a list of all currently open orders(does not include filled orders)
-        :returns json response
-        i.e.
-        {
-          "success": true,
-          "result": [
-            {
-              "createdAt": "2019-03-05T09:56:55.728933+00:00",
-              "filledSize": 10,
-              "future": "XRP-PERP",
-              "id": 9596912,
-              "market": "XRP-PERP",
-              "price": 0.306525,
-              "avgFillPrice": 0.306526,
-              "remainingSize": 31421,
-              "side": "sell",
-              "size": 31431,
-              "status": "open",
-              "type": "limit",
-              "reduceOnly": false,
-              "ioc": false,
-              "postOnly": false,
-              "clientId": null
-            }
-          ]
-        }
+    @property
+    def in_flight_orders(self) -> Dict[str, FtxInFlightOrder]:
+        return self._in_flight_orders
 
-        """
-        path_url = "/orders"
-
-        result = await self._api_request("GET", path_url=path_url)
-
-        return result
+    def supported_order_types(self):
+        return [OrderType.LIMIT, OrderType.MARKET, OrderType.LIMIT_MAKER]
 
     async def _update_order_status(self):
         cdef:
@@ -322,34 +295,34 @@ cdef class FtxExchange(ExchangeBase):
         if current_tick > last_tick and len(self._in_flight_orders) > 0:
 
             tracked_orders = list(self._in_flight_orders.values())
-
-            open_orders = await self.list_orders()
-            open_orders = dict((str(entry["id"]), entry) for entry in open_orders["result"] if entry["status"] is not "closed")
-
             for tracked_order in tracked_orders:
-
-                exchange_order_id = str(await tracked_order.get_exchange_order_id())
-                client_order_id = tracked_order.client_order_id
-                order = None
-                if exchange_order_id in open_orders:
-                    order = open_orders[exchange_order_id]
-
-                # Do nothing, if the order has already been cancelled or has failed
-                if client_order_id not in self._in_flight_orders:
+                try:
+                    response = await self._api_request("GET", path_url=f"/orders/by_client_id/{tracked_order.client_order_id}")
+                    order = response["result"]
+                except RuntimeError as e:
+                    if "Order not found" in str(e) and tracked_order.created_at < (int(time.time()) - UNRECOGNIZED_ORDER_DEBOUCE):
+                        tracked_order.last_state = "CLOSED"
+                        self.c_trigger_event(
+                            self.MARKET_ORDER_FAILURE_EVENT_TAG,
+                            MarketOrderFailureEvent(self._current_timestamp,
+                                                    tracked_order.client_order_id,
+                                                    tracked_order.order_type)
+                        )
+                        self.c_stop_tracking_order(tracked_order.client_order_id)
+                        self.logger().warning(
+                            f"Order {tracked_order.client_order_id} not found on exchange after {UNRECOGNIZED_ORDER_DEBOUCE} seconds." \
+                            f"Makring as failed"
+                        )
+                    else:
+                        self.logger().error(
+                            f"Unexpected error when polling for {tracked_order.client_order_id} status." \
+                            f"{str(e)}"
+                        )
                     continue
-
-                if order is None:  # Handles order that are currently tracked but no longer open in exchange
-                    tracked_order.last_state = "CLOSED"
-                    self.c_trigger_event(
-                        self.MARKET_ORDER_FAILURE_EVENT_TAG,
-                        MarketOrderFailureEvent(self._current_timestamp,
-                                                client_order_id,
-                                                tracked_order.order_type)
-                    )
-                    self.c_stop_tracking_order(client_order_id)
-                    self.logger().network(
-                        f"Error fetching status update for the order {client_order_id}: "
-                        f"{tracked_order}"
+                except Exception as e:
+                    self.logger().error(
+                        f"Unexpected error when polling for {tracked_order.client_order_id} status." \
+                        f"{str(e)}"
                     )
                     continue
 
@@ -395,7 +368,7 @@ cdef class FtxExchange(ExchangeBase):
                     if order["size"] == order["filledSize"]:  # Order COMPLETED
                         tracked_order.last_state = "CLOSED"
                         self.logger().info(f"The {order_type}-{trade_type} "
-                                           f"{client_order_id} has completed according to ftx order status API.")
+                                           f"{tracked_order.client_order_id} has completed according to ftx order status API.")
 
                         if tracked_order.trade_type is TradeType.BUY:
                             self.c_trigger_event(self.MARKET_BUY_ORDER_COMPLETED_EVENT_TAG,
@@ -424,14 +397,14 @@ cdef class FtxExchange(ExchangeBase):
                     else:  # Order PARTIAL-CANCEL or CANCEL
                         tracked_order.last_state = "CANCELLED"
                         self.logger().info(f"The {tracked_order.order_type}-{tracked_order.trade_type} "
-                                           f"{client_order_id} has been cancelled according to ftx order status API.")
+                                           f"{tracked_order.client_order_id} has been cancelled according to ftx order status API.")
                         self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
                                              OrderCancelledEvent(
                                                  self._current_timestamp,
-                                                 client_order_id
+                                                 tracked_order.client_order_id
                                              ))
 
-                    self.c_stop_tracking_order(client_order_id)
+                    self.c_stop_tracking_order(tracked_order.client_order_id)
 
     async def _iter_user_stream_queue(self) -> AsyncIterable[Dict[str, Any]]:
         while True:
@@ -620,7 +593,8 @@ cdef class FtxExchange(ExchangeBase):
             order_type,
             trade_type,
             price,
-            amount
+            amount,
+            self._current_timestamp
         )
 
     cdef c_stop_tracking_order(self, str order_id):
@@ -666,21 +640,21 @@ cdef class FtxExchange(ExchangeBase):
         path_url = "/orders"
 
         body = {}
-        if order_type is OrderType.LIMIT:
+        if order_type.is_limit_type():
             body = {
-                "market": str(trading_pair),
+                "market": convert_to_exchange_trading_pair(trading_pair),
                 "side": "buy" if is_buy else "sell",
                 "price": price,
                 "size": amount,
                 "type": "limit",
                 "reduceOnly": False,
                 "ioc": False,
-                "postOnly": False,
+                "postOnly": False, #order_type is OrderType.LIMIT_MAKER,
                 "clientId": str(order_id),
             }
         elif order_type is OrderType.MARKET:
             body = {
-                "market": str(trading_pair),
+                "market": convert_to_exchange_trading_pair(trading_pair),
                 "side": "buy" if is_buy else "sell",
                 "price": None,
                 "type": "market",
@@ -690,6 +664,8 @@ cdef class FtxExchange(ExchangeBase):
                 "postOnly": False,
                 "clientId": str(order_id),
             }
+        else:
+            raise ValueError(f"Unknown order_type for FTX: {order_type}")
 
         api_response = await self._api_request("POST", path_url=path_url, body=body)
 
@@ -729,7 +705,7 @@ cdef class FtxExchange(ExchangeBase):
                 decimal_price,
                 decimal_amount
             )
-            if order_type is OrderType.LIMIT:
+            if order_type.is_limit_type():
                 order_result = await self.place_order(order_id,
                                                       trading_pair,
                                                       decimal_amount,
@@ -833,7 +809,7 @@ cdef class FtxExchange(ExchangeBase):
                 decimal_amount
             )
 
-            if order_type is OrderType.LIMIT:
+            if order_type.is_limit_type():
                 order_result = await self.place_order(order_id,
                                                       trading_pair,
                                                       decimal_amount,
@@ -986,7 +962,7 @@ cdef class FtxExchange(ExchangeBase):
                 if http_method == 'DELETE':
                     return data
                 if response.status not in [200, 201]:  # HTTP Response code of 20X generally means it is successful
-                    raise IOError(f"Error fetching response from {http_method}-{url}. HTTP Status Code {response.status}: "
+                    raise RuntimeError(f"Error fetching response from {http_method}-{url}. HTTP Status Code {response.status}: "
                                   f"{data}")
                 return data
 

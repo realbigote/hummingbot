@@ -42,13 +42,14 @@ class FtxOrderBookTracker(OrderBookTracker):
 
     def __init__(
         self,
-        data_source_type: OrderBookTrackerDataSourceType = OrderBookTrackerDataSourceType.EXCHANGE_API,
         trading_pairs: Optional[List[str]] = None,
     ):
-        super().__init__(data_source_type=data_source_type)
+        super().__init__(
+            data_source = FtxAPIOrderBookDataSource(trading_pairs=trading_pairs),
+            trading_pairs=trading_pairs
+        )
 
         self._ev_loop: asyncio.BaseEventLoop = asyncio.get_event_loop()
-        self._data_source: Optional[OrderBookTrackerDataSource] = None
         self._order_book_snapshot_stream: asyncio.Queue = asyncio.Queue()
         self._order_book_diff_stream: asyncio.Queue = asyncio.Queue()
         self._process_msg_deque_task: Optional[asyncio.Task] = None
@@ -56,17 +57,7 @@ class FtxOrderBookTracker(OrderBookTracker):
         self._order_books: Dict[str, FtxOrderBook] = {}
         self._saved_message_queues: Dict[str, Deque[FtxOrderBookMessage]] = defaultdict(lambda: deque(maxlen=1000))
         self._active_order_trackers: Dict[str, FtxActiveOrderTracker] = defaultdict(FtxActiveOrderTracker)
-        self._trading_pairs: Optional[List[str]] = trading_pairs
         self._order_book_stream_listener_task: Optional[asyncio.Task] = None
-
-    @property
-    def data_source(self) -> OrderBookTrackerDataSource:
-        if not self._data_source:
-            if self._data_source_type is OrderBookTrackerDataSourceType.EXCHANGE_API:
-                self._data_source = FtxAPIOrderBookDataSource(trading_pairs=self._trading_pairs)
-            else:
-                raise ValueError(f"data_source_type {self._data_source_type} is not supported.")
-        return self._data_source
 
     @property
     def exchange_name(self) -> str:

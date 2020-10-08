@@ -57,60 +57,27 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
         return cls._ftxaobds_logger
 
     def __init__(self, trading_pairs: Optional[List[str]] = None):
-        super().__init__()
-        self._trading_pairs: Optional[List[str]] = trading_pairs
+        super().__init__(trading_pairs)
         self._websocket_connection: Optional[Connection] = None
         self._snapshot_msg: Dict[str, any] = {}
 
     @classmethod
-    @async_ttl_cache(ttl=60 * 30, maxsize=1)
-    async def get_active_exchange_markets(cls) -> pd.DataFrame:
-        """
-        Returned data frame should have trading pair as index and include USDVolume, baseAsset and quoteAsset
-        """
-        market_path_url = f"{FTX_REST_URL}{FTX_EXCHANGE_INFO_PATH}"
-
+    async def get_last_traded_prices(cls, trading_pairs: List[str]) -> Dict[str, float]:
         async with aiohttp.ClientSession() as client:
-
-            market_response = await client.get(market_path_url)
-
-            market_response: aiohttp.ClientResponse = market_response
-
-            if market_response.status != 200:
-                raise IOError(
-                    f"Error fetching active ftx markets information. " f"HTTP status is {market_response.status}."
-                )
-
-            raw_market_data = market_response.json()
-
-            market_data = [data for data in raw_market_data if raw_market_data["type"] == "spot"]
-
-            all_markets: pd.DataFrame = pd.DataFrame.from_records(data=market_data, index="name")
-            all_markets.rename(
-                {"baseCurrency": "baseAsset", "quoteCurrency": "quoteAsset", "volumeUsd24h": "USDVolume"}, axis="columns", inplace=True
-            )
-
-            await client.close()
-            return all_markets.sort_values("USDVolume", ascending=False)
+            async with await client.get(f"{FTX_REST_URL}{FTX_EXCHANGE_INFO_PATH}", timeout=API_CALL_TIMEOUT) as response:
+                response_json = await response.json()
+                results = response_json['result']
+                return {convert_from_exchange_trading_pair(result['name']): float(result['last'])
+                        for result in results if convert_from_exchange_trading_pair(result['name']) in trading_pairs}
 
     async def get_trading_pairs(self) -> List[str]:
-        if not self._trading_pairs:
-            try:
-                active_markets: pd.DataFrame = await self.get_active_exchange_markets()
-                self._trading_pairs = active_markets.index.tolist()
-            except Exception:
-                self._trading_pairs = []
-                self.logger().network(
-                    f"Error getting active exchange information.",
-                    exc_info=True
-                )
         return self._trading_pairs
 
     @staticmethod
     @cachetools.func.ttl_cache(ttl=10)
     def get_mid_price(trading_pair: str) -> Optional[Decimal]:
         resp = requests.get(url=f"{FTX_REST_URL}{FTX_EXCHANGE_INFO_PATH}/{convert_to_exchange_trading_pair(trading_pair)}")
-        record = resp.json()
+        record = resp.json()["result"]
         result = (Decimal(record.get("bid", "0")) + Decimal(record.get("ask", "0"))) / Decimal("2")
         return result if result else None
 
@@ -138,8 +105,7 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
         return []
 
     async def get_snapshot(self, client: aiohttp.ClientSession, trading_pair: str, limit: int = 1000) -> Dict[str, Any]:
-        
-        async with client.get(f"{FTX_REST_URL}{FTX_EXCHANGE_INFO_PATH}/{trading_pair}/orderbook") as response:
+        async with client.get(f"{FTX_REST_URL}{FTX_EXCHANGE_INFO_PATH}/{convert_to_exchange_trading_pair(trading_pair)}/orderbook?depth=100") as response:
             response: aiohttp.ClientResponse = response
             if response.status != 200:
                 raise IOError(f"Error fetching FTX market snapshot for {trading_pair}. "
@@ -148,34 +114,18 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
             return data
 
-    async def get_tracking_pairs(self) -> Dict[str, OrderBookTrackerEntry]:
-        # Get the currently active markets
+    async def get_new_order_book(self, trading_pair: str) -> OrderBook:
         async with aiohttp.ClientSession() as client:
-            trading_pairs: List[str] = await self.get_trading_pairs()
-            retval: Dict[str, OrderBookTrackerEntry] = {}
-
-            number_of_pairs: int = len(trading_pairs)
-            for index, trading_pair in enumerate(trading_pairs):
-                try:
-                    snapshot: Dict[str, Any] = await self.get_snapshot(client, trading_pair, 1000)
-                    snapshot["data"] = snapshot["result"]
-                    snapshot_timestamp: float = time.time()
-                    snapshot_msg: OrderBookMessage = FtxOrderBook.snapshot_message_from_exchange(
-                        snapshot,
-                        snapshot_timestamp,
-                        metadata={"market": trading_pair}
-                    )
-                    order_book: OrderBook = self.order_book_create_function()
-                    order_book.apply_snapshot(snapshot_msg.bids, snapshot_msg.asks, snapshot_msg.update_id)
-                    active_order_tracker: FtxActiveOrderTracker = FtxActiveOrderTracker()
-                    retval[trading_pair] = FtxOrderBookTrackerEntry(trading_pair, snapshot_timestamp, order_book, active_order_tracker)
-                    self.logger().info(f"Initialized order book for {trading_pair}. "
-                                       f"{index+1}/{number_of_pairs} completed.")
-                    await asyncio.sleep(1.0)
-                except Exception:
-                    self.logger().error(f"Error getting snapshot for {trading_pair}. ", exc_info=True)
-                    await asyncio.sleep(5)
-            return retval
+            snapshot: Dict[str, Any] = await self.get_snapshot(client, trading_pair, 1000)
+            snapshot_timestamp: float = time.time()
+            snapshot_msg: OrderBookMessage = FtxOrderBook.restful_snapshot_message_from_exchange(
+                snapshot,
+                snapshot_timestamp,
+                metadata={"trading_pair": trading_pair}
+            )
+            order_book: OrderBook = self.order_book_create_function()
+            order_book.apply_snapshot(snapshot_msg.bids, snapshot_msg.asks, snapshot_msg.update_id)
+            return order_book
 
     async def _inner_messages(self,
                               ws: websockets.WebSocketClientProtocol) -> AsyncIterable[str]:
@@ -202,12 +152,9 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def listen_for_trades(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         while True:
             try:
-                trading_pairs: List[str] = await self.get_trading_pairs()
-                stream_url: str = f"{FTX_WS_FEED}"
-
-                async with websockets.connect(stream_url) as ws:
+                async with websockets.connect(FTX_WS_FEED) as ws:
                     ws: websockets.WebSocketClientProtocol = ws
-                    for pair in trading_pairs:
+                    for pair in self._trading_pairs:
                         subscribe_request: Dict[str, Any] = {
                             "op": "subscribe",
                             "channel": "trades",
@@ -231,12 +178,9 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def listen_for_order_book_diffs(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         while True:
             try:
-                trading_pairs: List[str] = await self.get_trading_pairs()
-                stream_url: str = f"{FTX_WS_FEED}"
-
-                async with websockets.connect(stream_url) as ws:
+                async with websockets.connect(FTX_WS_FEED) as ws:
                     ws: websockets.WebSocketClientProtocol = ws
-                    for pair in trading_pairs:
+                    for pair in self._trading_pairs:
                         subscribe_request: Dict[str, Any] = {
                             "op": "subscribe",
                             "channel": "orderbook",
@@ -259,16 +203,13 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def listen_for_order_book_snapshots(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         while True:
             try:
-                trading_pairs: List[str] = await self.get_trading_pairs()
-                stream_url: str = f"{FTX_WS_FEED}"
-
-                async with websockets.connect(stream_url) as ws:
+                async with websockets.connect(FTX_WS_FEED) as ws:
                     ws: websockets.WebSocketClientProtocol = ws
-                    for pair in trading_pairs:
+                    for pair in self._trading_pairs:
                         subscribe_request: Dict[str, Any] = {
                             "op": "subscribe",
                             "channel": "orderbook",
-                            "market": pair
+                            "market": convert_to_exchange_trading_pair(pair)
                         }
                         await ws.send(ujson.dumps(subscribe_request))
                     async for raw_msg in self._inner_messages(ws):
