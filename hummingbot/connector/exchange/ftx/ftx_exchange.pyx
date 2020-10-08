@@ -192,12 +192,12 @@ cdef class FtxExchange(ExchangeBase):
         cdef:
             object maker_fee = Decimal(0.002)
             object taker_fee = Decimal(0.002)
-        if order_type is OrderType.LIMIT and fee_overrides_config_map["ftx_maker_fee"].value is not None:
+        if order_type is order_type.is_limit_type() and fee_overrides_config_map["ftx_maker_fee"].value is not None:
             return TradeFee(percent=fee_overrides_config_map["ftx_maker_fee"].value)
         if order_type is OrderType.MARKET and fee_overrides_config_map["ftx_taker_fee"].value is not None:
             return TradeFee(percent=fee_overrides_config_map["ftx_taker_fee"].value)
 
-        return TradeFee(percent=maker_fee if order_type is OrderType.LIMIT else taker_fee)
+        return TradeFee(percent=maker_fee if order_type.is_limit_type() else taker_fee)
 
     async def _update_balances(self):
         cdef:
@@ -327,7 +327,7 @@ cdef class FtxExchange(ExchangeBase):
                     continue
 
                 order_state = order["status"]
-                order_type = "LIMIT" if tracked_order.order_type is OrderType.LIMIT else "MARKET"
+                order_type = "LIMIT" if tracked_order.order_type.is_limit_type() else "MARKET"
                 trade_type = "BUY" if tracked_order.trade_type is TradeType.BUY else "SELL"
                 order_type_description = tracked_order.order_type_description
 
@@ -687,7 +687,7 @@ cdef class FtxExchange(ExchangeBase):
 
         decimal_amount = self.c_quantize_order_amount(trading_pair, amount)
         decimal_price = (self.c_quantize_order_price(trading_pair, price)
-                         if order_type is OrderType.LIMIT
+                         if order_type.is_limit_type()
                          else s_decimal_0)
 
         if decimal_amount < trading_rule.min_order_size:
@@ -747,9 +747,8 @@ cdef class FtxExchange(ExchangeBase):
             tracked_order = self._in_flight_orders.get(order_id)
             tracked_order.last_state = "FAILURE"
             self.c_stop_tracking_order(order_id)
-            order_type_str = "LIMIT" if order_type is OrderType.LIMIT else "MARKET"
             self.logger().error(
-                f"Error submitting buy {order_type_str} order to ftx for "
+                f"Error submitting buy {order_type} order to ftx for "
                 f"{decimal_amount} {trading_pair} "
                 f"{decimal_price}.",
                 exc_info=True
@@ -789,7 +788,7 @@ cdef class FtxExchange(ExchangeBase):
 
         decimal_amount = self.c_quantize_order_amount(trading_pair, amount)
         decimal_price = (self.c_quantize_order_price(trading_pair, price)
-                         if order_type is OrderType.LIMIT
+                         if order_type.is_limit_type()
                          else s_decimal_0)
 
         if decimal_amount < trading_rule.min_order_size:
@@ -849,11 +848,10 @@ cdef class FtxExchange(ExchangeBase):
             tracked_order = self._in_flight_orders.get(order_id)
             tracked_order.last_state = "FAILURE"
             self.c_stop_tracking_order(order_id)
-            order_type_str = "LIMIT" if order_type is OrderType.LIMIT else "MARKET"
             self.logger().network(
-                f"Error submitting sell {order_type_str} order to ftx for "
+                f"Error submitting sell {order_type} order to ftx for "
                 f"{decimal_amount} {trading_pair} "
-                f"{decimal_price if order_type is OrderType.LIMIT else ''}.",
+                f"{decimal_price if order_type.is_limit_type() else ''}.",
                 exc_info=True,
                 app_warning_msg=f"Failed to submit sell order to ftx. Check API key and network connection."
             )

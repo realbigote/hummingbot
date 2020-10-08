@@ -108,7 +108,7 @@ cdef class LoopringInFlightOrder(InFlightOrderBase):
             client_order_id,
             hash,
             trading_pair,
-            OrderType.LIMIT,
+            OrderType.LIMIT, # TODO: fix this to the actual type (ie. LIMIT_MAKER)
             side,
             Decimal(price),
             Decimal(amount),
