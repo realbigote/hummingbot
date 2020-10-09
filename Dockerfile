@@ -52,6 +52,8 @@ COPY --chown=hummingbot:hummingbot setup.py .
 COPY --chown=hummingbot:hummingbot LICENSE .
 COPY --chown=hummingbot:hummingbot README.md .
 COPY --chown=hummingbot:hummingbot DATA_COLLECTION.md .
+COPY --chown=hummingbot:hummingbot slack_pusher.py .
+COPY --chown=hummingbot:hummingbot init.sh .
 
 # activate hummingbot env when entering the CT
 RUN echo "source /home/hummingbot/miniconda3/etc/profile.d/conda.sh && conda activate $(head -1 setup/environment-linux.yml | cut -d' ' -f2)" >> ~/.bashrc
@@ -109,8 +111,6 @@ WORKDIR /home/hummingbot
 
 # Copy all build artifacts from builder image
 COPY --from=builder --chown=hummingbot:hummingbot /home/ /home/
-COPY --from=builder --chown=hummingbot:hummingbot slack_pusher.py .
-COPY --from=builder --chown=hummingbot:hummingbot init.sh .
 
 # additional configs (sudo)
 COPY docker/etc /etc
