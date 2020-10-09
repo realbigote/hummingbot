@@ -109,8 +109,8 @@ WORKDIR /home/hummingbot
 
 # Copy all build artifacts from builder image
 COPY --from=builder --chown=hummingbot:hummingbot /home/ /home/
-COPY --chown=hummingbot:hummingbot slack_pusher.py .
-COPY --chown=hummingbot:hummingbot init.sh .
+COPY --from=builder --chown=hummingbot:hummingbot slack_pusher.py .
+COPY --from=builder --chown=hummingbot:hummingbot init.sh .
 
 # additional configs (sudo)
 COPY docker/etc /etc
