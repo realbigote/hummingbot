@@ -24,14 +24,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         object best_bid_start
         object initial_base_amount
         object initial_quote_amount
-        object primary_base_balance
-        object primary_quote_balance
-        object mirrored_base_balance
-        object mirrored_quote_balance
-        object primary_base_total_balance
-        object primary_quote_total_balance
-        object mirrored_base_total_balance
-        object mirrored_quote_total_balance
         object order_replacement_threshold
         bint two_sided_mirroring
         bint funds_message_sent
@@ -39,7 +31,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         bint fail_message_sent
         bint crossed_books
         object start_time
-        object start_wallet_check_time
         object primary_best_bid
         object primary_best_ask
         object mirrored_best_bid
