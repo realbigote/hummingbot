@@ -162,7 +162,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.sells_to_replace = list(range(0,len(self.ask_amounts)))
         self.bid_replace_ranks = []
         self.ask_replace_ranks = []
-        self.has_been_offset = []
 
         self.previous_sells = [Decimal(0) for i in range(0, len(self.ask_amounts))]
         self.previous_buys = [Decimal(0) for i in range(0, len(self.bid_amounts))]
@@ -337,73 +336,57 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 self.total_trading_volume += order_filled_event.amount
                 self.trades_executed += 1
                 if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
-                    if f"{order_id}COMPLETE" not in self.has_been_offset:
-                        previous_amount_to_offset = self.pm.amount_to_offset
-                        self.pm.register_trade(order_filled_event.price, order_filled_event.amount)
-                        if abs(self.pm.amount_to_offset) < abs(previous_amount_to_offset):
-                            self.cancel_offsetting_orders()
+                    previous_amount_to_offset = self.pm.amount_to_offset
+                    self.pm.register_trade(order_filled_event.price, order_filled_event.amount)
+                    if abs(self.pm.amount_to_offset) < abs(previous_amount_to_offset):
+                        self.cancel_offsetting_orders()
 
-                        self.primary_base_balance += order_filled_event.amount
-                        if order_id in self.marked_for_deletion.keys():
-                            order = self.marked_for_deletion[order_id]
-                            self.buys_to_replace.append(order["rank"])
-                        self.primary_base_total_balance += order_filled_event.amount
-                        self.primary_quote_total_balance -= order_filled_event.amount * order_filled_event.price
-                        self.has_been_offset.append(order_id)
-                        self.slack_order_filled_message(self.primary_market_pairs[0].market.name, order_filled_event.amount, order_filled_event.price, True)
-                    else:
-                        self.has_been_offset.remove(f"{order_id}COMPLETE")
+                    self.primary_base_balance += order_filled_event.amount
+                    if order_id in self.marked_for_deletion.keys():
+                        order = self.marked_for_deletion[order_id]
+                        self.buys_to_replace.append(order["rank"])
+                    self.primary_base_total_balance += order_filled_event.amount
+                    self.primary_quote_total_balance -= order_filled_event.amount * order_filled_event.price
+                    self.slack_order_filled_message(self.primary_market_pairs[0].market.name, order_filled_event.amount, order_filled_event.price, True)
                 else:
-                    if f"{order_id}COMPLETE" not in self.has_been_offset:
-                        self.pm.register_trade(order_filled_event.price, order_filled_event.amount)
-                        self.offset_quote_exposure -= (order_filled_event.amount * order_filled_event.price)
-                        self.mirrored_base_balance += order_filled_event.amount
-                        self.mirrored_base_total_balance += order_filled_event.amount
-                        self.mirrored_quote_total_balance -= order_filled_event.price * order_filled_event.amount
-                        self.has_been_offset.append(order_id)
-                        self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, order_filled_event.amount, order_filled_event.price, True)
-                    else:
-                        self.has_been_offset.remove(f"{order_id}COMPLETE")
+                    self.pm.register_trade(order_filled_event.price, order_filled_event.amount)
+                    self.offset_quote_exposure -= (order_filled_event.amount * order_filled_event.price)
+                    self.mirrored_base_balance += order_filled_event.amount
+                    self.mirrored_base_total_balance += order_filled_event.amount
+                    self.mirrored_quote_total_balance -= order_filled_event.price * order_filled_event.amount
+                    self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, order_filled_event.amount, order_filled_event.price, True)
+
                 if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                     self.log_with_clock(logging.INFO,
                     f"Limit order filled on {market_trading_pair_tuple[0].name}: {order_id} ({order_filled_event.price}, {order_filled_event.amount})")
+
             elif order_filled_event.trade_type == TradeType.SELL:
                 self.total_trading_volume += order_filled_event.amount
                 self.trades_executed += 1
                 if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
-                    if f"{order_id}COMPLETE" not in self.has_been_offset:
-                        previous_amount_to_offset = self.pm.amount_to_offset
-                        self.pm.register_trade(order_filled_event.price, -order_filled_event.amount)
-                        if abs(self.pm.amount_to_offset) < abs(previous_amount_to_offset):
-                            self.cancel_offsetting_orders()
+                    previous_amount_to_offset = self.pm.amount_to_offset
+                    self.pm.register_trade(order_filled_event.price, -order_filled_event.amount)
+                    if abs(self.pm.amount_to_offset) < abs(previous_amount_to_offset):
+                        self.cancel_offsetting_orders()
 
-                        self.primary_quote_balance += order_filled_event.price * order_filled_event.amount
-                        if order_id in self.marked_for_deletion.keys():
-                            order = self.marked_for_deletion[order_id]
-                            self.sells_to_replace.append(order["rank"])
-                        self.primary_quote_total_balance += order_filled_event.price * order_filled_event.amount
-                        self.primary_base_total_balance -= order_filled_event.amount
-                        self.has_been_offset.append(order_id)
-                        self.slack_order_filled_message(self.primary_market_pairs[0].market.name, order_filled_event.amount, order_filled_event.price, False)
-                    else:
-                        self.has_been_offset.remove(f"{order_id}COMPLETE")
+                    self.primary_quote_balance += order_filled_event.price * order_filled_event.amount
+                    if order_id in self.marked_for_deletion.keys():
+                        order = self.marked_for_deletion[order_id]
+                        self.sells_to_replace.append(order["rank"])
+                    self.primary_quote_total_balance += order_filled_event.price * order_filled_event.amount
+                    self.primary_base_total_balance -= order_filled_event.amount
+                    self.slack_order_filled_message(self.primary_market_pairs[0].market.name, order_filled_event.amount, order_filled_event.price, False)
                 else:
-                    if f"{order_id}COMPLETE" not in self.has_been_offset:
-                        self.pm.register_trade(order_filled_event.price, -order_filled_event.amount)
-                        self.offset_base_exposure -= order_filled_event.amount
-                        self.mirrored_quote_balance += order_filled_event.price * order_filled_event.amount
-                        self.mirrored_quote_total_balance += order_filled_event.price * order_filled_event.amount
-                        self.mirrored_base_total_balance -= order_filled_event.amount
-                        self.has_been_offset.append(order_id)
-                        self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, order_filled_event.amount, order_filled_event.price, False)
-                    else:
-                        self.has_been_offset.remove(f"{order_id}COMPLETE")
+                    self.pm.register_trade(order_filled_event.price, -order_filled_event.amount)
+                    self.offset_base_exposure -= order_filled_event.amount
+                    self.mirrored_quote_balance += order_filled_event.price * order_filled_event.amount
+                    self.mirrored_quote_total_balance += order_filled_event.price * order_filled_event.amount
+                    self.mirrored_base_total_balance -= order_filled_event.amount
+                    self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, order_filled_event.amount, order_filled_event.price, False)
+
                 if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                     self.log_with_clock(logging.INFO,
                         f"Limit order filled on {market_trading_pair_tuple[0].name}: {order_id} ({order_filled_event.price}, -{order_filled_event.amount})")
-        for order in self.has_been_offset:
-            if not (order == order_id):
-                self.has_been_offset.remove(order)
 
     cdef c_did_create_buy_order(self, object buy_order_created_event):
         cdef:
@@ -444,35 +427,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:         
             price = buy_order_completed_event.quote_asset_amount/buy_order_completed_event.base_asset_amount
-            if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
-                if order_id not in self.has_been_offset:
-                    self.total_trading_volume += buy_order_completed_event.quote_asset_amount
-                    self.trades_executed += 1
-                    previous_amount_to_offset = self.pm.amount_to_offset
-                    self.pm.register_trade(price, buy_order_completed_event.base_asset_amount)
-                    if abs(self.pm.amount_to_offset) < abs(previous_amount_to_offset):
-                        self.cancel_offsetting_orders()
-
-                    self.primary_base_balance += buy_order_completed_event.base_asset_amount
-                    if order_id in self.marked_for_deletion.keys():
-                        order = self.marked_for_deletion[order_id]
-                        self.buys_to_replace.append(order["rank"])
-                    self.primary_base_total_balance += buy_order_completed_event.base_asset_amount
-                    self.primary_quote_total_balance -= buy_order_completed_event.quote_asset_amount
-                    self.has_been_offset.append(f"{order_id}COMPLETE")
-                    self.slack_order_filled_message(self.primary_market_pairs[0].market.name, buy_order_completed_event.base_asset_amount, price, True)
-            else:
-                if order_id not in self.has_been_offset:
-                    self.total_trading_volume += buy_order_completed_event.quote_asset_amount
-                    self.trades_executed += 1
-                    self.pm.register_trade(price, buy_order_completed_event.base_asset_amount)
-
-                    self.offset_quote_exposure -= buy_order_completed_event.quote_asset_amount
-                    self.mirrored_base_balance += buy_order_completed_event.base_asset_amount
-                    self.mirrored_base_total_balance += buy_order_completed_event.base_asset_amount
-                    self.mirrored_quote_total_balance -= buy_order_completed_event.quote_asset_amount
-                    self.has_been_offset.append(f"{order_id}COMPLETE")
-                    self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, buy_order_completed_event.base_asset_amount, price, True)
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id} ({price}, {buy_order_completed_event.base_asset_amount})")
@@ -490,34 +444,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
             price = sell_order_completed_event.quote_asset_amount/sell_order_completed_event.base_asset_amount
-            if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
-                if order_id not in self.has_been_offset:
-                    self.total_trading_volume += sell_order_completed_event.quote_asset_amount
-                    self.trades_executed += 1
-                    previous_amount_to_offset = self.pm.amount_to_offset
-                    self.pm.register_trade(price, -sell_order_completed_event.base_asset_amount)
-                    if abs(self.pm.amount_to_offset) < abs(previous_amount_to_offset):
-                        self.cancel_offsetting_orders()
-
-                    self.primary_quote_balance += sell_order_completed_event.quote_asset_amount
-                    if order_id in self.marked_for_deletion.keys():
-                        order = self.marked_for_deletion[order_id]
-                        self.sells_to_replace.append(order["rank"])
-                    self.primary_quote_total_balance += sell_order_completed_event.quote_asset_amount
-                    self.primary_base_total_balance -= sell_order_completed_event.base_asset_amount
-                    self.has_been_offset.append(f"{order_id}COMPLETE")
-                    self.slack_order_filled_message(self.primary_market_pairs[0].market.name, sell_order_completed_event.base_asset_amount, price, False)
-            else:
-                if order_id not in self.has_been_offset:
-                    self.total_trading_volume += sell_order_completed_event.quote_asset_amount
-                    self.trades_executed += 1
-                    self.pm.register_trade(price, -sell_order_completed_event.base_asset_amount)
-                    self.offset_base_exposure -= sell_order_completed_event.base_asset_amount
-                    self.mirrored_quote_balance += sell_order_completed_event.quote_asset_amount
-                    self.mirrored_quote_total_balance += sell_order_completed_event.quote_asset_amount
-                    self.mirrored_base_total_balance -= sell_order_completed_event.base_asset_amount
-                    self.has_been_offset.append(f"{order_id}COMPLETE")
-                    self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, sell_order_completed_event.base_asset_amount, price, False)
             if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
                 self.log_with_clock(logging.INFO,
                                     f"Limit order completed on {market_trading_pair_tuple[0].name}: {order_id} ({price}, -{sell_order_completed_event.base_asset_amount})")

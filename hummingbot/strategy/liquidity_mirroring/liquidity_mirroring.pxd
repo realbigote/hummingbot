@@ -19,7 +19,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         list bid_replace_ranks
         list ask_replace_ranks
         dict marked_for_deletion
-        list has_been_offset
         str slack_url
         object performance_logger
         object best_bid_start
