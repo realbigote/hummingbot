@@ -332,6 +332,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
     cdef bint is_taker_exchange(self, object market):
         return market == self.mirrored_market_pairs[0].market
 
+    cdef bint _has_different_sign(self, object a, object b):
+        return a * b < 0
+
+    cdef bint _has_reduced(self, object new, object old):
+        return abs(new) < abs(old) or self._has_different_sign(new, old)
+
     cdef c_did_fill_order(self, object order_filled_event):
         cdef:
             str order_id = order_filled_event.order_id
@@ -351,7 +357,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.pm.register_trade(order_filled_event.price, side_multiplier * order_filled_event.amount)
         if self.is_maker_exchange(market):
             # If we've had offsetting trades from the maker exchange, we need to reduce (cancel) our taker exchange orders
-            if abs(self.pm.amount_to_offset) < abs(previous_amount_to_offset):
+            if self._has_reduced(self.pm.amount_to_offset, previous_amount_to_offset):
                 self.cancel_offsetting_orders()
 
             # Inform the strat that we want to replace this level on the maker exchange

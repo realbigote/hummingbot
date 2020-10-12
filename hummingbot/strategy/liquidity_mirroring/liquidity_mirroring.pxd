@@ -83,3 +83,5 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
     cdef object factor_in_fees(self, market_pair: MarketTradingPairTuple, price: object, amount: object, is_buy: bool, is_primary: bool)
     cdef bint is_maker_exchange(self, object market)
     cdef bint is_taker_exchange(self, object market)
+    cdef bint _has_different_sign(self, object a, object b)
+    cdef bint _has_reduced(self, object new, object old)
