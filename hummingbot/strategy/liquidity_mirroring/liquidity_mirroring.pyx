@@ -325,80 +325,82 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             current_orders = active_orders[mirrored_market_pair][:]
         for order in current_orders:
             self.c_cancel_order(mirrored_market_pair,order.client_order_id)
-        
+
+    cdef bint is_maker_exchange(self, object market):
+        return market == self.primary_market_pairs[0].market
+
+    cdef bint is_taker_exchange(self, object market):
+        return market == self.mirrored_market_pairs[0].market
 
     cdef c_did_fill_order(self, object order_filled_event):
         cdef:
             str order_id = order_filled_event.order_id
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
-        if market_trading_pair_tuple is not None:
-            if order_filled_event.trade_type == TradeType.BUY:
-                self.total_trading_volume += order_filled_event.amount
-                self.trades_executed += 1
-                if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
-                    previous_amount_to_offset = self.pm.amount_to_offset
-                    self.pm.register_trade(order_filled_event.price, order_filled_event.amount)
-                    if abs(self.pm.amount_to_offset) < abs(previous_amount_to_offset):
-                        self.cancel_offsetting_orders()
+            object market
+            int side_multiplier = 1 if order_filled_event.trade_type is TradeType.BUY else -1
+            object previous_amount_to_offset = self.pm.amount_to_offset
 
-                    self.primary_base_balance += order_filled_event.amount
-                    if order_id in self.marked_for_deletion.keys():
-                        order = self.marked_for_deletion[order_id]
-                        self.buys_to_replace.append(order["rank"])
-                    self.primary_base_total_balance += order_filled_event.amount
-                    self.primary_quote_total_balance -= order_filled_event.amount * order_filled_event.price
-                    self.slack_order_filled_message(self.primary_market_pairs[0].market.name, order_filled_event.amount, order_filled_event.price, True)
-                else:
-                    self.pm.register_trade(order_filled_event.price, order_filled_event.amount)
-                    self.offset_quote_exposure -= (order_filled_event.amount * order_filled_event.price)
-                    self.mirrored_base_balance += order_filled_event.amount
-                    self.mirrored_base_total_balance += order_filled_event.amount
-                    self.mirrored_quote_total_balance -= order_filled_event.price * order_filled_event.amount
-                    self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, order_filled_event.amount, order_filled_event.price, True)
+        # Verify this is from a market we are tracking
+        if market_trading_pair_tuple is None:
+            return
+        market = market_trading_pair_tuple.market
 
-                if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
-                    self.log_with_clock(logging.INFO,
-                    f"Limit order filled on {market_trading_pair_tuple[0].name}: {order_id} ({order_filled_event.price}, {order_filled_event.amount})")
+        # Update our common tracking stats
+        self.total_trading_volume += order_filled_event.amount
+        self.trades_executed += 1
+        self.pm.register_trade(order_filled_event.price, side_multiplier * order_filled_event.amount)
+        if self.is_maker_exchange(market):
+            # If we've had offsetting trades from the maker exchange, we need to reduce (cancel) our taker exchange orders
+            if abs(self.pm.amount_to_offset) < abs(previous_amount_to_offset):
+                self.cancel_offsetting_orders()
 
-            elif order_filled_event.trade_type == TradeType.SELL:
-                self.total_trading_volume += order_filled_event.amount
-                self.trades_executed += 1
-                if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
-                    previous_amount_to_offset = self.pm.amount_to_offset
-                    self.pm.register_trade(order_filled_event.price, -order_filled_event.amount)
-                    if abs(self.pm.amount_to_offset) < abs(previous_amount_to_offset):
-                        self.cancel_offsetting_orders()
+            # Inform the strat that we want to replace this level on the maker exchange
+            if order_id in self.marked_for_deletion.keys():
+                    order = self.marked_for_deletion[order_id]
+                    self.buys_to_replace.append(order["rank"])
 
-                    self.primary_quote_balance += order_filled_event.price * order_filled_event.amount
-                    if order_id in self.marked_for_deletion.keys():
-                        order = self.marked_for_deletion[order_id]
-                        self.sells_to_replace.append(order["rank"])
-                    self.primary_quote_total_balance += order_filled_event.price * order_filled_event.amount
-                    self.primary_base_total_balance -= order_filled_event.amount
-                    self.slack_order_filled_message(self.primary_market_pairs[0].market.name, order_filled_event.amount, order_filled_event.price, False)
-                else:
-                    self.pm.register_trade(order_filled_event.price, -order_filled_event.amount)
-                    self.offset_base_exposure -= order_filled_event.amount
-                    self.mirrored_quote_balance += order_filled_event.price * order_filled_event.amount
-                    self.mirrored_quote_total_balance += order_filled_event.price * order_filled_event.amount
-                    self.mirrored_base_total_balance -= order_filled_event.amount
-                    self.slack_order_filled_message(self.mirrored_market_pairs[0].market.name, order_filled_event.amount, order_filled_event.price, False)
+            # Update our maker exchange balances
+            self.primary_base_total_balance += side_multiplier * order_filled_event.amount
+            self.primary_quote_total_balance -= side_multiplier * order_filled_event.amount * order_filled_event.price
+            if order_filled_event.trade_type is TradeType.BUY:
+                self.primary_base_balance += order_filled_event.amount
+            else:
+                self.primary_quote_balance += order_filled_event.price * order_filled_event.amount
 
-                if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
-                    self.log_with_clock(logging.INFO,
-                        f"Limit order filled on {market_trading_pair_tuple[0].name}: {order_id} ({order_filled_event.price}, -{order_filled_event.amount})")
+        elif self.is_taker_exchange(market):
+            # Update our taker exchange balances
+            self.mirrored_base_total_balance += side_multiplier * order_filled_event.amount
+            self.mirrored_quote_total_balance -= side_multiplier * order_filled_event.price * order_filled_event.amount
+            if order_filled_event.trade_type is TradeType.BUY:
+                self.offset_quote_exposure -= (order_filled_event.amount * order_filled_event.price)
+                self.mirrored_base_balance += order_filled_event.amount
+            else:
+                self.offset_base_exposure -= order_filled_event.amount
+                self.mirrored_quote_balance += order_filled_event.price * order_filled_event.amount
+        else:
+            # This should obviously never happen
+            raise Exception(f"Unknown exchange for strategy OrderFillEvent handler: {market.name}")
+
+        # Emit log messages for this event
+        self.slack_order_filled_message(market_trading_pair_tuple.market, 
+                                        order_filled_event.amount, 
+                                        order_filled_event.price, 
+                                        order_filled_event.trade_type is TradeType.BUY)
+        if self._logging_options & self.OPTION_LOG_ORDER_COMPLETED:
+            self.log_with_clock(logging.INFO,
+                                f"Limit order filled on {market.name}: {order_id} ({order_filled_event.price}, {order_filled_event.amount})")
 
     cdef c_did_create_buy_order(self, object buy_order_created_event):
         cdef:
             str order_id = buy_order_created_event.order_id
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
-            if (market_trading_pair_tuple.market == self.primary_market_pairs[0].market):
+            if self.is_maker_exchange(market_trading_pair_tuple.market):
                 self.primary_quote_balance -= buy_order_created_event.amount * buy_order_created_event.price
                 num_seconds = random.randint(30,50)
                 expiration_time = datetime.timestamp(datetime.now() + timedelta(seconds=num_seconds)) 
                 self.marked_for_deletion[order_id]["time"] = expiration_time
-            elif (market_trading_pair_tuple.market == self.mirrored_market_pairs[0].market):
+            elif self.is_taker_exchange(market_trading_pair_tuple.market):
                 self.mirrored_quote_balance -= buy_order_created_event.amount * buy_order_created_event.price
                 self.offset_quote_exposure += buy_order_created_event.amount * buy_order_created_event.price
 
@@ -407,12 +409,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             str order_id = sell_order_created_event.order_id
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         if market_trading_pair_tuple is not None:
-            if (market_trading_pair_tuple.market == self.primary_market_pairs[0].market):
+            if self.is_maker_exchange(market_trading_pair_tuple.market):
                 self.primary_base_balance -= sell_order_created_event.amount
                 num_seconds = random.randint(30,50)
                 expiration_time = datetime.timestamp(datetime.now() + timedelta(seconds=num_seconds))
                 self.marked_for_deletion[order_id]["time"] = expiration_time
-            elif (market_trading_pair_tuple.market == self.mirrored_market_pairs[0].market):
+            elif self.is_taker_exchange(market_trading_pair_tuple.market):
                 self.mirrored_base_balance -= sell_order_created_event.amount
                 self.offset_base_exposure += sell_order_created_event.amount
 
@@ -512,12 +514,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 else:
                     self.sells_to_replace.append(order["rank"])
                 del self.marked_for_deletion[order_id]
-            if market_trading_pair_tuple.market == self.primary_market_pairs[0].market:
+            if self.is_maker_exchange(market_trading_pair_tuple.market):
                 if full_order.is_buy:
                     self.primary_quote_balance += full_order.price * full_order.quantity
                 else:
                     self.primary_base_balance += full_order.quantity
-            else:
+            elif self.is_taker_exchange(market_trading_pair_tuple.market):
                 if full_order.is_buy:
                     self.mirrored_quote_balance += full_order.price * full_order.quantity
                     self.offset_quote_exposure -= full_order.quantity * full_order.price
