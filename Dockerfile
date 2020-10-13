@@ -110,7 +110,7 @@ WORKDIR /home/hummingbot
 
 # Copy all build artifacts from builder image
 USER root
-RUN chown -R root:root /homne
+RUN chown -R root:root /home
 COPY --from=builder /home/ /home/
 
 # additional configs (sudo)
