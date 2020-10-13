@@ -6,6 +6,7 @@ import copy
 import logging
 import pandas as pd
 import simplejson
+import traceback
 from decimal import Decimal
 from libc.stdint cimport int64_t
 from threading import Lock
@@ -73,7 +74,7 @@ cdef class BlocktaneExchange(ExchangeBase):
 
     API_CALL_TIMEOUT = 10.0
     UPDATE_ORDERS_INTERVAL = 10.0
-    ORDER_NOT_EXIST_WAIT_TIME = 0.002
+    ORDER_NOT_EXIST_WAIT_TIME = 10.0
 
     BLOCKTANE_API_ENDPOINT = "https://bolsa.tokamaktech.net/api/v2/xt"
 
@@ -287,38 +288,9 @@ cdef class BlocktaneExchange(ExchangeBase):
     def supported_order_types(self):
         return [OrderType.LIMIT, OrderType.MARKET]
 
-    async def list_orders(self) -> List[Any]:
-        """
-        Only a list of all currently open orders(does not include filled orders)
-        :returns json response
-        i.e.
-        Result = [
-            {
-            id: 160,
-            side: "sell",
-            ord_type: "limit",
-            price: "1.0",
-            avg_price: "0.0",
-            state: "wait",
-            market: "fthusd",
-            created_at: "2020-03-16T17:56:13+01:00",
-            updated_at: "2020-03-16T17:56:13+01:00",
-            origin_volume: "11.0",
-            remaining_volume: "11.0",
-            executed_volume: "0.0",
-            trades_count: 0
-            }
-        ]
-
-        """
-        path_url = "/market/orders?state=wait"
-
-        result = await self._api_request("GET", path_url=path_url)
-        return result
-
-    async def get_order(self, exchange_id: str) -> Dict[str, Any]:
-        # Used to retrieve a single order by exchange_id (either numeric 1923123 or uuid)
-        path_url = f"/market/orders/{exchange_id}"
+    async def get_order(self, client_order_id: str) -> Dict[str, Any]:
+        # Used to retrieve a single order by client_order_id
+        path_url = f"/market/orders/clientId/{client_order_id}"
 
         try:
             result = await self._api_request("GET", path_url=path_url)
@@ -326,6 +298,25 @@ cdef class BlocktaneExchange(ExchangeBase):
             return None
 
         return result
+
+    def issue_creation_event(self, exchange_order_id, tracked_order):
+        tracked_order.update_exchange_order_id(exchange_order_id)
+        if tracked_order.trade_type is TradeType.SELL:
+            cls = SellOrderCreatedEvent 
+            tag = self.MARKET_SELL_ORDER_CREATED_EVENT_TAG
+        else:
+            cls = BuyOrderCreatedEvent
+            tag = self.MARKET_BUY_ORDER_CREATED_EVENT_TAG
+        self.c_trigger_event(tag, cls(
+                                    self._current_timestamp,
+                                    tracked_order.order_type,
+                                    tracked_order.trading_pair,
+                                    tracked_order.amount,
+                                    tracked_order.price,
+                                    tracked_order.client_order_id
+                                ))
+        self.logger().info(f"Created {tracked_order.order_type} {tracked_order.trade_type} {tracked_order.client_order_id} for "
+                            f"{tracked_order.amount} {tracked_order.trading_pair}.")
 
     async def _update_order_status(self):
         cdef:
@@ -342,34 +333,26 @@ cdef class BlocktaneExchange(ExchangeBase):
                 tracked_orders = list(self._in_flight_orders.values())
                 for tracked_order in tracked_orders:
                     client_order_id = tracked_order.client_order_id
-                    exchange_order_id = tracked_order.exchange_order_id
-                    order = await self.get_order(exchange_order_id)
+                    order = await self.get_order(client_order_id)
                     if order is None and (abs(self._current_timestamp - tracked_order.created_at) > self.ORDER_NOT_EXIST_WAIT_TIME):
-                        last_state = tracked_order.last_state
-
-                        tracked_order.last_state = "done"
-                        marked_as = 'canceled'
-                        if last_state == 'NEW':
-                            self.c_trigger_event(
-                                self.MARKET_ORDER_FAILURE_EVENT_TAG,
-                                MarketOrderFailureEvent(self._current_timestamp,
-                                                        client_order_id,
-                                                        tracked_order.order_type)
-                            )
-                            marked_as = 'failed'
-                        else:
-                            self.c_trigger_event(
-                                self.MARKET_ORDER_CANCELLED_EVENT_TAG,
-                                OrderCancelledEvent(self._current_timestamp,
-                                    client_order_id
-                                )
-                            )
+                        # This was an indeterminant order that may or may not have been live on the exchange
+                        # The exchange has informed us that this never became live on the exchange
+                        self.c_trigger_event(
+                            self.MARKET_ORDER_FAILURE_EVENT_TAG,
+                            MarketOrderFailureEvent(self._current_timestamp,
+                                                    client_order_id,
+                                                    tracked_order.order_type)
+                        )
                         self.logger().warning(
                             f"Error fetching status update for the order {client_order_id}: "
-                            f"{tracked_order}. Marking as {marked_as}"
+                            f"{tracked_order}. Marking as failed"
                         )
                         self.c_stop_tracking_order(client_order_id)
                         continue
+
+                    if tracked_order.exchange_order_id is None:
+                        # This was an indeterminate order that has not yet had a creation event issued
+                        self.issue_creation_event(order["id"], tracked_order)
 
                     order_state = order["state"]
                     order_type = "LIMIT" if tracked_order.order_type is OrderType.LIMIT else "MARKET"
@@ -481,6 +464,10 @@ cdef class BlocktaneExchange(ExchangeBase):
                     if tracked_order is None:
                         self.logger().debug(f"Unrecognized order ID from user stream: {order_id}.")
                         continue
+
+                    if tracked_order.exchange_order_id is None:
+                        # This was an indeterminate order that has not yet had a creation event issued
+                        self.issue_creation_event(order["id"], tracked_order)
 
                     order_type = tracked_order.order_type
                     executed_amount_diff = s_decimal_0
@@ -671,25 +658,6 @@ cdef class BlocktaneExchange(ExchangeBase):
                           is_buy: bool,
                           order_type: OrderType,
                           price: Decimal) -> Dict[str, Any]:
-        """
-        Expected response:
-        {
-            "avg_price": "0.0",
-            "created_at": "2020-03-12T17:01:56+01:00",
-            "executed_volume": "0.0",
-            "id": 10440269,
-            "market": "ethusd",
-            "ord_type": "limit",
-            "origin_volume": "31.0",
-            "price": "160.82",
-            "remaining_volume": "31.0",
-            "side": "buy",
-            "state": "pending",
-            "trades_count": 0,
-            "updated_at": "2020-03-12T17:01:56+01:00"
-        }
-        """
-
         path_url = "/market/orders"
 
         params = {}
@@ -769,25 +737,24 @@ cdef class BlocktaneExchange(ExchangeBase):
                 raise ValueError(f"Invalid OrderType {order_type}. Aborting.")
 
             exchange_order_id = str(order_result["id"])
-
             tracked_order = self._in_flight_orders.get(order_id)
-            if tracked_order is not None:
-                tracked_order.update_exchange_order_id(exchange_order_id)
-                order_type_str = "MARKET" if order_type == OrderType.MARKET else "LIMIT"
-                self.logger().info(f"Created {order_type_str} buy order {order_id} for "
-                                   f"{decimal_amount} {trading_pair}")
-                self.c_trigger_event(self.MARKET_BUY_ORDER_CREATED_EVENT_TAG,
-                                     BuyOrderCreatedEvent(
-                                         self._current_timestamp,
-                                         order_type,
-                                         trading_pair,
-                                         decimal_amount,
-                                         decimal_price,
-                                         order_id
-                                     ))
-
+            if tracked_order is not None and exchange_order_id:
+                self.issue_creation_event(exchange_order_id, tracked_order)
+        except asyncio.TimeoutError:
+            self.logger().info(f"Network timout while submitting order {order_id} to Blocktane. Order will be recovered.")
         except Exception:
-            self.logger().warning("Possible order failure")
+            tracked_order = self._in_flight_orders.get(order_id)
+            tracked_order.last_state = "FAILURE"
+            tracked_order.update_exchange_order_id(tracked_order.exchange_order_id) # a symantic no-op, but prevents deadlock on get_exchange_order_id()
+            self.c_stop_tracking_order(order_id)
+            self.logger().error(
+                f"Error submitting buy {order_type} order to Blocktane for "
+                f"{decimal_amount} {trading_pair} "
+                 f"{decimal_price if order_type.is_limit_type() else ''}.",
+                exc_info=True
+            )
+            self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG, MarketOrderFailureEvent(self._current_timestamp, order_id, order_type))
+            
             
     cdef str c_buy(self,
                    str trading_pair,
@@ -856,24 +823,23 @@ cdef class BlocktaneExchange(ExchangeBase):
                 raise ValueError(f"Invalid OrderType {order_type}. Aborting.")
 
             exchange_order_id = str(order_result["id"])
-            
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None and exchange_order_id:
-                tracked_order.update_exchange_order_id(exchange_order_id)
-                order_type_str = "MARKET" if order_type == OrderType.MARKET else "LIMIT"
-                self.logger().info(f"Created {order_type_str} sell order {order_id} for "
-                                   f"{decimal_amount} {trading_pair}.")
-                self.c_trigger_event(self.MARKET_SELL_ORDER_CREATED_EVENT_TAG,
-                                     SellOrderCreatedEvent(
-                                         self._current_timestamp,
-                                         order_type,
-                                         trading_pair,
-                                         decimal_amount,
-                                         decimal_price,
-                                         order_id
-                                     ))
+                self.issue_creation_event(exchange_order_id, tracked_order)
+        except asyncio.TimeoutError:
+            self.logger().info(f"Network timout while submitting order {order_id} to Blocktane. Order will be recovered.")
         except Exception:
-            self.logger().warning("Possible order failure")
+            tracked_order = self._in_flight_orders.get(order_id)
+            tracked_order.last_state = "FAILURE"
+            tracked_order.update_exchange_order_id(tracked_order.exchange_order_id) # a symantic no-op, but prevents deadlock on get_exchange_order_id()
+            self.c_stop_tracking_order(order_id)
+            self.logger().error(
+                f"Error submitting sell {order_type} order to Blocktane for "
+                f"{decimal_amount} {trading_pair} "
+                f"{decimal_price if order_type.is_limit_type() else ''}.",
+                exc_info=True,
+            )
+            self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG, MarketOrderFailureEvent(self._current_timestamp, order_id, order_type))
 
     cdef str c_sell(self,
                     str trading_pair,
@@ -894,11 +860,10 @@ cdef class BlocktaneExchange(ExchangeBase):
             if tracked_order is None:
                 self.logger().error(f"The order {order_id} is not tracked. ")
                 raise ValueError
-            exchange_order_id = await tracked_order.get_exchange_order_id()
-            path_url = f"/market/orders/{exchange_order_id}/cancel"
+            path_url = f"/market/orders/clientId/{order_id}/cancel"
 
             cancel_result = await self._api_request("POST", path_url=path_url)
-            self.logger().info(f"Requested cancel of order {order_id} ({exchange_order_id})")
+            self.logger().info(f"Requested cancel of order {order_id}")
 
             # TODO: this cancel result looks like:
             # {"id":4699083,"uuid":"2421ceb6-a8b7-445b-9ca9-0f7f1a05e285","side":"buy","ord_type":"limit","price":"0.02","avg_price":"0.0","state":"cancel","market":"ethbtc","created_at":"2020-09-09T18:53:56+02:00","updated_at":"2020-09-09T18:56:41+02:00","origin_volume":"1.0","remaining_volume":"1.0","executed_volume":"0.0","trades_count":0}
@@ -909,7 +874,7 @@ cdef class BlocktaneExchange(ExchangeBase):
             raise
         except Exception as err:
             if "record.not_found" in str(err):
-                # The order doesn't exist, possibly because it has already been canceled
+                # The order doesn't exist
                 self.logger().info(f"The order {order_id} does not exist on Blocktane. Marking as cancelled.")
                 self.c_stop_tracking_order(order_id)
                 self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
