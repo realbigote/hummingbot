@@ -105,8 +105,7 @@ RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y sudo libusb-1.0 htop tmux git && \
     rm -rf /var/lib/apt/lists/*
 
-# Switch to hummingbot user
-USER hummingbot:hummingbot
+
 WORKDIR /home/hummingbot
 
 # Copy all build artifacts from builder image
@@ -114,6 +113,10 @@ COPY --from=builder --chown=hummingbot:hummingbot /home/ /home/
 
 # additional configs (sudo)
 COPY docker/etc /etc
+
+# Switch to hummingbot user # Swapped this to after the copy due to https://jira.atlassian.com/browse/BCLOUD-17319
+USER hummingbot:hummingbot
+
 
 # Setting bash as default shell because we have .bashrc with customized PATH (setting SHELL affects RUN, CMD and ENTRYPOINT, but not manual commands e.g. `docker run image COMMAND`!)
 SHELL [ "/bin/bash", "-lc" ]
