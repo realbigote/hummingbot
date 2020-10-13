@@ -697,7 +697,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         mirrored_quote_asset = self.mirrored_market_pairs[0].quote_asset
 
         available_offset_base = mirrored_market.get_available_balance(mirrored_base_asset)
-        available_offset_quote = mirrored_market.get_available_balance(mirrored_base_asset)
+        available_offset_quote = mirrored_market.get_available_balance(mirrored_quote_asset)
 
         available_quote_exposure = min(available_quote_exposure, available_offset_base * best_ask.price)
         available_base_exposure = min(available_base_exposure, available_offset_quote/best_bid.price)
