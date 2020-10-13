@@ -207,7 +207,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         mirrored_market_df = self.market_status_data_frame([self.mirrored_market_pairs[0]])
         mult = mirrored_market_df["Best Bid Price"]
         profit = (total_balance[0] * float(mult)) - float(self.initial_base_amount * self.best_bid_start) + total_balance[1] - float(self.initial_quote_amount)
-        portfolio = (total_balance[0] * float(mult)) - (float(self.initial_base_amount) * float(mult)) + total_balance[1] - float(self.initial_quote_amount)
+        change_in_base = Decimal(total_balance[0]) - self.initial_base_amount
+        change_in_quote = Decimal(total_balance[1]) - self.initial_quote_amount
         current_time = datetime.now().isoformat()
         lines.extend(["", f"   Time: {current_time}"])
         lines.extend(["", f"   Executed Trades: {self.trades_executed}"])
@@ -215,10 +216,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].base_asset}): {total_balance[0]}"])
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].quote_asset}): {total_balance[1]}"])
         lines.extend(["", f"   Overall Change in Holdings: {profit}"])
-        lines.extend(["", f"   Increase in Portfolio: {portfolio}"])
+        lines.extend(["", f"   Change in base: {change_in_base}"])
+        lines.extend(["", f"   Change in quote: {change_in_quote}"])
+        lines.extend(["", f"   Total pre-fee profit: {-self.pm.total_loss}"])
         lines.extend(["", f"   Amount to offset (in base currency): {self.pm.amount_to_offset}"])
         lines.extend(["", f"   Average price of position: {self.pm.avg_price}"])
-        lines.extend(["", f"   Total running loss: {self.pm.total_loss}"])
         lines.extend(["", f"   Active market making orders: {len(self.marked_for_deletion.keys())}"])
         if len(warning_lines) > 0:
             lines.extend(["", "  *** WARNINGS ***"] + warning_lines)
@@ -364,7 +366,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             raise Exception(f"Unknown exchange for strategy OrderFillEvent handler: {market.name}")
 
         # Emit log messages for this event
-        self.slack_order_filled_message(market_trading_pair_tuple.market, 
+        self.slack_order_filled_message(market.name, 
                                         order_filled_event.amount, 
                                         order_filled_event.price, 
                                         order_filled_event.trade_type is TradeType.BUY)

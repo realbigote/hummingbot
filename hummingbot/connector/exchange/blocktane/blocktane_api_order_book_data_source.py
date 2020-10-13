@@ -34,7 +34,7 @@ from hummingbot.connector.exchange.blocktane.blocktane_utils import convert_to_e
 BLOCKTANE_REST_URL = "https://bolsa.tokamaktech.net/api/v2/xt/public"
 DIFF_STREAM_URL = "wss://bolsa.tokamaktech.net/api/v2/ws/public"
 TICKER_PRICE_CHANGE_URL = "https://bolsa.tokamaktech.net/api/v2/xt/public/markets/tickers"
-SINGLE_MARKET_DEPTH_URL = "https://trade.bolsacripto.com/api/v2/xt/public/markets/{}/depth"
+SINGLE_MARKET_DEPTH_URL = "https://bolsa.tokamaktech.net/api/v2/xt/public/markets/{}/depth"
 EXCHANGE_INFO_URL = "https://bolsa.tokamaktech.net/api/v2/xt/public/markets"
 
 OrderBookRow = namedtuple("Book", ["price", "amount"])
