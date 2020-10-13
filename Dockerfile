@@ -120,8 +120,8 @@ COPY --from=builder --chown=root:root /home/ /home/
 COPY docker/etc /etc
 
 # Switch to hummingbot user # Swapped this to after the copy due to https://jira.atlassian.com/browse/BCLOUD-17319
-USER hummingbot:hummingbot
 RUN chown -R hummingbot:hummingbot /home/ /home/ 
+USER hummingbot:hummingbot
 
 # Setting bash as default shell because we have .bashrc with customized PATH (setting SHELL affects RUN, CMD and ENTRYPOINT, but not manual commands e.g. `docker run image COMMAND`!)
 SHELL [ "/bin/bash", "-lc" ]
