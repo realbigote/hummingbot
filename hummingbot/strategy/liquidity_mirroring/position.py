@@ -65,7 +65,7 @@ class PositionManager:
         self._trade_cache_invalid = True
 
     def _register_offset(self, price: Decimal, amount: Decimal, current_amount: Decimal):
-        if current_amount.compare_total_mag(amount) <= 0:
+        if current_amount.copy_abs() <= amount.copy_abs():
             # this will swap or eliminate our position
             new_amount: Decimal = current_amount + amount
             self._offsets.append(Position(price, -current_amount))
