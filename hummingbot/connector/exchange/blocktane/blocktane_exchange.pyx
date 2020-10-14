@@ -436,6 +436,19 @@ cdef class BlocktaneExchange(ExchangeBase):
                                                 ))
                         self.c_stop_tracking_order(client_order_id)
 
+                    if order_state == 'reject':
+                        tracked_order.last_state = order_state
+                        self.c_trigger_event(
+                            self.MARKET_ORDER_FAILURE_EVENT_TAG,
+                            MarketOrderFailureEvent(self._current_timestamp,
+                                                    client_order_id,
+                                                    tracked_order.order_type)
+                        )
+                        self.logger().info(f"The {tracked_order.order_type}-{tracked_order.trade_type} "
+                                        f"{client_order_id} has failed according to Blocktane order status API.")
+                        self.c_stop_tracking_order(client_order_id)
+
+
         except Exception as e:
             self.logger().error("Update Order Status Error: " + str(e) + " " + str(e.__cause__))
 
@@ -552,9 +565,22 @@ cdef class BlocktaneExchange(ExchangeBase):
                                                 OrderCancelledEvent(self._current_timestamp,
                                                                     tracked_order.client_order_id))
                         self.c_stop_tracking_order(tracked_order.client_order_id)
-                    else:
-                        # Ignores all other user stream message types
-                        continue
+
+                    if order_state == 'reject':
+                        tracked_order.last_state = order_state
+                        self.c_trigger_event(
+                            self.MARKET_ORDER_FAILURE_EVENT_TAG,
+                            MarketOrderFailureEvent(self._current_timestamp,
+                                                    client_order_id,
+                                                    tracked_order.order_type)
+                        )
+                        self.logger().info(f"The order {tracked_order.client_order_id} has been failed "
+                                            f"according to Blocktane WebSocket API.")
+                        self.c_stop_tracking_order(client_order_id)
+
+                else:
+                    # Ignores all other user stream message types
+                    continue
 
             except asyncio.CancelledError:
                 raise
