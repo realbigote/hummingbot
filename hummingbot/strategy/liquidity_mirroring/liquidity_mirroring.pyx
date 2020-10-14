@@ -14,12 +14,12 @@ from typing import (
 )
 from datetime import datetime, timedelta
 from hummingbot.core.utils.async_utils import safe_ensure_future
-from hummingbot.connector.exchange_base import ExchangeBase
 from hummingbot.connector.exchange_base cimport ExchangeBase
 from hummingbot.core.event.events import (
     TradeType,
     OrderType,
 )
+from hummingbot.core.data_type.limit_order cimport LimitOrder
 from hummingbot.core.data_type.market_order import MarketOrder
 from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.core.network_iterator import NetworkStatus
@@ -171,12 +171,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.slack_update_period = slack_update_period
 
     @property
-    def tracked_taker_orders(self) -> List[Tuple[ExchangeBase, MarketOrder]]:
-        return self._sb_order_tracker.tracked_taker_orders
+    def tracked_limit_orders(self) -> List[Tuple[ExchangeBase, LimitOrder]]:
+        return self._sb_order_tracker.tracked_limit_orders
 
     @property
-    def tracked_maker_orders(self) -> List[Tuple[ExchangeBase, MarketOrder]]:
-        return self._sb_order_tracker.tracked_maker_orders
+    def tracked_market_orders(self) -> List[Tuple[ExchangeBase, MarketOrder]]:
+        return self._sb_order_tracker.tracked_market_orders
 
     @property
     def tracked_taker_orders_data_frame(self) -> List[pd.DataFrame]:
@@ -215,10 +215,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         lines.extend(["", f"   Total Trade Volume: {self.total_trading_volume}"])
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].base_asset}): {total_balance[0]}"])
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].quote_asset}): {total_balance[1]}"])
-        lines.extend(["", f"   Overall Change in Holdings: {profit}"])
         lines.extend(["", f"   Change in base: {change_in_base}"])
         lines.extend(["", f"   Change in quote: {change_in_quote}"])
         lines.extend(["", f"   Total pre-fee profit: {-self.pm.total_loss}"])
+        lines.extend(["", f"   Overall Change in Holdings: {profit}"])
         lines.extend(["", f"   Amount to offset (in base currency): {self.pm.amount_to_offset}"])
         lines.extend(["", f"   Average price of position: {self.pm.avg_price}"])
         lines.extend(["", f"   Active market making orders: {len(self.marked_for_deletion.keys())}"])
