@@ -300,7 +300,7 @@ cdef class BlocktaneExchange(ExchangeBase):
         return result
 
     def issue_creation_event(self, exchange_order_id, tracked_order):
-        tracked_order.update_exchange_order_id(exchange_order_id)
+        tracked_order.update_exchange_order_id(str(exchange_order_id))
         if tracked_order.trade_type is TradeType.SELL:
             cls = SellOrderCreatedEvent 
             tag = self.MARKET_SELL_ORDER_CREATED_EVENT_TAG
@@ -771,7 +771,7 @@ cdef class BlocktaneExchange(ExchangeBase):
         except Exception:
             tracked_order = self._in_flight_orders.get(order_id)
             tracked_order.last_state = "FAILURE"
-            tracked_order.update_exchange_order_id(tracked_order.exchange_order_id) # a symantic no-op, but prevents deadlock on get_exchange_order_id()
+            tracked_order.update_exchange_order_id("0") # prevents deadlock on get_exchange_order_id()
             self.c_stop_tracking_order(order_id)
             self.logger().error(
                 f"Error submitting buy {order_type} order to Blocktane for "
@@ -857,7 +857,7 @@ cdef class BlocktaneExchange(ExchangeBase):
         except Exception:
             tracked_order = self._in_flight_orders.get(order_id)
             tracked_order.last_state = "FAILURE"
-            tracked_order.update_exchange_order_id(tracked_order.exchange_order_id) # a symantic no-op, but prevents deadlock on get_exchange_order_id()
+            tracked_order.update_exchange_order_id("0") # prevents deadlock on get_exchange_order_id()
             self.c_stop_tracking_order(order_id)
             self.logger().error(
                 f"Error submitting sell {order_type} order to Blocktane for "
