@@ -290,7 +290,7 @@ cdef class BlocktaneExchange(ExchangeBase):
 
     async def get_order(self, client_order_id: str) -> Dict[str, Any]:
         # Used to retrieve a single order by client_order_id
-        path_url = f"/market/orders/clientId/{client_order_id}"
+        path_url = f"/market/orders/{client_order_id}?client_id=true"
 
         try:
             result = await self._api_request("GET", path_url=path_url)
@@ -860,7 +860,7 @@ cdef class BlocktaneExchange(ExchangeBase):
             if tracked_order is None:
                 self.logger().error(f"The order {order_id} is not tracked. ")
                 raise ValueError
-            path_url = f"/market/orders/clientId/{order_id}/cancel"
+            path_url = f"/market/orders/{order_id}/cancel?client_id=true"
 
             cancel_result = await self._api_request("POST", path_url=path_url)
             self.logger().info(f"Requested cancel of order {order_id}")
