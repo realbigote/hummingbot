@@ -566,17 +566,17 @@ cdef class BlocktaneExchange(ExchangeBase):
                                                                     tracked_order.client_order_id))
                         self.c_stop_tracking_order(tracked_order.client_order_id)
 
-                    if order_state == 'reject':
-                        tracked_order.last_state = order_state
+                    if order_status == 'reject':
+                        tracked_order.last_state = order_status
                         self.c_trigger_event(
                             self.MARKET_ORDER_FAILURE_EVENT_TAG,
                             MarketOrderFailureEvent(self._current_timestamp,
-                                                    client_order_id,
+                                                    tracked_order.client_order_id,
                                                     tracked_order.order_type)
                         )
                         self.logger().info(f"The order {tracked_order.client_order_id} has been failed "
                                             f"according to Blocktane WebSocket API.")
-                        self.c_stop_tracking_order(client_order_id)
+                        self.c_stop_tracking_order(tracked_order.client_order_id)
 
                 else:
                     # Ignores all other user stream message types
