@@ -48,6 +48,20 @@ from hummingbot.connector.exchange.blocktane.blocktane_utils import convert_from
 bm_logger = None
 s_decimal_0 = Decimal(0)
 
+class BlocktaneAPIException(IOError):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.status_code = None
+        self.malformed = False
+        self.body = None
+        if 'status_code' in kwargs:
+            self.status_code = int(kwargs['status_code'])
+        if 'malformed' in kwargs:
+            self.malformed = kwargs['malformed']
+        if 'body' in kwargs:
+            self.body = kwargs['body']
+
+
 cdef class BlocktaneExchangeTransactionTracker(TransactionTracker):
     cdef:
         BlocktaneExchange _owner
@@ -292,12 +306,7 @@ cdef class BlocktaneExchange(ExchangeBase):
         # Used to retrieve a single order by client_order_id
         path_url = f"/market/orders/{client_order_id}?client_id=true"
 
-        try:
-            result = await self._api_request("GET", path_url=path_url)
-        except IOError as e:
-            return None
-
-        return result
+        return await self._api_request("GET", path_url=path_url)
 
     def issue_creation_event(self, exchange_order_id, tracked_order):
         tracked_order.update_exchange_order_id(str(exchange_order_id))
@@ -333,22 +342,32 @@ cdef class BlocktaneExchange(ExchangeBase):
                 tracked_orders = list(self._in_flight_orders.values())
                 for tracked_order in tracked_orders:
                     client_order_id = tracked_order.client_order_id
-                    order = await self.get_order(client_order_id)
-                    if order is None and (abs(self._current_timestamp - tracked_order.created_at) > self.ORDER_NOT_EXIST_WAIT_TIME):
-                        # This was an indeterminant order that may or may not have been live on the exchange
-                        # The exchange has informed us that this never became live on the exchange
-                        self.c_trigger_event(
-                            self.MARKET_ORDER_FAILURE_EVENT_TAG,
-                            MarketOrderFailureEvent(self._current_timestamp,
-                                                    client_order_id,
-                                                    tracked_order.order_type)
-                        )
-                        self.logger().warning(
-                            f"Error fetching status update for the order {client_order_id}: "
-                            f"{tracked_order}. Marking as failed"
-                        )
-                        self.c_stop_tracking_order(client_order_id)
-                        continue
+                    try:
+                        order = await self.get_order(client_order_id)
+                    except BlocktaneAPIException as e:
+                        if e.status_code == 404:
+                            if  (not e.malformed and e.body == 'record.not_found' and 
+                                abs(self._current_timestamp - tracked_order.created_at) > self.ORDER_NOT_EXIST_WAIT_TIME):
+                                # This was an indeterminant order that may or may not have been live on the exchange
+                                # The exchange has informed us that this never became live on the exchange
+                                self.c_trigger_event(
+                                    self.MARKET_ORDER_FAILURE_EVENT_TAG,
+                                    MarketOrderFailureEvent(self._current_timestamp,
+                                                            client_order_id,
+                                                            tracked_order.order_type)
+                                )
+                                self.logger().warning(
+                                    f"Error fetching status update for the order {client_order_id}: "
+                                    f"{tracked_order}. Marking as failed"
+                                )
+                                self.c_stop_tracking_order(client_order_id)
+                                continue
+                        else:
+                            self.logger().warning(
+                                f"Error fetching status update for the order {client_order_id}:"
+                                f" HTTP status: {e.status_code} malformed: {e.malformed}. Will try again."
+                            )
+                            continue
 
                     if tracked_order.exchange_order_id is None:
                         # This was an indeterminate order that has not yet had a creation event issued
@@ -962,15 +981,22 @@ cdef class BlocktaneExchange(ExchangeBase):
                                   params=params,
                                   data=body,
                                   timeout=self.API_CALL_TIMEOUT) as response:
-                                  
-            if response.status not in [200, 201]:  # HTTP Response code of 20X generally means it is successful
-                raise IOError(f"Error fetching response from {http_method}-{url}. HTTP Status Code {response.status}: "
-                              f"{await response.text()}")
 
             try:
                 data = await response.json(content_type=None)
             except Exception as e:
-                raise IOError(f"Malformed response. Expected JSON got:{await response.text()}")
+                raise BlocktaneAPIException(f"Malformed response. Expected JSON got:{await response.text()}", 
+                                            status_code=response.status, 
+                                            malformed=True)
+                   
+            if response.status not in [200, 201]:  # HTTP Response code of 20X generally means it is successful
+                try:
+                    error_msg = data['errors'][0]
+                except:
+                    error_msg = simplejson.dumps(data)
+                raise BlocktaneAPIException(f"Error fetching response from {http_method}-{url}. HTTP Status Code {response.status}: "
+                              f"{data}", status_code=response.status, body=error_msg)
+
             return data
 
     async def check_network(self) -> NetworkStatus:
