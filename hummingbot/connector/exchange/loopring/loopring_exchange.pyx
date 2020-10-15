@@ -29,6 +29,7 @@ from hummingbot.connector.exchange.loopring.loopring_order_book_tracker import L
 from hummingbot.connector.exchange.loopring.loopring_api_order_book_data_source import LoopringAPIOrderBookDataSource
 from hummingbot.connector.exchange.loopring.loopring_api_token_configuration_data_source import LoopringAPITokenConfigurationDataSource
 from hummingbot.connector.exchange.loopring.loopring_user_stream_tracker import LoopringUserStreamTracker
+from hummingbot.connector.exchange.loopring.loopring_order_status import LoopringOrderStatus
 from hummingbot.core.utils.async_utils import (
     safe_ensure_future,
 )
@@ -383,9 +384,12 @@ cdef class LoopringExchange(ExchangeBase):
             if "data" not in creation_response.keys():
                 raise Exception(creation_response['resultInfo']['message'])
 
-            status = creation_response["data"]["status"]
-            if status != 'NEW_ACTIVED':
-                raise Exception(status)
+            # status = creation_response["data"]["status"]
+            # if status != 'NEW_ACTIVED':
+            #     raise Exception(f"Loopring api returned unexpected '{status}' as status of created order")
+            status = LoopringOrderStatus[creation_response["data"]["status"]]
+            if status != LoopringOrderStatus.processing:
+                raise Exception(f"Loopring api returned unexpected '{status}' as status of created order")
 
             loopring_order_hash = creation_response["data"]["orderHash"]
             in_flight_order.update_exchange_order_id(loopring_order_hash)
