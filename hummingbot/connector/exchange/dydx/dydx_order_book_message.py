@@ -14,22 +14,19 @@ from hummingbot.core.data_type.order_book_message import (
 )
 
 
-class DYDXOrderBookMessage(OrderBookMessage):
+class DydxOrderBookMessage(OrderBookMessage):
     def __new__(cls, message_type: OrderBookMessageType, content: Dict[str, any], timestamp: Optional[float] = None,
                 *args, **kwargs):
         if timestamp is None:
             if message_type is OrderBookMessageType.SNAPSHOT:
                 raise ValueError("timestamp must not be None when initializing snapshot messages.")
             timestamp = int(time.time())
-        return super(DYDXOrderBookMessage, cls).__new__(cls, message_type, content,
+        return super(DydxOrderBookMessage, cls).__new__(cls, message_type, content,
                                                             timestamp=timestamp, *args, **kwargs)
 
     @property
     def update_id(self) -> int:
-        if self.type == OrderBookMessageType.SNAPSHOT:
-            return self.content["data"]["version"]
-        elif self.type == OrderBookMessageType.DIFF:
-            return self.content["endVersion"]
+        return int(self.timestamp)
 
     @property
     def trade_id(self) -> int:
@@ -37,15 +34,15 @@ class DYDXOrderBookMessage(OrderBookMessage):
 
     @property
     def trading_pair(self) -> str:
-        return self.content["topic"]["market"]
+        return self.content["market"]
 
     @property
     def asks(self) -> List[OrderBookRow]:
-        return self.content["data"]["asks"]
+        return self.content["asks"]
 
     @property
     def bids(self) -> List[OrderBookRow]:
-        return self.content["data"]["bids"]
+        return self.content["bids"]
 
     @property
     def has_update_id(self) -> bool:

@@ -3,14 +3,14 @@ import json
 import time
 from typing import (Any, Dict, List, Tuple)
 from decimal import Decimal
-from hummingbot.connector.exchange.dydx.dydx_order_status import DYDXOrderStatus
+from hummingbot.connector.exchange.dydx.dydx_order_status import DydxOrderStatus
 from hummingbot.connector.in_flight_order_base cimport InFlightOrderBase
-from hummingbot.connector.exchange.dydx.dydx_exchange cimport DYDXExchange
+from hummingbot.connector.exchange.dydx.dydx_exchange cimport DydxExchange
 from hummingbot.core.event.events import (OrderFilledEvent, TradeType, OrderType, TradeFee, MarketEvent)
 
-cdef class DYDXInFlightOrder(InFlightOrderBase):
+cdef class DydxInFlightOrder(InFlightOrderBase):
     def __init__(self,
-                 market: DYDXExchange,
+                 market: DydxExchange,
                  client_order_id: str,
                  exchange_order_id: str,
                  trading_pair: str,
@@ -18,7 +18,7 @@ cdef class DYDXInFlightOrder(InFlightOrderBase):
                  trade_type: TradeType,
                  price: Decimal,
                  amount: Decimal,
-                 initial_state: DYDXOrderStatus,
+                 initial_state: DydxOrderStatus,
                  filled_size: Decimal,
                  filled_volume: Decimal,
                  filled_fee: Decimal,
@@ -44,19 +44,19 @@ cdef class DYDXInFlightOrder(InFlightOrderBase):
 
     @property
     def is_done(self) -> bool:
-        return self.status >= DYDXOrderStatus.DONE
+        return self.status >= DydxOrderStatus.DONE
 
     @property
     def is_cancelled(self) -> bool:
-        return self.status == DYDXOrderStatus.cancelled
+        return self.status == DydxOrderStatus.cancelled
 
     @property
     def is_failure(self) -> bool:
-        return self.status >= DYDXOrderStatus.failed
+        return self.status >= DydxOrderStatus.failed
 
     @property
     def is_expired(self) -> bool:
-        return self.status == DYDXOrderStatus.expired
+        return self.status == DydxOrderStatus.expired
 
     @property
     def description(self):
@@ -79,8 +79,8 @@ cdef class DYDXInFlightOrder(InFlightOrderBase):
         })
 
     @classmethod
-    def from_json(cls, market, data: Dict[str, Any]) -> DYDXInFlightOrder:
-        return DYDXInFlightOrder(
+    def from_json(cls, market, data: Dict[str, Any]) -> DydxInFlightOrder:
+        return DydxInFlightOrder(
             market,
             data["client_order_id"],
             data["exchange_order_id"],
@@ -89,7 +89,7 @@ cdef class DYDXInFlightOrder(InFlightOrderBase):
             TradeType[data["trade_type"]],
             Decimal(data["price"]),
             Decimal(data["amount"]),
-            DYDXOrderStatus[data["status"]],
+            DydxOrderStatus[data["status"]],
             Decimal(data["executed_amount_base"]),
             Decimal(data["executed_amount_quote"]),
             Decimal(data["fee_paid"]),
@@ -98,15 +98,15 @@ cdef class DYDXInFlightOrder(InFlightOrderBase):
 
     @classmethod
     def from_dydx_order(cls,
-                            market: DYDXExchange,
+                            market: DydxExchange,
                             side: TradeType,
                             client_order_id: str,
                             created_at: int,
                             hash: str,
                             trading_pair: str,
                             price: float,
-                            amount: float) -> DYDXInFlightOrder:
-        return DYDXInFlightOrder(
+                            amount: float) -> DydxInFlightOrder:
+        return DydxInFlightOrder(
             market,
             client_order_id,
             hash,
@@ -115,7 +115,7 @@ cdef class DYDXInFlightOrder(InFlightOrderBase):
             side,
             Decimal(price),
             Decimal(amount),
-            DYDXOrderStatus.waiting,
+            DydxOrderStatus.waiting,
             Decimal(0),
             Decimal(0),
             Decimal(0),
@@ -133,7 +133,7 @@ cdef class DYDXInFlightOrder(InFlightOrderBase):
         quote_id: int = self.market.token_configuration.get_tokenid(quote)
         fee_currency_id: int = self.market.token_configuration.get_tokenid(self.fee_asset)
 
-        new_status: DYDXOrderStatus = DYDXOrderStatus[data["status"]]
+        new_status: DydxOrderStatus = DydxOrderStatus[data["status"]]
         new_executed_amount_base: Decimal = self.market.token_configuration.unpad(data["filledSize"], base_id)
         new_executed_amount_quote: Decimal = self.market.token_configuration.unpad(data["filledVolume"], quote_id)
         new_fee_paid: Decimal = self.market.token_configuration.unpad(data["filledFee"], fee_currency_id)
@@ -149,13 +149,13 @@ cdef class DYDXInFlightOrder(InFlightOrderBase):
 
             events.append((MarketEvent.OrderFilled, diff_base, price, diff_fee))
 
-        if not self.is_done and new_status == DYDXOrderStatus.cancelled:
+        if not self.is_done and new_status == DydxOrderStatus.cancelled:
             events.append((MarketEvent.OrderCancelled, None, None, None))
 
-        if not self.is_done and new_status == DYDXOrderStatus.expired:
+        if not self.is_done and new_status == DydxOrderStatus.expired:
             events.append((MarketEvent.OrderExpired, None, None, None))
 
-        if not self.is_done and new_status == DYDXOrderStatus.failed:
+        if not self.is_done and new_status == DydxOrderStatus.failed:
             events.append( (MarketEvent.OrderFailure, None, None, None) )
 
         self.status = new_status

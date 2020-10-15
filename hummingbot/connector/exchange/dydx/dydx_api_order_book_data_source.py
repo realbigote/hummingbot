@@ -2,6 +2,7 @@
 
 import asyncio
 from decimal import Decimal
+from datetime import datetime
 
 import aiohttp
 import logging
@@ -18,9 +19,10 @@ import ujson
 import websockets
 from websockets.exceptions import ConnectionClosed
 
-from hummingbot.connector.exchange.dydx.dydx_order_book import DYDXOrderBook
-from hummingbot.connector.exchange.dydx.dydx_api_token_configuration_data_source import DYDXAPITokenConfigurationDataSource
-from hummingbot.connector.exchange.dydx.dydx_utils import convert_from_exchange_trading_pair, get_ws_api_key
+from hummingbot.connector.exchange.dydx.dydx_order_book import DydxOrderBook
+from hummingbot.connector.exchange.dydx.dydx_active_order_tracker import DydxActiveOrderTracker
+from hummingbot.connector.exchange.dydx.dydx_api_token_configuration_data_source import DydxAPITokenConfigurationDataSource
+from hummingbot.connector.exchange.dydx.dydx_utils import convert_from_exchange_trading_pair#, get_ws_api_key
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
 from hummingbot.logger import HummingbotLogger
 from hummingbot.core.data_type.order_book import OrderBook
@@ -36,7 +38,7 @@ DYDX_V1_API_URL = "https://api.dydx.exchange/v1"
 DYDX_V2_API_URL = "https://api.dydx.exchange/v2"
 
 
-class DYDXAPIOrderBookDataSource(OrderBookTrackerDataSource):
+class DydxAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
     MESSAGE_TIMEOUT = 30.0
     PING_TIMEOUT = 10.0
@@ -55,7 +57,15 @@ class DYDXAPIOrderBookDataSource(OrderBookTrackerDataSource):
         self.WS_URL = websocket_url
         self._get_tracking_pair_done_event: asyncio.Event = asyncio.Event()
         self.order_book_create_function = lambda: OrderBook()
-        self.token_configuration: DYDXAPITokenConfigurationDataSource = token_configuration
+        self._token_configuration: DydxAPITokenConfigurationDataSource = token_configuration
+        self.token_configuration
+        self.active_order_tracker: DydxActiveOrderTracker = DydxActiveOrderTracker(self._token_configuration)
+
+    @property
+    def token_configuration(self) -> DydxAPITokenConfigurationDataSource:
+        if not self._token_configuration:
+            self._token_configuration = DydxAPITokenConfigurationDataSource.create()
+        return self._token_configuration
 
     @classmethod
     async def get_last_traded_prices(cls, trading_pairs: List[str]) -> Dict[str, float]:
@@ -65,15 +75,15 @@ class DYDXAPIOrderBookDataSource(OrderBookTrackerDataSource):
             return {x[0]: float(x[7]) for x in resp_json.get("data", [])}
 
     @property
-    def order_book_class(self) -> DYDXOrderBook:
-        return DYDXOrderBook
+    def order_book_class(self) -> DydxOrderBook:
+        return DydxOrderBook
 
     @property
     def trading_pairs(self) -> List[str]:
         return self._trading_pairs
 
     async def get_snapshot(self, client: aiohttp.ClientSession, trading_pair: str, level: int = 0) -> Dict[str, any]:
-        async with client.get(f"{DYDX_V1_API_URL}{SNAPSHOT_URL}&level={level}".replace(":trading_pair", trading_pair)) as response:
+        async with client.get(f"{DYDX_V1_API_URL}{SNAPSHOT_URL}/{trading_pair}") as response:
             response: aiohttp.ClientResponse = response
             if response.status != 200:
                 raise IOError(
@@ -87,13 +97,14 @@ class DYDXAPIOrderBookDataSource(OrderBookTrackerDataSource):
         async with aiohttp.ClientSession() as client:
             snapshot: Dict[str, Any] = await self.get_snapshot(client, trading_pair, 1000)
             snapshot_timestamp: float = time.time()
-            snapshot_msg: OrderBookMessage = DYDXOrderBook.snapshot_message_from_exchange(
+            snapshot_msg: OrderBookMessage = DydxOrderBook.snapshot_message_from_exchange(
                 snapshot,
                 snapshot_timestamp,
-                metadata={"trading_pair": trading_pair}
+                metadata={"id": trading_pair}
             )
             order_book: OrderBook = self.order_book_create_function()
-            order_book.apply_snapshot(snapshot_msg.bids, snapshot_msg.asks, snapshot_msg.update_id)
+            bids, asks = self.active_order_tracker.convert_snapshot_message_to_order_book_row(snapshot_msg)
+            order_book.apply_snapshot(bids, asks, snapshot_msg.update_id)
             return order_book
 
     async def _inner_messages(self, ws: websockets.WebSocketClientProtocol) -> AsyncIterable[str]:
@@ -153,23 +164,22 @@ class DYDXAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def listen_for_trades(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         while True:
             try:
-                topics: List[dict] = [{"topic": "trade", "market": pair} for pair in self._trading_pairs]
-                subscribe_request: Dict[str, Any] = {
-                    "op": "sub",
-                    "topics": topics
-                }
-
-                ws_key: str = await get_ws_api_key()
-                async with websockets.connect(f"{WS_URL}?wsApiKey={ws_key}") as ws:
+                #ws_key: str = await get_ws_api_key()
+                async with websockets.connect(f"{WS_URL}") as ws:
                     ws: websockets.WebSocketClientProtocol = ws
-                    await ws.send(ujson.dumps(subscribe_request))
+                    for pair in self._trading_pairs:
+                        subscribe_request: Dict[str, Any] = {
+                            "type": "subscribe",
+                            "channel": "trades",
+                            "id": pair
+                        }
+                        await ws.send(ujson.dumps(subscribe_request))
                     async for raw_msg in self._inner_messages(ws):
-                        if len(raw_msg) > 4:
-                            msg = ujson.loads(raw_msg)
-                            if "topic" in msg:
-                                for datum in msg["data"]:
-                                    trade_msg: OrderBookMessage = DYDXOrderBook.trade_message_from_exchange(datum, msg)
-                                    output.put_nowait(trade_msg)
+                        msg = ujson.loads(raw_msg)
+                        if "contents" in msg:
+                            for datum in msg["contents"]["trades"]:
+                                trade_msg: OrderBookMessage = DydxOrderBook.trade_message_from_exchange(datum, msg)
+                                output.put_nowait(trade_msg)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -180,22 +190,23 @@ class DYDXAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def listen_for_order_book_diffs(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         while True:
             try:
-                ws_key: str = await get_ws_api_key()
-                async with websockets.connect(f"{WS_URL}?wsApiKey={ws_key}") as ws:
+                async with websockets.connect(f"{WS_URL}") as ws:
                     ws: websockets.WebSocketClientProtocol = ws
-                    for pair in self._trading_pairs:
-                        topics: List[dict] = [{"topic": "orderbook", "market": pair, "level": 0}]
+                    for pair in self._trading_pairs:                      
                         subscribe_request: Dict[str, Any] = {
-                            "op": "sub",
-                            "topics": topics,
+                            "type": "subscribe",
+                            "channel": "orderbook",
+                            "id": pair
                         }
                         await ws.send(ujson.dumps(subscribe_request))
-                    async for raw_msg in self._inner_messages(ws):
-                        if len(raw_msg) > 4:
-                            msg = ujson.loads(raw_msg)
-                            if "topic" in msg:
-                                order_msg: OrderBookMessage = DYDXOrderBook.diff_message_from_exchange(msg)
-                                output.put_nowait(order_msg)
+                    async for raw_msg in self._inner_messages(ws):                        
+                        msg = ujson.loads(raw_msg)
+                        if "contents"  in msg:
+                            if "updates" in msg["contents"]:
+                                ts = datetime.timestamp(datetime.now())
+                                for item in msg["contents"]["updates"]:
+                                    order_msg: OrderBookMessage = DydxOrderBook.diff_message_from_exchange(item, ts, msg)
+                                    output.put_nowait(order_msg)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -206,23 +217,28 @@ class DYDXAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def listen_for_order_book_snapshots(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         while True:
             try:
-                ws_key: str = await get_ws_api_key()
-                async with websockets.connect(f"{WS_URL}?wsApiKey={ws_key}") as ws:
+                async with websockets.connect(f"{WS_URL}") as ws:
                     ws: websockets.WebSocketClientProtocol = ws
-                    for pair in self._trading_pairs:
-                        topics: List[dict] = [{"topic": "orderbook", "market": pair, "level": 0, "count": 50, "snapshot": True}]
+                    for pair in self._trading_pairs:                      
                         subscribe_request: Dict[str, Any] = {
-                            "op": "sub",
-                            "topics": topics,
+                            "type": "subscribe",
+                            "channel": "orderbook",
+                            "id": pair
                         }
-
                         await ws.send(ujson.dumps(subscribe_request))
-
-                    async for raw_msg in self._inner_messages(ws):
-                        if len(raw_msg) > 4:
-                            msg = ujson.loads(raw_msg)
-                            if ("topic" in msg.keys()):
-                                order_msg: OrderBookMessage = DYDXOrderBook.snapshot_message_from_exchange(msg, msg["ts"])
+                    async for raw_msg in self._inner_messages(ws):                        
+                        msg = ujson.loads(raw_msg)
+                        if "contents" in msg:
+                            if "updates" in msg["contents"]:
+                                unsubscribe_request: Dict[str, Any] = {
+                                    "type": "unsubscribe",
+                                    "channel": "orderbook",
+                                    "id": msg["id"]
+                                }
+                                await ws.send(ujson.dumps(unsubscribe_request))
+                            elif "bids" in msg["contents"]:
+                                ts = datetime.timestamp(datetime.now())
+                                order_msg: OrderBookMessage = DydxOrderBook.snapshot_message_from_exchange(msg["contents"], ts, msg)
                                 output.put_nowait(order_msg)
             except asyncio.CancelledError:
                 raise

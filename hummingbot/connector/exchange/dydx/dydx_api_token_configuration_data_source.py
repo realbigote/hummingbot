@@ -13,13 +13,13 @@ from typing import (
 from hummingbot.core.event.events import TradeType
 from hummingbot.core.utils.async_utils import safe_ensure_future
 
-TOKEN_CONFIGURATIONS_URL = '/api/v2/exchange/tokens'
+TOKEN_CONFIGURATIONS_URL = 'https://api.dydx.exchange/v2/markets'
 
 
-class DYDXAPITokenConfigurationDataSource():
+class DydxAPITokenConfigurationDataSource():
     """ Gets the token configuration on creation.
 
-        Use DYDXAPITokenConfigurationDataSource.create() to create.
+        Use DydxAPITokenConfigurationDataSource.create() to create.
     """
 
     def __init__(self):
@@ -38,18 +38,25 @@ class DYDXAPITokenConfigurationDataSource():
     async def _configure(self):
         async with aiohttp.ClientSession() as client:
             response: aiohttp.ClientResponse = await client.get(
-                f"https://api.dydx.exchange/v1{TOKEN_CONFIGURATIONS_URL}"
+                f"{TOKEN_CONFIGURATIONS_URL}"
             )
 
             if response.status >= 300:
                 raise IOError(f"Error fetching active dydx token configurations. HTTP status is {response.status}.")
 
             response_dict: Dict[str, Any] = await response.json()
-            for config in response_dict['data']:
-                self._token_configurations[config['tokenId']] = config
-                self._tokenid_lookup[config['symbol']] = config['tokenId']
-                self._symbol_lookup[config['tokenId']] = config['symbol']
-                self._decimals[config['tokenId']] = Decimal(f"10e{-(config['decimals'] + 1)}")
+
+            for market in response_dict['markets']:
+                details = response_dict['markets'][market]
+                if "baseCurrency" in details:
+                    self._token_configurations[details['baseCurrency']['currency']] = details['baseCurrency']
+                    self._token_configurations[details['quoteCurrency']['currency']] = details['quoteCurrency']
+                    self._tokenid_lookup[details['baseCurrency']['currency']] = details['baseCurrency']['soloMarketId']
+                    self._tokenid_lookup[details['quoteCurrency']['currency']] = details['quoteCurrency']['soloMarketId']
+                    self._symbol_lookup[details['baseCurrency']['soloMarketId']] = details['baseCurrency']['currency']
+                    self._symbol_lookup[details['quoteCurrency']['soloMarketId']] = details['quoteCurrency']['currency']
+                    self._decimals[details['baseCurrency']['soloMarketId']] = Decimal(f"10e{-(details['baseCurrency']['decimals'] + 1)}")
+                    self._decimals[details['quoteCurrency']['soloMarketId']] = Decimal(f"10e{-(details['quoteCurrency']['decimals'] + 1)}")
 
     def get_bq(self, symbol: str) -> List[str]:
         """ Returns the base and quote of a trading pair """

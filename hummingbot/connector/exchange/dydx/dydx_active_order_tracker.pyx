@@ -9,17 +9,17 @@ from decimal import Decimal
 
 from hummingbot.logger import HummingbotLogger
 from hummingbot.core.data_type.order_book_row import ClientOrderBookRow
-from hummingbot.connector.exchange.dydx.dydx_api_token_configuration_data_source import DYDXAPITokenConfigurationDataSource
+from hummingbot.connector.exchange.dydx.dydx_api_token_configuration_data_source import DydxAPITokenConfigurationDataSource
 
 s_empty_diff = np.ndarray(shape=(0, 4), dtype="float64")
 _ddaot_logger = None
 
-cdef class DYDXActiveOrderTracker:
+cdef class DydxActiveOrderTracker:
     def __init__(self, token_configuration, active_asks=None, active_bids=None):
         super().__init__()
-        self._token_config: DYDXAPITokenConfigurationDataSource = token_configuration
         self._active_asks = active_asks or {}
         self._active_bids = active_bids or {}
+        self._token_config: DydxAPITokenConfigurationDataSource = token_configuration
 
     @classmethod
     def logger(cls) -> HummingbotLogger:
@@ -46,54 +46,42 @@ cdef class DYDXActiveOrderTracker:
         self._active_asks.clear()
 
         for bid_order in message.bids:
-            order_id = str(message.timestamp)
-            price, totalAmount = self.get_rates_and_quantities(bid_order, message.content["topic"]["market"])
-            order_dict = {
-                "availableAmount": Decimal(totalAmount),
-                "orderId": order_id
-            }
+            price, amount = self.get_rates_and_quantities(bid_order["price"], bid_order["amount"], message.content["market"])
+            
             if price in self._active_bids:
-                self._active_bids[price][order_id] = order_dict
+                self._active_bids[price]["totalAmount"] += amount
             else:
                 self._active_bids[price] = {
-                    order_id: order_dict
+                    "totalAmount": amount
                 }
 
         for ask_order in message.asks:
-            price = Decimal(ask_order[0])
-            order_id = str(message.timestamp)
-            price, totalAmount = self.get_rates_and_quantities(ask_order, message.content["topic"]["market"])
-            order_dict = {
-                "availableAmount": Decimal(totalAmount),
-                "orderId": order_id
-            }
+            price, amount = self.get_rates_and_quantities(ask_order["price"], ask_order["amount"], message.content["market"])
 
             if price in self._active_asks:
-                self._active_asks[price][order_id] = order_dict
+                self._active_asks[price]["totalAmount"] += amount
             else:
                 self._active_asks[price] = {
-                    order_id: order_dict
+                    "totalAmount": amount
                 }
-
         # Return the sorted snapshot tables.
         cdef:
             np.ndarray[np.float64_t, ndim=2] bids = np.array(
                 [[message.timestamp,
                   Decimal(price),
-                  sum([Decimal(order_dict["availableAmount"])
-                       for order_dict in self._active_bids[price].values()]),
-                  order_id]
+                  Decimal(self._active_bids[price]["totalAmount"]),
+                  message.timestamp
+                  ]
                  for price in sorted(self._active_bids.keys(), reverse=True)], dtype="float64", ndmin=2)
 
             np.ndarray[np.float64_t, ndim=2] asks = np.array(
                 [[message.timestamp,
                   Decimal(price),
-                  sum([Decimal(order_dict["availableAmount"])
-                       for order_dict in self._active_asks[price].values()]),
-                  order_id]
+                  Decimal(self._active_asks[price]["totalAmount"]),
+                  message.timestamp]
                  for price in sorted(self._active_asks.keys(), reverse=True)], dtype="float64", ndmin=2)
 
-        # If there're no rows, the shape would become (1, 0) and not (0, 4).
+        # If there are no rows, the shape would become (1, 0) and not (0, 4).
         # Reshape to fix that.
         if bids.shape[1] != 4:
             bids = bids.reshape((0, 4))
@@ -101,47 +89,49 @@ cdef class DYDXActiveOrderTracker:
             asks = asks.reshape((0, 4))
         return bids, asks
 
-    def get_rates_and_quantities(self, entry, market) -> tuple:
+    def get_rates_and_quantities(self, price, amount, market) -> tuple:
         pair_tuple = tuple(market.split('-'))
-        tokenid = self._token_config.get_tokenid(pair_tuple[0])
-        return float(entry[0]), float(self._token_config.unpad(entry[1], tokenid))
+        basetokenid = self._token_config.get_tokenid(pair_tuple[0])
+        quotetokenid = self._token_config.get_tokenid(pair_tuple[1])
+        new_price = float(self._token_config.unpad(self._token_config.pad(price,quotetokenid), basetokenid))
+        new_amount = float(self._token_config.unpad(amount, quotetokenid))
+        return new_price, new_amount
 
     cdef tuple c_convert_diff_message_to_np_arrays(self, object message):
         cdef:
             dict content = message.content
-            list bid_entries = content["data"]["bids"]
-            list ask_entries = content["data"]["asks"]
-            str market = content["topic"]["market"]
-            str order_id
-            str order_side
-            str price_raw
-            object price
-            dict order_dict
+            str market = content["market"]
+            str order_id = content["id"]
+            str order_side = content["side"]
+            str price = content["price"]
+            str amount = content["amount"]
             double timestamp = message.timestamp
             double quantity = 0
         bids = s_empty_diff
         asks = s_empty_diff
-        if len(bid_entries) > 0:
+        
+        correct_price, correct_amount = self.get_rates_and_quantities(price, amount, message.content["market"])
+
+        if order_side == "BUY":
             bids = np.array(
                 [[timestamp,
-                  float(price),
-                  float(quantity),
-                  message.content["endVersion"]]
-                 for price, quantity in [self.get_rates_and_quantities(entry, market) for entry in bid_entries]],
+                  float(correct_price),
+                  float(correct_amount),
+                  int(message.timestamp)]],
                 dtype="float64",
                 ndmin=2
             )
 
-        if len(ask_entries) > 0:
+        if order_side == "SELL":
             asks = np.array(
                 [[timestamp,
-                  float(price),
-                  float(quantity),
-                  message.content["endVersion"]]
-                 for price, quantity in [self.get_rates_and_quantities(entry, market) for entry in ask_entries]],
+                  float(correct_price),
+                  float(correct_amount),
+                  int(message.timestamp)]],
                 dtype="float64",
                 ndmin=2
             )
+
         return bids, asks
 
     def convert_diff_message_to_order_book_row(self, message):

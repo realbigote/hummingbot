@@ -24,11 +24,11 @@ from hummingbot.core.event.event_listener cimport EventListener
 from hummingbot.core.network_iterator import NetworkStatus
 from hummingbot.wallet.ethereum.web3_wallet import Web3Wallet
 from hummingbot.connector.exchange_base import ExchangeBase
-from hummingbot.connector.exchange.dydx.dydx_auth import DYDXAuth
-from hummingbot.connector.exchange.dydx.dydx_order_book_tracker import DYDXOrderBookTracker
-from hummingbot.connector.exchange.dydx.dydx_api_order_book_data_source import DYDXAPIOrderBookDataSource
-from hummingbot.connector.exchange.dydx.dydx_api_token_configuration_data_source import DYDXAPITokenConfigurationDataSource
-from hummingbot.connector.exchange.dydx.dydx_user_stream_tracker import DYDXUserStreamTracker
+from hummingbot.connector.exchange.dydx.dydx_auth import DydxAuth
+from hummingbot.connector.exchange.dydx.dydx_order_book_tracker import DydxOrderBookTracker
+from hummingbot.connector.exchange.dydx.dydx_api_order_book_data_source import DydxAPIOrderBookDataSource
+from hummingbot.connector.exchange.dydx.dydx_api_token_configuration_data_source import DydxAPITokenConfigurationDataSource
+from hummingbot.connector.exchange.dydx.dydx_user_stream_tracker import DydxUserStreamTracker
 from hummingbot.core.utils.async_utils import (
     safe_ensure_future,
 )
@@ -47,7 +47,7 @@ from hummingbot.core.event.events import (
     TradeFee,
 )
 from hummingbot.logger import HummingbotLogger
-from hummingbot.connector.exchange.dydx.dydx_in_flight_order cimport DYDXInFlightOrder
+from hummingbot.connector.exchange.dydx.dydx_in_flight_order cimport DydxInFlightOrder
 from hummingbot.connector.trading_rule cimport TradingRule
 from hummingbot.core.utils.estimate_fee import estimate_fee
 from hummingbot.core.utils.tracking_nonce import get_tracking_nonce
@@ -117,11 +117,11 @@ class LatchingEventResponder(EventListener):
         self._reduce()
 
 
-cdef class DYDXExchangeTransactionTracker(TransactionTracker):
+cdef class DydxExchangeTransactionTracker(TransactionTracker):
     cdef:
-        DYDXExchange _owner
+        DydxExchange _owner
 
-    def __init__(self, owner: DYDXExchange):
+    def __init__(self, owner: DydxExchange):
         super().__init__()
         self._owner = owner
 
@@ -129,7 +129,7 @@ cdef class DYDXExchangeTransactionTracker(TransactionTracker):
         TransactionTracker.c_did_timeout_tx(self, tx_id)
         self._owner.c_did_timeout_tx(tx_id)
 
-cdef class DYDXExchange(ExchangeBase):
+cdef class DydxExchange(ExchangeBase):
     @classmethod
     def logger(cls) -> HummingbotLogger:
         global s_logger
@@ -150,24 +150,24 @@ cdef class DYDXExchange(ExchangeBase):
 
         self._real_time_balance_update = True
 
-        self._dydx_auth = DYDXAuth(dydx_api_key)
-        self._token_configuration = DYDXAPITokenConfigurationDataSource()
+        self._dydx_auth = DydxAuth(dydx_api_key)
+        self._token_configuration = DydxAPITokenConfigurationDataSource()
 
         self.API_REST_ENDPOINT = MAINNET_API_REST_ENDPOINT
         self.WS_ENDPOINT = MAINNET_WS_ENDPOINT
-        self._order_book_tracker = DYDXOrderBookTracker(
+        self._order_book_tracker = DydxOrderBookTracker(
             trading_pairs=trading_pairs,
             rest_api_url=self.API_REST_ENDPOINT,
             websocket_url=self.WS_ENDPOINT,
             token_configuration = self._token_configuration
         )        
-        self._user_stream_tracker = DYDXUserStreamTracker(
+        self._user_stream_tracker = DydxUserStreamTracker(
             orderbook_tracker_data_source=self._order_book_tracker.data_source,
             dydx_auth=self._dydx_auth
         )
         self._user_stream_event_listener_task = None
         self._user_stream_tracker_task = None
-        self._tx_tracker = DYDXExchangeTransactionTracker(self)
+        self._tx_tracker = DydxExchangeTransactionTracker(self)
         self._trading_required = trading_required
         self._poll_notifier = asyncio.Event()
         self._last_timestamp = 0
@@ -206,7 +206,7 @@ cdef class DYDXExchange(ExchangeBase):
         }
 
     @property
-    def token_configuration(self) -> DYDXAPITokenConfigurationDataSource:
+    def token_configuration(self) -> DydxAPITokenConfigurationDataSource:
         return self._token_configuration
 
     # ----------------------------------------
@@ -226,7 +226,7 @@ cdef class DYDXExchange(ExchangeBase):
     def limit_orders(self) -> List[LimitOrder]:
         cdef:
             list retval = []
-            DYDXInFlightOrder dydx_flight_order
+            DydxInFlightOrder dydx_flight_order
 
         for in_flight_order in self._in_flight_orders.values():
             dydx_flight_order = in_flight_order
@@ -235,7 +235,7 @@ cdef class DYDXExchange(ExchangeBase):
         return retval
 
     async def get_active_exchange_markets(self) -> pd.DataFrame:
-        return await DYDXAPIOrderBookDataSource.get_active_exchange_markets()
+        return await DydxAPIOrderBookDataSource.get_active_exchange_markets()
 
     # ----------------------------------------
     # Account Balances
@@ -251,7 +251,7 @@ cdef class DYDXExchange(ExchangeBase):
     # ----------------------------------------------------------
 
     @property
-    def in_flight_orders(self) -> Dict[str, DYDXInFlightOrder]:
+    def in_flight_orders(self) -> Dict[str, DydxInFlightOrder]:
         return self._in_flight_orders
 
     async def _get_next_order_id(self, token, force_sync = False):
@@ -360,7 +360,7 @@ cdef class DYDXExchange(ExchangeBase):
 
         try:
             created_at: int = int(time.time())
-            in_flight_order = DYDXInFlightOrder.from_dydx_order(self, order_side, client_order_id, created_at, None, trading_pair, price, amount)
+            in_flight_order = DydxInFlightOrder.from_dydx_order(self, order_side, client_order_id, created_at, None, trading_pair, price, amount)
             self.start_tracking(in_flight_order)
 
             try:
@@ -588,7 +588,7 @@ cdef class DYDXExchange(ExchangeBase):
     def restore_tracking_states(self, saved_states: Dict[str, any]):
         for order_id, in_flight_repr in saved_states.iteritems():
             in_flight_json: Dict[Str, Any] = json.loads(in_flight_repr)
-            self._in_flight_orders[order_id] = DYDXInFlightOrder.from_json(self, in_flight_json)
+            self._in_flight_orders[order_id] = DydxInFlightOrder.from_json(self, in_flight_json)
 
     def start_tracking(self, in_flight_order):
         self._in_flight_orders[in_flight_order.client_order_id] = in_flight_order
@@ -600,7 +600,7 @@ cdef class DYDXExchange(ExchangeBase):
     # ----------------------------------------
     # updates to orders and balances
 
-    def _update_inflight_order(self, tracked_order: DYDXInFlightOrder, event: Dict[str, Any]):
+    def _update_inflight_order(self, tracked_order: DydxInFlightOrder, event: Dict[str, Any]):
         issuable_events: List[MarketEvent] = tracked_order.update(event)
 
         # Issue relevent events
@@ -733,7 +733,7 @@ cdef class DYDXExchange(ExchangeBase):
                     await self._set_balances([data], is_snapshot=False)
                 elif topic == 'order':
                     client_order_id: str = data['clientOrderId']
-                    tracked_order: DYDXInFlightOrder = self._in_flight_orders.get(client_order_id)
+                    tracked_order: DydxInFlightOrder = self._in_flight_orders.get(client_order_id)
 
                     if tracked_order is None:
                         self.logger().warning(f"Unrecognized order ID from user stream: {client_order_id}.")

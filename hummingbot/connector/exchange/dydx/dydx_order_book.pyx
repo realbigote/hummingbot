@@ -9,9 +9,10 @@ from typing import (
     Optional,
 )
 import ujson
+from datetime import datetime
 
 from hummingbot.logger import HummingbotLogger
-from hummingbot.connector.exchange.dydx.dydx_order_book_message import DYDXOrderBookMessage
+from hummingbot.connector.exchange.dydx.dydx_order_book_message import DydxOrderBookMessage
 from hummingbot.core.event.events import TradeType
 from hummingbot.core.data_type.order_book cimport OrderBook
 from hummingbot.core.data_type.order_book_message import (
@@ -21,7 +22,7 @@ from hummingbot.core.data_type.order_book_message import (
 
 _dob_logger = None
 
-cdef class DYDXOrderBook(OrderBook):
+cdef class DydxOrderBook(OrderBook):
 
     @classmethod
     def logger(cls) -> HummingbotLogger:
@@ -34,10 +35,12 @@ cdef class DYDXOrderBook(OrderBook):
     def snapshot_message_from_exchange(cls,
                                        msg: Dict[str, any],
                                        timestamp: float,
-                                       metadata: Optional[Dict] = None) -> DYDXOrderBookMessage:
+                                       metadata: Optional[Dict] = None) -> DydxOrderBookMessage:
         if metadata:
-            msg.update(metadata)
-        return DYDXOrderBookMessage(OrderBookMessageType.SNAPSHOT, msg, timestamp)
+            msg["id"] = int(timestamp * 1000)
+            msg["market"] = metadata["id"]
+
+        return DydxOrderBookMessage(OrderBookMessageType.SNAPSHOT, msg, timestamp)
 
     @classmethod
     def diff_message_from_exchange(cls,
@@ -45,43 +48,44 @@ cdef class DYDXOrderBook(OrderBook):
                                    timestamp: Optional[float] = None,
                                    metadata: Optional[Dict] = None) -> OrderBookMessage:
         if metadata:
-            msg.update(metadata)
-        return DYDXOrderBookMessage(OrderBookMessageType.DIFF, msg, timestamp)
+            msg["market"] = metadata["id"]
+        return DydxOrderBookMessage(OrderBookMessageType.DIFF, msg, timestamp)
 
     @classmethod
     def trade_message_from_exchange(cls, msg: Dict[str, any], metadata: Optional[Dict] = None):
-        ts = metadata["ts"]
+        time = msg["createdAt"]
+        ts = datetime.timestamp(datetime.strptime(time, "%Y-%m-%dT%H:%M:%S.%fZ"))
         return OrderBookMessage(OrderBookMessageType.TRADE, {
-            "trading_pair": metadata["topic"]["market"],
-            "trade_type": float(TradeType.SELL.value) if (msg[2] == "SELL") else float(TradeType.BUY.value),
-            "trade_id": msg[1],
+            "trading_pair": metadata["id"],
+            "trade_type": float(TradeType.SELL.value) if (msg["side"] == "SELL") else float(TradeType.BUY.value),
+            "trade_id": msg["uuid"],
             "update_id": ts,
-            "price": msg[4],
-            "amount": msg[3]
-        }, timestamp=ts * 1e-3)
+            "price": msg["price"],
+            "amount": msg["amount"]
+        }, timestamp=ts)
 
     @classmethod
     def snapshot_message_from_db(cls, record: RowProxy, metadata: Optional[Dict] = None) -> OrderBookMessage:
         msg = record.json if type(record.json)==dict else ujson.loads(record.json)
-        return DYDXOrderBookMessage(OrderBookMessageType.SNAPSHOT, msg, timestamp=record.timestamp * 1e-3)
+        return DydxOrderBookMessage(OrderBookMessageType.SNAPSHOT, msg, timestamp=record.timestamp * 1e-3)
 
     @classmethod
     def diff_message_from_db(cls, record: RowProxy, metadata: Optional[Dict] = None) -> OrderBookMessage:
-        return DYDXOrderBookMessage(OrderBookMessageType.DIFF, record.json)
+        return DydxOrderBookMessage(OrderBookMessageType.DIFF, record.json)
 
     @classmethod
     def snapshot_message_from_kafka(cls, record: ConsumerRecord, metadata: Optional[Dict] = None) -> OrderBookMessage:
         msg = ujson.loads(record.value.decode())
-        return DYDXOrderBookMessage(OrderBookMessageType.SNAPSHOT, msg, timestamp=record.timestamp * 1e-3)
+        return DydxOrderBookMessage(OrderBookMessageType.SNAPSHOT, msg, timestamp=record.timestamp * 1e-3)
 
     @classmethod
     def diff_message_from_kafka(cls, record: ConsumerRecord, metadata: Optional[Dict] = None) -> OrderBookMessage:
         msg = ujson.loads(record.value.decode())
-        return DYDXOrderBookMessage(OrderBookMessageType.DIFF, msg)
+        return DydxOrderBookMessage(OrderBookMessageType.DIFF, msg)
 
     @classmethod
     def trade_receive_message_from_db(cls, record: RowProxy, metadata: Optional[Dict] = None):
-        return DYDXOrderBookMessage(OrderBookMessageType.TRADE, record.json)
+        return DydxOrderBookMessage(OrderBookMessageType.TRADE, record.json)
 
     @classmethod
     def from_snapshot(cls, snapshot: OrderBookMessage):

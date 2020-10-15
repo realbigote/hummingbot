@@ -14,9 +14,9 @@ import ujson
 import websockets
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
 from hummingbot.logger import HummingbotLogger
-from hummingbot.connector.exchange.dydx.dydx_auth import DYDXAuth
-from hummingbot.connector.exchange.dydx.dydx_api_order_book_data_source import DYDXAPIOrderBookDataSource
-from hummingbot.connector.exchange.dydx.dydx_order_book import DYDXOrderBook
+from hummingbot.connector.exchange.dydx.dydx_auth import DydxAuth
+from hummingbot.connector.exchange.dydx.dydx_api_order_book_data_source import DydxAPIOrderBookDataSource
+from hummingbot.connector.exchange.dydx.dydx_order_book import DydxOrderBook
 from hummingbot.connector.exchange.dydx.dydx_utils import get_ws_api_key
 
 DYDX_WS_URL = "wss://api.dydx.exchange/v1/ws"
@@ -24,7 +24,7 @@ DYDX_WS_URL = "wss://api.dydx.exchange/v1/ws"
 DYDX_ROOT_API = "https://api.dydx.exchange/v1"
 
 
-class DYDXAPIUserStreamDataSource(UserStreamTrackerDataSource):
+class DydxAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
     _krausds_logger: Optional[HummingbotLogger] = None
 
@@ -34,16 +34,16 @@ class DYDXAPIUserStreamDataSource(UserStreamTrackerDataSource):
             cls._krausds_logger = logging.getLogger(__name__)
         return cls._krausds_logger
 
-    def __init__(self, orderbook_tracker_data_source: DYDXAPIOrderBookDataSource, dydx_auth: DYDXAuth):
-        self._dydx_auth: DYDXAuth = dydx_auth
-        self._orderbook_tracker_data_source: DYDXAPIOrderBookDataSource = orderbook_tracker_data_source
+    def __init__(self, orderbook_tracker_data_source: DydxAPIOrderBookDataSource, dydx_auth: DydxAuth):
+        self._dydx_auth: DydxAuth = dydx_auth
+        self._orderbook_tracker_data_source: DydxAPIOrderBookDataSource = orderbook_tracker_data_source
         self._shared_client: Optional[aiohttp.ClientSession] = None
         self._last_recv_time: float = 0
         super().__init__()
 
     @property
     def order_book_class(self):
-        return DYDXOrderBook
+        return DydxOrderBook
 
     @property
     def last_recv_time(self):

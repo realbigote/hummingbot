@@ -1,6 +1,6 @@
 from hummingbot.connector.in_flight_order_base cimport InFlightOrderBase
 
-cdef class DYDXInFlightOrder(InFlightOrderBase):
+cdef class DydxInFlightOrder(InFlightOrderBase):
     cdef:
         public object market
         public object status
