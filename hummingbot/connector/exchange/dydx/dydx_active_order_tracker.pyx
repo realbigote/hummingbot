@@ -94,7 +94,7 @@ cdef class DydxActiveOrderTracker:
         basetokenid = self._token_config.get_tokenid(pair_tuple[0])
         quotetokenid = self._token_config.get_tokenid(pair_tuple[1])
         new_price = float(self._token_config.unpad(self._token_config.pad(price,quotetokenid), basetokenid))
-        new_amount = float(self._token_config.unpad(amount, quotetokenid))
+        new_amount = float(self._token_config.unpad(amount, basetokenid))
         return new_price, new_amount
 
     cdef tuple c_convert_diff_message_to_np_arrays(self, object message):

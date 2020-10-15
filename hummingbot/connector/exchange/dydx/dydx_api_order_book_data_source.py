@@ -59,13 +59,19 @@ class DydxAPIOrderBookDataSource(OrderBookTrackerDataSource):
         self.order_book_create_function = lambda: OrderBook()
         self._token_configuration: DydxAPITokenConfigurationDataSource = token_configuration
         self.token_configuration
-        self.active_order_tracker: DydxActiveOrderTracker = DydxActiveOrderTracker(self._token_configuration)
+        self._active_order_tracker: DydxActiveOrderTracker = DydxActiveOrderTracker(self._token_configuration)
 
     @property
     def token_configuration(self) -> DydxAPITokenConfigurationDataSource:
         if not self._token_configuration:
             self._token_configuration = DydxAPITokenConfigurationDataSource.create()
         return self._token_configuration
+
+    @property
+    def active_order_tracker(self) -> DydxActiveOrderTracker:
+        if not self._active_order_tracker:
+            self._active_order_tracker = DydxActiveOrderTracker(self.token_configuration)
+        return self._active_order_tracker
 
     @classmethod
     async def get_last_traded_prices(cls, trading_pairs: List[str]) -> Dict[str, float]:

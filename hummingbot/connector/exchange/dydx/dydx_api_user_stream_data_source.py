@@ -17,7 +17,6 @@ from hummingbot.logger import HummingbotLogger
 from hummingbot.connector.exchange.dydx.dydx_auth import DydxAuth
 from hummingbot.connector.exchange.dydx.dydx_api_order_book_data_source import DydxAPIOrderBookDataSource
 from hummingbot.connector.exchange.dydx.dydx_order_book import DydxOrderBook
-from hummingbot.connector.exchange.dydx.dydx_utils import get_ws_api_key
 
 DYDX_WS_URL = "wss://api.dydx.exchange/v1/ws"
 
@@ -52,20 +51,13 @@ class DydxAPIUserStreamDataSource(UserStreamTrackerDataSource):
     async def listen_for_user_stream(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         while True:
             try:
-                ws_key: str = await get_ws_api_key()
-                async with websockets.connect(f"{DYDX_WS_URL}?wsApiKey={ws_key}") as ws:
+                async with websockets.connect(f"{DYDX_WS_URL}") as ws:
                     ws: websockets.WebSocketClientProtocol = ws
 
-                    topics = [{"topic": "order", "market": m} for m in self._orderbook_tracker_data_source.trading_pairs]
-                    topics.append({
-                        "topic": "account"
-                    })
-
                     subscribe_request: Dict[str, Any] = {
-                        "op": "sub",
-                        "apiKey": self._dydx_auth.generate_auth_dict()["X-API-KEY"],
-                        "unsubscribeAll": True,
-                        "topics": topics
+                        "type": "subscribe",
+                        "channel": "orders",
+                        "id": str(self._dydx_auth.generate_auth_dict()["wallet_address"])
                     }
                     await ws.send(ujson.dumps(subscribe_request))
 
@@ -73,9 +65,8 @@ class DydxAPIUserStreamDataSource(UserStreamTrackerDataSource):
                         self._last_recv_time = time.time()
 
                         diff_msg = ujson.loads(raw_msg)
-                        if 'op' in diff_msg:
-                            continue  # These messages are for control of the stream, so skip sending them to the market class
-                        output.put_nowait(diff_msg)
+                        if diff_msg["type"] == "channel_data":
+                            output.put_nowait(diff_msg)
             except asyncio.CancelledError:
                 raise
             except Exception:

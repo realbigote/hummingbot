@@ -1,7 +1,7 @@
 from enum import Enum
 
 
-class DYDXOrderStatus(Enum):
+class DydxOrderStatus(Enum):
     waiting     = 0
     ACTIVE      = 100
     processing  = 101

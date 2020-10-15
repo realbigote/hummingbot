@@ -6,8 +6,8 @@ from typing import (
 
 
 class DydxAuth:
-    def __init__(self, api_key: str):
-        self.api_key = api_key
+    def __init__(self, wallet_address: str):
+        self.wallet_address = wallet_address
 
     def generate_auth_dict(self) -> Dict[str, Any]:
         """
@@ -16,5 +16,5 @@ class DydxAuth:
         """
 
         return {
-            "X-API-KEY": self.api_key
+            "wallet_address": self.wallet_address
         }

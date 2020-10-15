@@ -4,14 +4,13 @@ from typing import Dict, Any
 from hummingbot.client.config.config_var import ConfigVar
 from hummingbot.client.config.config_methods import using_exchange
 
-CENTRALIZED = True
+CENTRALIZED = False
 
-EXAMPLE_PAIR = "LRC-ETH"
+EXAMPLE_PAIR = "WETH-DAI"
 
 DEFAULT_FEES = [0.0, 0.2]
 
 DYDX_ROOT_API = "https://api.dydx.exchange/v1"
-#DYDX_WS_KEY_PATH = "/v2/ws/key"
 
 KEYS = {
     "dydx_accountid":
@@ -49,15 +48,3 @@ def convert_from_exchange_trading_pair(exchange_trading_pair: str) -> str:
 def convert_to_exchange_trading_pair(hb_trading_pair: str) -> str:
     # dydx expects trading pairs in the same format as hummingbot internally represents them
     return hb_trading_pair
-
-
-async def get_ws_api_key():
-    async with aiohttp.ClientSession() as client:
-        response: aiohttp.ClientResponse = await client.get(
-            f"{DYDX_ROOT_API}{DYDX_WS_KEY_PATH}"
-        )
-        if response.status != 200:
-            raise IOError(f"Error getting WS key. Server responded with status: {response.status}.")
-
-        response_dict: Dict[str, Any] = await response.json()
-        return response_dict['data']
