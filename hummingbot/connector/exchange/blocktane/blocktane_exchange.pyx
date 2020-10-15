@@ -76,7 +76,7 @@ cdef class BlocktaneExchange(ExchangeBase):
     UPDATE_ORDERS_INTERVAL = 10.0
     ORDER_NOT_EXIST_WAIT_TIME = 10.0
 
-    BLOCKTANE_API_ENDPOINT = "https://bolsa.tokamaktech.net/api/v2/xt"
+    BLOCKTANE_API_ENDPOINT = "https://trade.bolsacripto.com/api/v2/xt"
 
     @classmethod
     def logger(cls) -> HummingbotLogger:
