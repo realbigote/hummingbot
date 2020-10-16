@@ -49,17 +49,11 @@ bm_logger = None
 s_decimal_0 = Decimal(0)
 
 class BlocktaneAPIException(IOError):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.status_code = None
-        self.malformed = False
-        self.body = None
-        if 'status_code' in kwargs:
-            self.status_code = int(kwargs['status_code'])
-        if 'malformed' in kwargs:
-            self.malformed = kwargs['malformed']
-        if 'body' in kwargs:
-            self.body = kwargs['body']
+    def __init__(self, message, status_code = 0, malformed=False, body = None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.malformed = malformed
+        self.body = body
 
 
 cdef class BlocktaneExchangeTransactionTracker(TransactionTracker):
