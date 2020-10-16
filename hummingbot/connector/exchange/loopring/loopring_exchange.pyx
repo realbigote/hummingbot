@@ -384,12 +384,12 @@ cdef class LoopringExchange(ExchangeBase):
             if "data" not in creation_response.keys():
                 raise Exception(creation_response['resultInfo']['message'])
 
-            # status = creation_response["data"]["status"]
-            # if status != 'NEW_ACTIVED':
-            #     raise Exception(f"Loopring api returned unexpected '{status}' as status of created order")
-            status = LoopringOrderStatus[creation_response["data"]["status"]]
-            if status != LoopringOrderStatus.processing:
+            status = creation_response["data"]["status"]
+            if status != 'NEW_ACTIVED':
                 raise Exception(f"Loopring api returned unexpected '{status}' as status of created order")
+            # status = LoopringOrderStatus[creation_response["data"]["status"]]
+            # if status != LoopringOrderStatus.processing:
+            #     raise Exception(f"Loopring api returned unexpected '{status}' as status of created order")
 
             loopring_order_hash = creation_response["data"]["orderHash"]
             in_flight_order.update_exchange_order_id(loopring_order_hash)
