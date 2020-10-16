@@ -309,6 +309,9 @@ cdef class BlocktaneExchange(ExchangeBase):
         return await self._api_request("GET", path_url=path_url)
 
     def issue_creation_event(self, exchange_order_id, tracked_order):
+        if tracked_order.exchange_order_id is not None:
+            # We've already issued this creation event
+            return
         tracked_order.update_exchange_order_id(str(exchange_order_id))
         if tracked_order.trade_type is TradeType.SELL:
             cls = SellOrderCreatedEvent 
