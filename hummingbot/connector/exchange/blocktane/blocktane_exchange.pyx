@@ -49,17 +49,11 @@ bm_logger = None
 s_decimal_0 = Decimal(0)
 
 class BlocktaneAPIException(IOError):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.status_code = None
-        self.malformed = False
-        self.body = None
-        if 'status_code' in kwargs:
-            self.status_code = int(kwargs['status_code'])
-        if 'malformed' in kwargs:
-            self.malformed = kwargs['malformed']
-        if 'body' in kwargs:
-            self.body = kwargs['body']
+    def __init__(self, message, status_code = 0, malformed=False, body = None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.malformed = malformed
+        self.body = body
 
 
 cdef class BlocktaneExchangeTransactionTracker(TransactionTracker):
@@ -368,7 +362,7 @@ cdef class BlocktaneExchange(ExchangeBase):
                         else:
                             self.logger().warning(
                                 f"Error fetching status update for the order {client_order_id}:"
-                                f" HTTP status: {e.status_code} malformed: {e.malformed}. Will try again."
+                                f" HTTP status: {e.status_code} {'malformed: ' + str(e.malformed) if e.malformed else e.body}. Will try again."
                             )
                             continue
 
@@ -996,9 +990,9 @@ cdef class BlocktaneExchange(ExchangeBase):
                 try:
                     error_msg = data['errors'][0]
                 except:
-                    error_msg = simplejson.dumps(data)
+                    error_msg = await response.text()
                 raise BlocktaneAPIException(f"Error fetching response from {http_method}-{url}. HTTP Status Code {response.status}: "
-                              f"{data}", status_code=response.status, body=error_msg)
+                              f"{error_msg}", status_code=response.status, body=error_msg)
 
             return data
 

@@ -532,6 +532,7 @@ cdef class LoopringExchange(ExchangeBase):
         self.c_remove_listener(ORDER_CANCELLED_EVENT, cancel_verifier)
 
         return [CancellationResult(order_id=order_id, success=success) for order_id, success in order_status.items()]
+        
     cdef object c_get_fee(self,
                           str base_currency,
                           str quote_currency,
@@ -617,13 +618,7 @@ cdef class LoopringExchange(ExchangeBase):
 
         # Issue relevent events
         for (market_event, new_amount, new_price, new_fee) in issuable_events:
-            if market_event == MarketEvent.OrderCancelled:
-                self.logger().info(f"Successfully cancelled order {tracked_order.client_order_id}")
-                self.stop_tracking(tracked_order.client_order_id)
-                self.c_trigger_event(ORDER_CANCELLED_EVENT,
-                                     OrderCancelledEvent(self._current_timestamp,
-                                                         tracked_order.client_order_id))
-            elif market_event == MarketEvent.OrderFilled:
+            if market_event == MarketEvent.OrderFilled:
                 self.c_trigger_event(ORDER_FILLED_EVENT,
                                      OrderFilledEvent(self._current_timestamp,
                                                       tracked_order.client_order_id,
@@ -634,6 +629,12 @@ cdef class LoopringExchange(ExchangeBase):
                                                       new_amount,
                                                       TradeFee(Decimal(0), [(tracked_order.fee_asset, new_fee)]),
                                                       tracked_order.client_order_id))
+            elif market_event == MarketEvent.OrderCancelled:
+                self.logger().info(f"Successfully cancelled order {tracked_order.client_order_id}")
+                self.stop_tracking(tracked_order.client_order_id)
+                self.c_trigger_event(ORDER_CANCELLED_EVENT,
+                                     OrderCancelledEvent(self._current_timestamp,
+                                                         tracked_order.client_order_id))
             elif market_event == MarketEvent.OrderExpired:
                 self.c_trigger_event(ORDER_EXPIRED_EVENT,
                                      OrderExpiredEvent(self._current_timestamp,
