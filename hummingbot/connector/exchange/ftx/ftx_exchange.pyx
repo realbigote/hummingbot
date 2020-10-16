@@ -355,7 +355,6 @@ cdef class FtxExchange(ExchangeBase):
             int64_t current_tick = <int64_t>(self._current_timestamp / self.UPDATE_ORDERS_INTERVAL)
 
         if current_tick > last_tick and len(self._in_flight_orders) > 0:
-
             tracked_orders = list(self._in_flight_orders.values())
             for tracked_order in tracked_orders:
                 try:
@@ -363,7 +362,7 @@ cdef class FtxExchange(ExchangeBase):
                     order = response["result"]
 
                     self._update_inflight_order(tracked_order, order)
-                except RuntimeError as e: # TODO: FIXME: Check the edge cases to see what ftx returns for non-existant, cancelled, filled orders
+                except RuntimeError as e:
                     if "Order not found" in str(e) and tracked_order.created_at < (int(time.time()) - UNRECOGNIZED_ORDER_DEBOUCE):
                         tracked_order.set_status("FAILURE")
                         self.c_trigger_event(
