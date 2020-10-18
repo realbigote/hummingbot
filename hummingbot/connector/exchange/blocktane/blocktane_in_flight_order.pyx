@@ -37,8 +37,12 @@ cdef class BlocktaneInFlightOrder(InFlightOrderBase):
             amount,
             initial_state
         )
-        self.trade_id_set = set()
         self.created_at = created_at
+
+    def to_json(self) -> Dict[str, Any]:
+        response = super().to_json()
+        response["created_at"] = str(self.created_at)
+        return response
 
     @property
     def is_done(self) -> bool:
