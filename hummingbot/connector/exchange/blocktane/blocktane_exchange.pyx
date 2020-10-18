@@ -461,7 +461,7 @@ cdef class BlocktaneExchange(ExchangeBase):
                                                     tracked_order.order_type)
                         )
                         self.logger().info(f"The {tracked_order.order_type}-{tracked_order.trade_type} "
-                                        f"{client_order_id} has failed according to Blocktane order status API.")
+                                        f"{client_order_id} has been rejected according to Blocktane order status API.")
                         self.c_stop_tracking_order(client_order_id)
 
 
@@ -590,7 +590,7 @@ cdef class BlocktaneExchange(ExchangeBase):
                                                     tracked_order.client_order_id,
                                                     tracked_order.order_type)
                         )
-                        self.logger().info(f"The order {tracked_order.client_order_id} has been failed "
+                        self.logger().info(f"The order {tracked_order.client_order_id} has been rejected "
                                             f"according to Blocktane WebSocket API.")
                         self.c_stop_tracking_order(tracked_order.client_order_id)
 
@@ -783,14 +783,14 @@ cdef class BlocktaneExchange(ExchangeBase):
             if tracked_order is not None and exchange_order_id:
                 self.issue_creation_event(exchange_order_id, tracked_order)
         except asyncio.TimeoutError:
-            self.logger().info(f"Network timout while submitting order {order_id} to Blocktane. Order will be recovered.")
+            self.logger().error(f"Network timout while submitting order {order_id} to Blocktane. Order will be recovered.")
         except Exception:
             tracked_order = self._in_flight_orders.get(order_id)
             tracked_order.last_state = "FAILURE"
             tracked_order.update_exchange_order_id("0") # prevents deadlock on get_exchange_order_id()
             self.c_stop_tracking_order(order_id)
             self.logger().error(
-                f"Error submitting buy {order_type} order to Blocktane for "
+                f"Error submitting {order_id}: buy {order_type} order to Blocktane for "
                 f"{decimal_amount} {trading_pair} "
                  f"{decimal_price if order_type.is_limit_type() else ''}.",
                 exc_info=True
@@ -869,14 +869,14 @@ cdef class BlocktaneExchange(ExchangeBase):
             if tracked_order is not None and exchange_order_id:
                 self.issue_creation_event(exchange_order_id, tracked_order)
         except asyncio.TimeoutError:
-            self.logger().info(f"Network timout while submitting order {order_id} to Blocktane. Order will be recovered.")
+            self.logger().error(f"Network timout while submitting order {order_id} to Blocktane. Order will be recovered.")
         except Exception:
             tracked_order = self._in_flight_orders.get(order_id)
             tracked_order.last_state = "FAILURE"
             tracked_order.update_exchange_order_id("0") # prevents deadlock on get_exchange_order_id()
             self.c_stop_tracking_order(order_id)
             self.logger().error(
-                f"Error submitting sell {order_type} order to Blocktane for "
+                f"Error submitting {order_id}: sell {order_type} order to Blocktane for "
                 f"{decimal_amount} {trading_pair} "
                 f"{decimal_price if order_type.is_limit_type() else ''}.",
                 exc_info=True,
