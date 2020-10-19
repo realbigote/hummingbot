@@ -41,7 +41,7 @@ cdef class BlocktaneInFlightOrder(InFlightOrderBase):
 
     def to_json(self) -> Dict[str, Any]:
         response = super().to_json()
-        response["created_at"] = str(self.created_at)
+        response["created_at"] = self.created_at
         return response
 
     @property
@@ -66,8 +66,8 @@ cdef class BlocktaneInFlightOrder(InFlightOrderBase):
                 order_type=getattr(OrderType, data["order_type"]),
                 trade_type=getattr(TradeType, data["trade_type"]),
                 price=Decimal(data["price"]),
-                amount=Decimal(data["amount"],
-                created_at=data["created_at"]),
+                amount=Decimal(data["amount"]),
+                created_at=data["created_at"],
                 initial_state=data["last_state"]
             )
         retval.executed_amount_base = Decimal(data["executed_amount_base"])

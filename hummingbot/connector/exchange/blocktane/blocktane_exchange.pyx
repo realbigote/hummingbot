@@ -355,7 +355,7 @@ cdef class BlocktaneExchange(ExchangeBase):
                                 )
                                 self.logger().warning(
                                     f"Error fetching status update for the order {client_order_id}: "
-                                    f"{tracked_order}. Marking as failed"
+                                    f"{tracked_order}. Marking as failed current_timestamp={self._current_timestamp} created_at:{tracked_order.created_at}"
                                 )
                                 self.c_stop_tracking_order(client_order_id)
                                 continue
@@ -721,6 +721,7 @@ cdef class BlocktaneExchange(ExchangeBase):
                 "client_id": str(order_id)
             }
 
+        self.logger().info(f"Requesting order placement for {order_id} at {self._current_timestamp}")
         api_response = await self._api_request("POST", path_url=path_url, params=params)
         return api_response
 
@@ -782,19 +783,21 @@ cdef class BlocktaneExchange(ExchangeBase):
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None and exchange_order_id:
                 self.issue_creation_event(exchange_order_id, tracked_order)
+            else:
+                self.logger.error(f"Unable to issue creation event for {order_id}: {tracked_order} {exchange_order_id}")
         except asyncio.TimeoutError:
             self.logger().error(f"Network timout while submitting order {order_id} to Blocktane. Order will be recovered.")
         except Exception:
-            tracked_order = self._in_flight_orders.get(order_id)
-            tracked_order.last_state = "FAILURE"
-            tracked_order.update_exchange_order_id("0") # prevents deadlock on get_exchange_order_id()
-            self.c_stop_tracking_order(order_id)
             self.logger().error(
                 f"Error submitting {order_id}: buy {order_type} order to Blocktane for "
                 f"{decimal_amount} {trading_pair} "
                  f"{decimal_price if order_type.is_limit_type() else ''}.",
                 exc_info=True
             )
+            tracked_order = self._in_flight_orders.get(order_id)
+            tracked_order.last_state = "FAILURE"
+            tracked_order.update_exchange_order_id("0") # prevents deadlock on get_exchange_order_id()
+            self.c_stop_tracking_order(order_id)
             self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG, MarketOrderFailureEvent(self._current_timestamp, order_id, order_type))
             
             
@@ -868,19 +871,21 @@ cdef class BlocktaneExchange(ExchangeBase):
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None and exchange_order_id:
                 self.issue_creation_event(exchange_order_id, tracked_order)
+            else:
+                self.logger.error(f"Unable to issue creation event for {order_id}: {tracked_order} {exchange_order_id}")
         except asyncio.TimeoutError:
             self.logger().error(f"Network timout while submitting order {order_id} to Blocktane. Order will be recovered.")
         except Exception:
-            tracked_order = self._in_flight_orders.get(order_id)
-            tracked_order.last_state = "FAILURE"
-            tracked_order.update_exchange_order_id("0") # prevents deadlock on get_exchange_order_id()
-            self.c_stop_tracking_order(order_id)
             self.logger().error(
                 f"Error submitting {order_id}: sell {order_type} order to Blocktane for "
                 f"{decimal_amount} {trading_pair} "
                 f"{decimal_price if order_type.is_limit_type() else ''}.",
                 exc_info=True,
             )
+            tracked_order = self._in_flight_orders.get(order_id)
+            tracked_order.last_state = "FAILURE"
+            tracked_order.update_exchange_order_id("0") # prevents deadlock on get_exchange_order_id()
+            self.c_stop_tracking_order(order_id)
             self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG, MarketOrderFailureEvent(self._current_timestamp, order_id, order_type))
 
     cdef str c_sell(self,
