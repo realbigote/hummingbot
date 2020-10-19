@@ -81,9 +81,8 @@ class DydxOrderBookTracker(OrderBookTracker):
                     message = await message_queue.get()
 
                 if message.type is OrderBookMessageType.DIFF:
-                    if message.content["type"] == "NEW":
-                        bids, asks = active_order_tracker.convert_diff_message_to_order_book_row(message)
-                        order_book.apply_diffs(bids, asks, int(message.timestamp))
+                    bids, asks = active_order_tracker.convert_diff_message_to_order_book_row(message)
+                    order_book.apply_diffs(bids, asks, int(message.timestamp))
 
                 elif message.type is OrderBookMessageType.SNAPSHOT:
                     s_bids, s_asks = active_order_tracker.convert_snapshot_message_to_order_book_row(message)

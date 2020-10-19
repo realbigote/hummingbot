@@ -59,7 +59,7 @@ class DydxAPIOrderBookDataSource(OrderBookTrackerDataSource):
         self.order_book_create_function = lambda: OrderBook()
         self._token_configuration: DydxAPITokenConfigurationDataSource = token_configuration
         self.token_configuration
-        self._active_order_tracker: DydxActiveOrderTracker = DydxActiveOrderTracker(self._token_configuration)
+        self._active_order_tracker: DydxActiveOrderTracker = DydxActiveOrderTracker(self.token_configuration)
 
     @property
     def token_configuration(self) -> DydxAPITokenConfigurationDataSource:
@@ -109,8 +109,8 @@ class DydxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 metadata={"id": trading_pair}
             )
             order_book: OrderBook = self.order_book_create_function()
-            bids, asks = self.active_order_tracker.convert_snapshot_message_to_order_book_row(snapshot_msg)
-            order_book.apply_snapshot(bids, asks, snapshot_msg.update_id)
+            #bids, asks = self.active_order_tracker.convert_snapshot_message_to_order_book_row(snapshot_msg)
+            #order_book.apply_snapshot(bids, asks, snapshot_msg.update_id)
             return order_book
 
     async def _inner_messages(self, ws: websockets.WebSocketClientProtocol) -> AsyncIterable[str]:
@@ -213,35 +213,6 @@ class DydxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                                 for item in msg["contents"]["updates"]:
                                     order_msg: OrderBookMessage = DydxOrderBook.diff_message_from_exchange(item, ts, msg)
                                     output.put_nowait(order_msg)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                self.logger().error("Unexpected error with WebSocket connection. Retrying after 30 seconds...",
-                                    exc_info=True)
-                await asyncio.sleep(30.0)
-
-    async def listen_for_order_book_snapshots(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
-        while True:
-            try:
-                async with websockets.connect(f"{WS_URL}") as ws:
-                    ws: websockets.WebSocketClientProtocol = ws
-                    for pair in self._trading_pairs:                      
-                        subscribe_request: Dict[str, Any] = {
-                            "type": "subscribe",
-                            "channel": "orderbook",
-                            "id": pair
-                        }
-                        await ws.send(ujson.dumps(subscribe_request))
-                    async for raw_msg in self._inner_messages(ws):                        
-                        msg = ujson.loads(raw_msg)
-                        if "contents" in msg:
-                            if "updates" in msg["contents"]:
-                                unsubscribe_request: Dict[str, Any] = {
-                                    "type": "unsubscribe",
-                                    "channel": "orderbook",
-                                    "id": msg["id"]
-                                }
-                                await ws.send(ujson.dumps(unsubscribe_request))
                             elif "bids" in msg["contents"]:
                                 ts = datetime.timestamp(datetime.now())
                                 order_msg: OrderBookMessage = DydxOrderBook.snapshot_message_from_exchange(msg["contents"], ts, msg)
@@ -252,3 +223,6 @@ class DydxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 self.logger().error("Unexpected error with WebSocket connection. Retrying after 30 seconds...",
                                     exc_info=True)
                 await asyncio.sleep(30.0)
+
+    async def listen_for_order_book_snapshots(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
+        pass
