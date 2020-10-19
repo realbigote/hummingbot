@@ -355,7 +355,7 @@ cdef class BlocktaneExchange(ExchangeBase):
                                 )
                                 self.logger().warning(
                                     f"Error fetching status update for the order {client_order_id}: "
-                                    f"{tracked_order}. Marking as failed"
+                                    f"{tracked_order}. Marking as failed current_timestamp={self._current_timestamp} created_at:{tracked_order.created_at}"
                                 )
                                 self.c_stop_tracking_order(client_order_id)
                                 continue
