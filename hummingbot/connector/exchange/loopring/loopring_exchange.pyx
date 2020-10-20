@@ -93,7 +93,6 @@ TOKENS_INFO_ROUTE = "api/v2/exchange/tokens"
 NEXT_ORDER_ID = "api/v2/orderId"
 ORDER_ROUTE = "api/v3/order"
 ORDER_CANCEL_ROUTE = "api/v2/orders"
-MAXIMUM_FILL_COUNT = 16
 UNRECOGNIZED_ORDER_DEBOUCE = 20  # seconds
 
 class LatchingEventResponder(EventListener):
@@ -402,7 +401,6 @@ cdef class LoopringExchange(ExchangeBase):
             self.logger().warning(f"Error submitting {order_side.name} {order_type.name} order to Loopring for "
                                   f"{amount} {trading_pair} at {price}.")
             self.logger().info(e)
-            traceback.print_exc()
 
             # Re-sync our next order id after this failure
             base, quote = trading_pair.split('-')
