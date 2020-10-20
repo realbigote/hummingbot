@@ -779,10 +779,10 @@ cdef class BlocktaneExchange(ExchangeBase):
             else:
                 raise ValueError(f"Invalid OrderType {order_type}. Aborting.")
 
-            exchange_order_id = order_result.get("id")
+            exchange_order_id = str(order_result.get("id"))
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None and exchange_order_id is not None:
-                self.issue_creation_event(str(exchange_order_id), tracked_order)
+                self.issue_creation_event(exchange_order_id, tracked_order)
             else:
                 self.logger().error(f"Unable to issue creation event for {order_id}: {tracked_order} {exchange_order_id}")
         except asyncio.TimeoutError:
@@ -867,10 +867,10 @@ cdef class BlocktaneExchange(ExchangeBase):
             else:
                 raise ValueError(f"Invalid OrderType {order_type}. Aborting.")
 
-            exchange_order_id = order_result.get("id")
+            exchange_order_id = str(order_result.get("id"))
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None and exchange_order_id is not None:
-                self.issue_creation_event(str(exchange_order_id), tracked_order)
+                self.issue_creation_event(exchange_order_id, tracked_order)
             else:
                 self.logger().error(f"Unable to issue creation event for {order_id}: {tracked_order} {exchange_order_id}")
         except asyncio.TimeoutError:
