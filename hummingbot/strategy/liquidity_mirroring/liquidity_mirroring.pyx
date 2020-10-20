@@ -353,7 +353,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             # Inform the strat that we want to replace this level on the maker exchange
             if order_id in self.marked_for_deletion.keys():
                     order = self.marked_for_deletion[order_id]
-                    self.buys_to_replace.append(order["rank"])
+                    if order["is_buy"]:
+                        self.buys_to_replace.append(order["rank"])
+                    else:
+                        self.sells_to_replace.append(order["rank"])
 
         elif self.is_taker_exchange(market):
             # Update our taker exchange exposures
