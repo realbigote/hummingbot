@@ -158,7 +158,7 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         subscribe_request: Dict[str, Any] = {
                             "op": "subscribe",
                             "channel": "trades",
-                            "market": pair
+                            "market": convert_to_exchange_trading_pair(pair)
                         }
                         await ws.send(ujson.dumps(subscribe_request))
                     async for raw_msg in self._inner_messages(ws):
@@ -184,7 +184,7 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         subscribe_request: Dict[str, Any] = {
                             "op": "subscribe",
                             "channel": "orderbook",
-                            "market": pair
+                            "market": convert_to_exchange_trading_pair(pair)
                         }
                         await ws.send(ujson.dumps(subscribe_request))
                     async for raw_msg in self._inner_messages(ws):
