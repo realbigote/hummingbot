@@ -25,7 +25,7 @@ cdef class BlocktaneInFlightOrder(InFlightOrderBase):
                  trade_type: TradeType,
                  price: Decimal,
                  amount: Decimal,
-                 created_at: float,
+                 created_at: int,
                  initial_state: str = "NEW"):
         super().__init__(
             client_order_id,

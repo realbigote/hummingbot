@@ -344,7 +344,7 @@ cdef class BlocktaneExchange(ExchangeBase):
                     except BlocktaneAPIException as e:
                         if e.status_code == 404:
                             if  (not e.malformed and e.body == 'record.not_found' and 
-                                tracked_order.created_at < (time.time() - self.ORDER_NOT_EXIST_WAIT_TIME)):
+                                tracked_order.created_at < (int(time.time()) - self.ORDER_NOT_EXIST_WAIT_TIME)):
                                 # This was an indeterminant order that may or may not have been live on the exchange
                                 # The exchange has informed us that this never became live on the exchange
                                 self.c_trigger_event(
@@ -658,7 +658,7 @@ cdef class BlocktaneExchange(ExchangeBase):
             trade_type,
             price,
             amount,
-            time.time()
+            int(time.time())
         )
 
     cdef c_stop_tracking_order(self, str order_id):
