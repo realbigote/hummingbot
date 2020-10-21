@@ -54,12 +54,22 @@ class DydxAPIUserStreamDataSource(UserStreamTrackerDataSource):
                 async with websockets.connect(f"{DYDX_WS_URL}") as ws:
                     ws: websockets.WebSocketClientProtocol = ws
 
-                    subscribe_request: Dict[str, Any] = {
+                    wallet_address: str = str(self._dydx_auth.generate_auth_dict()["wallet_address"])
+
+                    orders_subscribe_request: Dict[str, Any] = {
                         "type": "subscribe",
                         "channel": "orders",
-                        "id": str(self._dydx_auth.generate_auth_dict()["wallet_address"])
+                        "id": wallet_address
                     }
-                    await ws.send(ujson.dumps(subscribe_request))
+                    await ws.send(ujson.dumps(orders_subscribe_request))
+
+                    balances_subscribe_request: Dict[str, Any] = {
+                      "type": "subscribe",
+                      "channel": "balance_updates",
+                      "id": wallet_address
+                    }
+
+                    await ws.send(ujson.dumps(balances_subscribe_request))
 
                     async for raw_msg in self._inner_messages(ws):
                         self._last_recv_time = time.time()

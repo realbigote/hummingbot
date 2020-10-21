@@ -11,9 +11,9 @@ cdef class DydxExchange(ExchangeBase):
         double _last_timestamp
         object _shared_client
         object _dydx_auth
-        int _dydx_accountid
-        int _dydx_exchangeid
+        str _dydx_node
         str _dydx_private_key
+        object _dydx_client
         object _order_sign_param
 
         object _user_stream_tracker

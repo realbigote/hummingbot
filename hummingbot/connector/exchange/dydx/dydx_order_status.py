@@ -2,15 +2,14 @@ from enum import Enum
 
 
 class DydxOrderStatus(Enum):
-    waiting     = 0
-    ACTIVE      = 100
-    processing  = 101
-    cancelling  = 200
-    DONE        = 300
-    processed   = 301
-    failed      = 400
-    cancelled   = 402
-    expired     = 403
+    PENDING           = 0
+    active            = 100
+    OPEN              = 101
+    PARTIALLY_FILLED  = 102
+    done              = 300
+    FILLED            = 301
+    CANCELED          = 402
+    FAILED            = 500
 
     def __ge__(self, other):
         if self.__class__ is other.__class__:

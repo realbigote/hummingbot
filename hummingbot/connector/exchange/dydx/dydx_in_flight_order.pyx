@@ -44,19 +44,15 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
 
     @property
     def is_done(self) -> bool:
-        return self.status >= DydxOrderStatus.DONE
+        return self.status >= DydxOrderStatus.done
 
     @property
     def is_cancelled(self) -> bool:
-        return self.status == DydxOrderStatus.cancelled
+        return self.status == DydxOrderStatus.CANCELED
 
     @property
     def is_failure(self) -> bool:
-        return self.status >= DydxOrderStatus.failed
-
-    @property
-    def is_expired(self) -> bool:
-        return self.status == DydxOrderStatus.expired
+        return self.status >= DydxOrderStatus.FAILED
 
     @property
     def description(self):
@@ -131,23 +127,22 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
         (base, quote) = self.market.split_trading_pair(trading_pair)
         base_id: int = self.market.token_configuration.get_tokenid(base)
         quote_id: int = self.market.token_configuration.get_tokenid(quote)
-        fee_currency_id: int = self.market.token_configuration.get_tokenid(self.fee_asset)
+        #fee_currency_id: int = self.market.token_configuration.get_tokenid(self.fee_asset)
 
         new_status: DydxOrderStatus = DydxOrderStatus[data["status"]]
-        new_executed_amount_base: Decimal = self.market.token_configuration.unpad(data["filledSize"], base_id)
-        new_executed_amount_quote: Decimal = self.market.token_configuration.unpad(data["filledVolume"], quote_id)
-        new_fee_paid: Decimal = self.market.token_configuration.unpad(data["filledFee"], fee_currency_id)
+        new_executed_amount_base: Decimal = self.market.token_configuration.unpad(data["filledAmount"], base_id)
+        price: Decimal = self.market.token_configuration.pad(self.market.token_configuration.unpad(data["price"], base_id), quote_id)
+        new_executed_amount_quote: Decimal = price * new_executed_amount_base
 
         if new_executed_amount_base > self.executed_amount_base or new_executed_amount_quote > self.executed_amount_quote:
             diff_base: Decimal = new_executed_amount_base - self.executed_amount_base
             diff_quote: Decimal = new_executed_amount_quote - self.executed_amount_quote
-            diff_fee: Decimal = new_fee_paid - self.fee_paid
             if diff_quote > Decimal(0):
                 price: Decimal = diff_quote / diff_base
             else:
                 price: Decimal = self.executed_amount_quote / self.executed_amount_base
 
-            events.append((MarketEvent.OrderFilled, diff_base, price, diff_fee))
+            events.append((MarketEvent.OrderFilled, diff_base, price, 0))
 
         if not self.is_done and new_status == DydxOrderStatus.cancelled:
             events.append((MarketEvent.OrderCancelled, None, None, None))
@@ -162,7 +157,6 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
         self.last_state = str(new_status)
         self.executed_amount_base = new_executed_amount_base
         self.executed_amount_quote = new_executed_amount_quote
-        self.fee_paid = new_fee_paid
 
         if self.exchange_order_id is None:
             self.update_exchange_order_id(data.get('hash', None))

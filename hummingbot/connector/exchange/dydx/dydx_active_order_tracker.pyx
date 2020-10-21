@@ -10,6 +10,7 @@ from decimal import Decimal
 from hummingbot.logger import HummingbotLogger
 from hummingbot.core.data_type.order_book_row import ClientOrderBookRow
 from hummingbot.connector.exchange.dydx.dydx_api_token_configuration_data_source import DydxAPITokenConfigurationDataSource
+from hummingbot.connector.exchange.dydx.dydx_utils import hash_order_id
 
 s_empty_diff = np.ndarray(shape=(0, 4), dtype="float64")
 _ddaot_logger = None
@@ -41,11 +42,6 @@ cdef class DydxActiveOrderTracker:
     @property
     def active_bids(self):
         return self._active_bids
-
-    def hash_order_id(self, hex_str_id):
-        hex_num = int(hex_str_id, 16)
-        reduced_num = hex_num % 10e10
-        return reduced_num
 
     cdef tuple c_convert_snapshot_message_to_np_arrays(self, object message):
         cdef:

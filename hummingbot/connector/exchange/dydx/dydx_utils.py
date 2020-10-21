@@ -12,34 +12,6 @@ DEFAULT_FEES = [0.0, 0.2]
 
 DYDX_ROOT_API = "https://api.dydx.exchange/v1"
 
-KEYS = {
-    "dydx_accountid":
-        ConfigVar(key="dydx_accountid",
-                  prompt="Enter your dydx account id >>> ",
-                  required_if=using_exchange("dydx"),
-                  is_secure=True,
-                  is_connect_key=True),
-    "dydx_exchangeid":
-        ConfigVar(key="dydx_exchangeid",
-                  prompt="Enter the dydx exchange id >>> ",
-                  required_if=using_exchange("dydx"),
-                  is_secure=True,
-                  is_connect_key=True),
-    "dydx_private_key":
-        ConfigVar(key="dydx_private_key",
-                  prompt="Enter your dydx private key >>> ",
-                  required_if=using_exchange("dydx"),
-                  is_secure=True,
-                  is_connect_key=True),
-    "dydx_api_key":
-        ConfigVar(key="dydx_api_key",
-                  prompt="Enter your dydx api key >>> ",
-                  required_if=using_exchange("dydx"),
-                  is_secure=True,
-                  is_connect_key=True)
-}
-
-
 def convert_from_exchange_trading_pair(exchange_trading_pair: str) -> str:
     # dydx returns trading pairs in the correct format natively
     return exchange_trading_pair
@@ -48,3 +20,8 @@ def convert_from_exchange_trading_pair(exchange_trading_pair: str) -> str:
 def convert_to_exchange_trading_pair(hb_trading_pair: str) -> str:
     # dydx expects trading pairs in the same format as hummingbot internally represents them
     return hb_trading_pair
+
+def hash_order_id(self, hex_str_id):
+        hex_num = int(hex_str_id, 16)
+        reduced_num = hex_num % 10e10
+        return reduced_num
