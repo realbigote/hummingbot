@@ -836,7 +836,7 @@ cdef class LoopringExchange(ExchangeBase):
                     # this order should have a loopring_order_id at this point. If it doesn't, we should cancel it
                     # as we won't be able to poll for updates
                     try:
-                        self.cancel_order(client_order_id)
+                        await self.cancel_order(client_order_id)
                     except Exception:
                         pass
                 continue 
