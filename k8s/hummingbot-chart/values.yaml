@@ -79,8 +79,14 @@ strategies:
     config: trade.bolsacripto.com.ftx.eth.btc.yml
     subfolder: 'bc-ftx-eth-btc' 
   - name: bc-ftx-brl-pax
-    config: bc.ftx.brl.pax.yml
+    config: trade.bolsacripto.com.ftx.brl.pax.yml
     subfolder: 'bc-ftx-brl-pax'
   - name: loopring-binance-lrc-usdt
     config: loopring.binance.lrc.usdt.yml
     subfolder: 'loopring-binance-lrc-usdt'
+  - name: loopring-binance-eth-usdt
+    config: loopring.binance.eth.usdt.yml
+    subfolder: 'loopring-binance-eth-usdt'
+  - name: loopring-binance-comp-usdt
+    config: loopring.binance.comp.usdt.yml
+    subfolder: 'loopring-binance-comp-usdt'

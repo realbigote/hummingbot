@@ -307,6 +307,7 @@ cdef class BlocktaneExchange(ExchangeBase):
             # We've already issued this creation event
             return
         tracked_order.update_exchange_order_id(str(exchange_order_id))
+        tracked_order.last_state = "PENDING"
         if tracked_order.trade_type is TradeType.SELL:
             cls = SellOrderCreatedEvent 
             tag = self.MARKET_SELL_ORDER_CREATED_EVENT_TAG
@@ -339,6 +340,8 @@ cdef class BlocktaneExchange(ExchangeBase):
                 tracked_orders = list(self._in_flight_orders.values())
                 for tracked_order in tracked_orders:
                     client_order_id = tracked_order.client_order_id
+                    if tracked_order.last_state == "NEW" and tracked_order.created_at >= (int(time.time()) - self.ORDER_NOT_EXIST_WAIT_TIME):
+                        continue # Don't query for orders that are waiting for a response from the API unless they are older then ORDER_NOT_EXIST_WAIT_TIME
                     try:
                         order = await self.get_order(client_order_id)
                     except BlocktaneAPIException as e:
