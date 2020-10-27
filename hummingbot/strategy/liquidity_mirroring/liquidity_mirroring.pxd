@@ -42,12 +42,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         object max_total_loss
         object total_trading_volume
         int trades_executed
-        object offset_base_exposure
-        object offset_quote_exposure
         object max_offsetting_exposure
         object min_primary_amount
         object min_mirroring_amount
         object pm
+        object offset_order_tracker
         list bid_amount_percents
         list ask_amount_percents
         bint _all_markets_ready
@@ -76,3 +75,5 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
     cdef bint is_taker_exchange(self, object market)
     cdef bint _has_different_sign(self, object a, object b)
     cdef bint _has_reduced(self, object new, object old)
+    cdef _did_create_order(self, object order_created_event)
+    cdef _did_complete_order(self, object completed_event)
