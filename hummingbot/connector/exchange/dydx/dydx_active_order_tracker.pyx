@@ -18,8 +18,10 @@ _ddaot_logger = None
 cdef class DydxActiveOrderTracker:
     def __init__(self, token_configuration, active_asks=None, active_bids=None):
         super().__init__()
-        self._active_asks = active_asks or {}
-        self._active_bids = active_bids or {}
+        self._active_asks_by_price = active_asks or {}
+        self._active_bids_by_price = active_bids or {}
+        self._active_asks_by_id = {}
+        self._active_bids_by_id = {}
         self._token_config: DydxAPITokenConfigurationDataSource = token_configuration
 
     @property
@@ -36,12 +38,20 @@ cdef class DydxActiveOrderTracker:
         return _ddaot_logger
 
     @property
-    def active_asks(self):
-        return self._active_asks
+    def active_asks_by_price(self):
+        return self._active_asks_by_price
 
     @property
-    def active_bids(self):
-        return self._active_bids
+    def active_bids_by_price(self):
+        return self._active_bids_by_price
+
+    @property
+    def active_asks_by_id(self):
+        return self._active_asks_by_id
+
+    @property
+    def active_bids_by_id(self):
+        return self._active_bids_by_id
 
     cdef tuple c_convert_snapshot_message_to_np_arrays(self, object message):
         cdef:
@@ -49,49 +59,60 @@ cdef class DydxActiveOrderTracker:
             str order_id
 
         # Refresh all order tracking.
-        self._active_bids.clear()
-        self._active_asks.clear()
+        self._active_bids_by_price.clear()
+        self._active_asks_by_price.clear()
+        self._active_bids_by_id.clear()
+        self._active_asks_by_id.clear()
         for bid_order in message.bids:
-            price, amount = self.get_rates_and_quantities(bid_order["price"], bid_order["amount"], message.content["market"])
-            level_id = self.hash_order_id(bid_order["id"])
-            if price in self.active_bids:
-                self.active_bids[price]["totalAmount"] += amount
-                self.active_bids[price]["order_ids"].append(level_id)
+            price, amount = self.get_rates_and_quantities(Decimal(bid_order["price"]), Decimal(bid_order["amount"]), message.content["market"])
+            level_id = hash_order_id(bid_order["id"])
+            if price in self.active_bids_by_price:
+                self.active_bids_by_price[price]["totalAmount"] += amount
+                self.active_bids_by_price[price]["order_ids"].append(level_id)
             else:
-                self.active_bids[price] = {
+                self.active_bids_by_price[price] = {
                     "totalAmount": amount,
-                    "order_id": level_id,
                     "order_ids": [level_id]
                 }
+            self.active_bids_by_id[level_id] = {"price": price, "amount": amount}
 
         for ask_order in message.asks:
-            price, amount = self.get_rates_and_quantities(ask_order["price"], ask_order["amount"], message.content["market"])
-            level_id = self.hash_order_id(ask_order["id"])
-            if price in self.active_asks:
-                self.active_asks[price]["totalAmount"] += amount
-                self.active_asks[price]["order_ids"].append(level_id)
+            price, amount = self.get_rates_and_quantities(Decimal(ask_order["price"]), Decimal(ask_order["amount"]), message.content["market"])
+            level_id = hash_order_id(ask_order["id"])
+            if price in self.active_asks_by_price:
+                self.active_asks_by_price[price]["totalAmount"] += amount
+                self.active_asks_by_price[price]["order_ids"].append(level_id)
             else:
-                self.active_asks[price] = {
+                self.active_asks_by_price[price] = {
                     "totalAmount": amount,
-                    "order_id": level_id,
                     "order_ids": [level_id]
                 }
+            self.active_asks_by_id[level_id] = {"price": price, "amount": amount} 
         # Return the sorted snapshot tables.
+        bids_list = []
+        for price in sorted(self.active_bids_by_price.keys(), reverse=True):
+            for bid_order_id in self.active_bids_by_price[price]["order_ids"]:
+                bids_list.append([
+                  message.timestamp,
+                  Decimal(price),
+                  Decimal(self.active_bids_by_id[bid_order_id]["amount"]),
+                  bid_order_id
+                ])
+        asks_list = []
+        for price in sorted(self.active_asks_by_price.keys(), reverse=False):
+            for ask_order_id in self.active_asks_by_price[price]["order_ids"]:
+                asks_list.append([
+                  message.timestamp,
+                  Decimal(price),
+                  Decimal(self.active_asks_by_id[ask_order_id]["amount"]),
+                  ask_order_id
+                ])
         cdef:
             np.ndarray[np.float64_t, ndim=2] bids = np.array(
-                [[message.timestamp,
-                  Decimal(price),
-                  Decimal(self._active_bids[price]["totalAmount"]),
-                  self.active_bids[price]["order_id"]
-                  ]
-                 for price in sorted(self.active_bids.keys(), reverse=True)], dtype="float64", ndmin=2)
+                bids_list, dtype="float64", ndmin=2)
 
             np.ndarray[np.float64_t, ndim=2] asks = np.array(
-                [[message.timestamp,
-                  Decimal(price),
-                  Decimal(self.active_asks[price]["totalAmount"]),
-                  self.active_asks[price]["order_id"]]
-                 for price in sorted(self.active_asks.keys(), reverse=False)], dtype="float64", ndmin=2)
+                asks_list, dtype="float64", ndmin=2)
 
         # If there are no rows, the shape would become (1, 0) and not (0, 4).
         # Reshape to fix that.
@@ -105,7 +126,7 @@ cdef class DydxActiveOrderTracker:
         pair_tuple = tuple(market.split('-'))
         basetokenid = self.token_configuration.get_tokenid(pair_tuple[0])
         quotetokenid = self.token_configuration.get_tokenid(pair_tuple[1])
-        new_price = float(self.token_configuration.unpad(self.token_configuration.pad(price,quotetokenid), basetokenid))
+        new_price = float(self.token_configuration.unpad(self.token_configuration.pad(price,basetokenid), quotetokenid))
         new_amount = float(self.token_configuration.unpad(amount, basetokenid))
         return new_price, new_amount
 
@@ -122,52 +143,26 @@ cdef class DydxActiveOrderTracker:
         bids = s_empty_diff
         asks = s_empty_diff
         correct_price = None
-        #if msg_type == "REMOVED" and order_side == "BUY":
 
-        level_id = self.hash_order_id(content["id"])
+        level_id = hash_order_id(content["id"])
         if msg_type == "NEW":
-            price = content["price"]
-            amount = content["amount"]
+            price = Decimal(content["price"])
+            amount = Decimal(content["amount"])
             correct_price, correct_amount = self.get_rates_and_quantities(price, amount, market)
             if order_side == "BUY":
-                if correct_price in self.active_bids:
-                    self.active_bids[correct_price]["totalAmount"] += correct_amount
-                    self.active_bids[correct_price]["order_ids"].append(level_id)
-                else:
-                    self.active_bids[correct_price] = {
-                        "totalAmount": correct_amount,
-                        "order_id": level_id,
-                        "order_ids": [level_id]
-                    }
+                self.active_bids_by_id[level_id] = {"price": correct_price, "amount": correct_amount}
             else:
-                if correct_price in self.active_asks:
-                    self.active_asks[correct_price]["totalAmount"] += correct_amount
-                    self.active_asks[correct_price]["order_ids"].append(level_id)
-                else:
-                    self.active_asks[correct_price] = {
-                        "totalAmount": correct_amount,
-                        "order_id": level_id,
-                        "order_ids": [level_id]
-                    }
+                self.active_asks_by_id[level_id] = {"price": correct_price, "amount": correct_amount}
         elif msg_type in ["UPDATED", "REMOVED"]:
             if order_side == "BUY":
-                for price in self.active_bids.keys():      
-                    if level_id in self.active_bids[price]["order_ids"]:
-                        if msg_type == "UPDATED":
-                            amount = content["amount"]
-                            correct_price, correct_amount = self.get_rates_and_quantities(price, amount, market)
-                        else:
-                            correct_price, correct_amount = self.get_rates_and_quantities(price, 0, market)
-                            self.active_bids[price]["order_ids"].remove(level_id)
+                prev_order = self.active_bids_by_id[level_id]
             else:
-                for price in self.active_asks.keys():
-                    if level_id in self.active_asks[price]["order_ids"]:
-                        if msg_type == "UPDATED":
-                            amount = content["amount"]
-                            correct_price, correct_amount = self.get_rates_and_quantities(price, amount, market)
-                        else:
-                            correct_price, correct_amount = self.get_rates_and_quantities(price, 0, market)
-                            self.active_asks[price]["order_ids"].remove(level_id)
+                prev_order = self.active_asks_by_id[level_id]
+            correct_price = prev_order["price"]
+            if msg_type == "UPDATED":
+                dummy_price, correct_amount = self.get_rates_and_quantities(correct_price, Decimal(content["amount"]), market)
+            else:
+                dummy_price, correct_amount = self.get_rates_and_quantities(correct_price, Decimal(0), market)
 
         if correct_price is not None:
             if order_side == "BUY":

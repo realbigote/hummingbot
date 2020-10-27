@@ -45,6 +45,7 @@ class DydxOrderBookTracker(OrderBookTracker):
                 token_configuration=token_configuration
             ),
             trading_pairs)
+
         self._order_books: Dict[str, DydxOrderBook] = {}
         self._saved_message_queues: Dict[str, Deque[DydxOrderBookMessage]] = defaultdict(lambda: deque(maxlen=1000))
         self._order_book_snapshot_stream: asyncio.Queue = asyncio.Queue()
@@ -79,7 +80,6 @@ class DydxOrderBookTracker(OrderBookTracker):
                     message = saved_messages.popleft()
                 else:
                     message = await message_queue.get()
-
                 if message.type is OrderBookMessageType.DIFF:
                     bids, asks = active_order_tracker.convert_diff_message_to_order_book_row(message)
                     order_book.apply_diffs(bids, asks, int(message.timestamp))

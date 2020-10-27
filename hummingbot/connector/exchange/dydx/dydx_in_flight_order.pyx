@@ -111,7 +111,7 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
             side,
             Decimal(price),
             Decimal(amount),
-            DydxOrderStatus.waiting,
+            DydxOrderStatus.PENDING,
             Decimal(0),
             Decimal(0),
             Decimal(0),

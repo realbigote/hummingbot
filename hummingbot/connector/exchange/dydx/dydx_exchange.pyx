@@ -87,7 +87,7 @@ GET_ORDER_ROUTE = "v2/orders/"
 MAINNET_API_REST_ENDPOINT = "https://api.dydx.exchange/"
 MAINNET_WS_ENDPOINT = "wss://api.dydx.exchange/v1/ws"
 #EXCHANGE_INFO_ROUTE = "api/v2/timestamp"
-BALANCES_INFO_ROUTE = "v1/accounts"
+BALANCES_INFO_ROUTE = "v1/accounts/:wallet"
 MARKETS_INFO_ROUTE = "v2/markets"
 #TOKENS_INFO_ROUTE = "api/v2/exchange/tokens"
 #NEXT_ORDER_ID = "api/v2/orderId"
@@ -203,7 +203,7 @@ cdef class DydxExchange(ExchangeBase):
     def status_dict(self) -> Dict[str, bool]:
         return {
             "order_books_initialized": len(self._order_book_tracker.order_books) > 0,
-            #"account_balances": len(self._account_balances) > 0 if self._trading_required else True,
+            "account_balances": len(self._account_balances) > 0 if self._trading_required else True,
             "trading_rule_initialized": len(self._trading_rules) > 0 if self._trading_required else True,
         }
 
@@ -268,14 +268,14 @@ cdef class DydxExchange(ExchangeBase):
                           is_buy: bool,
                           order_type: OrderType,
                           price: Decimal) -> Dict[str, Any]:
-        order_side = TradeType.BUY if is_buy else TradeType.SELL
-        
+                  
+        order_side = "BUY" if is_buy else "SELL"
         base, quote = trading_pair.split('-')
-        baseid, quoteid = self._token_configuration.get_tokenid(base), self._token_configuration.get_tokenid(quote)
-
-        validSince = int(time.time()) - 3600
-        order_details = self._token_configuration.sell_buy_amounts(baseid, quoteid, amount, price, order_side)
         
+        baseid, quoteid = self._token_configuration.get_tokenid(base), self._token_configuration.get_tokenid(quote)
+        validSince = int(time.time()) - 3600
+        
+        order_details = self._token_configuration.sell_buy_amounts(baseid, quoteid, amount, price, order_side)
         post_only=False
         if order_type is OrderType.LIMIT_MAKER:
             post_only=True
@@ -305,12 +305,12 @@ cdef class DydxExchange(ExchangeBase):
         elif order_type == OrderType.MARKET and trading_rule.supports_market_orders is False:
             raise ValueError("MARKET orders are not supported")
 
-        if amount < trading_rule.min_order_size:
-            raise ValueError(f"Order amount({str(amount)}) is less than the minimum allowable amount({str(trading_rule.min_order_size)})")
+        #if amount < trading_rule.min_order_size:
+        #    raise ValueError(f"Order amount({str(amount)}) is less than the minimum allowable amount({str(trading_rule.min_order_size)})")
         if amount > trading_rule.max_order_size:
             raise ValueError(f"Order amount({str(amount)}) is greater than the maximum allowable amount({str(trading_rule.max_order_size)})")
-        if amount*price < trading_rule.min_notional_size:
-            raise ValueError(f"Order notional value({str(amount*price)}) is less than the minimum allowable notional value for an order ({str(trading_rule.min_notional_size)})")
+        #if amount*price < trading_rule.min_notional_size:
+        #    raise ValueError(f"Order notional value({str(amount*price)}) is less than the minimum allowable notional value for an order ({str(trading_rule.min_notional_size)})")
 
         try:
             created_at: int = int(time.time())
@@ -483,26 +483,20 @@ cdef class DydxExchange(ExchangeBase):
     # ----------------------------------------------------------
 
     async def start_network(self):
-        print("HMMM")
         await self.stop_network()
         await self._token_configuration._configure()
         self._order_book_tracker.start()
-        print("HERE")
         if self._trading_required:
-            exchange_info = await self.api_request("GET", EXCHANGE_INFO_ROUTE)
+            exchange_info = await self.api_request("GET", MARKETS_INFO_ROUTE)
 
             tokens = set()
             for pair in self._trading_pairs:
                 (base, quote) = self.split_trading_pair(pair)
                 tokens.add(self.token_configuration.get_tokenid(base))
                 tokens.add(self.token_configuration.get_tokenid(quote))
-        print("ALSO HERE")
         self._polling_update_task = safe_ensure_future(self._polling_update())
-        print("YEP")
         self._user_stream_tracker_task = safe_ensure_future(self._user_stream_tracker.start())
-        print("HERE TOO")
         self._user_stream_event_listener_task = safe_ensure_future(self._user_stream_event_listener())
-        print("TOP 1 SLICED NOODLE")
 
     async def stop_network(self):
         self._order_book_tracker.stop()
@@ -517,7 +511,7 @@ cdef class DydxExchange(ExchangeBase):
 
     async def check_network(self) -> NetworkStatus:
         try:
-            await self.api_request("GET", EXCHANGE_INFO_ROUTE)
+            await self.api_request("GET", MARKETS_INFO_ROUTE)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -623,7 +617,7 @@ cdef class DydxExchange(ExchangeBase):
 
                 self.c_stop_tracking_order(tracked_order.client_order_id)
 
-    async def _set_balances(self, updates, is_snapshot=True):
+    async def _set_balances(self, updates, is_snapshot=False):
         try:
             tokens = set(self.token_configuration.get_tokens())
             if len(tokens) == 0:
@@ -649,13 +643,26 @@ cdef class DydxExchange(ExchangeBase):
                     padded_total_amount: str = data['newWei']
                     token_id: int = data['marketId']
                     completed_tokens.add(token_id)
+                    if token_id in tokens:
+                        token_symbol: str = self._token_configuration.get_symbol(token_id)
+                        total_amount: Decimal = self._token_configuration.unpad(padded_total_amount, token_id)        
 
-                    token_symbol: str = self._token_configuration.get_symbol(token_id)
-                    total_amount: Decimal = self._token_configuration.unpad(padded_total_amount, token_id)        
+                        self._account_balances[token_symbol] = total_amount
+                        self._account_available_balances[token_symbol] = total_amount
+                
+                elif is_snapshot:
+                    for market in updates.keys():
+                        data = updates[market]
 
-                    self._account_balances[token_symbol] = total_amount
-                    self._account_available_balances[token_symbol] = total_amount
+                        padded_total_amount: str = data['wei']
+                        token_id: int = data['marketId']
+                        if token_id in self._token_configuration._symbol_lookup:
+                            token_symbol: str = self._token_configuration.get_symbol(token_id)
+                        
+                            total_amount: Decimal = self._token_configuration.unpad(padded_total_amount, token_id)        
 
+                            self._account_balances[token_symbol] = total_amount
+                            self._account_available_balances[token_symbol] = total_amount
         except Exception as e:
             self.logger().error(f"Could not set balance {repr(e)}")
 
@@ -729,17 +736,14 @@ cdef class DydxExchange(ExchangeBase):
                 self.logger().info(e)
 
     async def _update_balances(self):
-        balances_response = await self.api_request("GET", BALANCES_INFO_ROUTE,
-                                                   params = {
-                                                       "accountId": self._dydx_accountid
-                                                   })
-        await self._set_balances(balances_response["data"])
+        wallet_address = self._dydx_auth.generate_auth_dict()['wallet_address']
+        balances_response = await self.api_request("GET", f"{BALANCES_INFO_ROUTE}".replace(':wallet',wallet_address))
+        await self._set_balances(balances_response['accounts'][0]["balances"], True)
 
     async def _update_trading_rules(self):
-        markets_info = await self.api_request("GET", f"{MAINNET_API_REST_ENDPOINT}{MARKETS_INFO_ROUTE}")
+        markets_info = await self.api_request("GET", f"{MARKETS_INFO_ROUTE}")
 
         # dydx fees not available from api
-
         markets_info = markets_info["markets"]
 
         for market_name in markets_info:
@@ -749,17 +753,17 @@ cdef class DydxExchange(ExchangeBase):
                 try:
                     self._trading_rules[market_name] = TradingRule(
                         trading_pair=market_name,
-                        min_order_size = self.token_configuration.unpad(market['minOrderSize'], baseid),
-                        min_price_increment=self.token_configuration.unpad(market['minTickSize'], quoteid),
-                        min_base_amount_increment=self.token_configuration.unpad(market['minOrderSize'], baseid),
-                        min_quote_amount_increment=self.token_configuration.unpad(market['minTickSize'], quoteid),
-                        min_notional_size = self.token_configuration.unpad(market['minOrderAmount'], baseid),
+                        min_order_size =Decimal(self.token_configuration.unpad(market['minimumOrderSize'], baseid)),
+                        min_price_increment=Decimal(self.token_configuration.pad(self.token_configuration.unpad(market['minimumTickSize'], baseid), quoteid)),
+                        min_base_amount_increment=Decimal(self.token_configuration.unpad(market['minimumOrderSize'], baseid)),
+                        min_quote_amount_increment=Decimal(self.token_configuration.unpad(market['minimumTickSize'], quoteid)),
+                        min_notional_size = Decimal(self.token_configuration.unpad(market['minimumOrderSize'], baseid)),
                         supports_limit_orders = True,
                         supports_market_orders = False
                     )
                 except Exception as e:
-                    self.logger().debug("Error updating trading rules")
-                    self.logger().debug(str(e))
+                    self.logger().warning("Error updating trading rules")
+                    self.logger().warning(str(e))
 
     async def _update_order_status(self):
         tracked_orders = self._in_flight_orders.copy()
@@ -859,15 +863,6 @@ cdef class DydxExchange(ExchangeBase):
 
         headers.update(self._dydx_auth.generate_auth_dict())
         full_url = f"{self.API_REST_ENDPOINT}{url}"
-
-        # Signs requests for secure requests
-        if secure:
-            ordered_data = self._encode_request(full_url, http_method, params)
-            hasher = hashlib.sha256()
-            hasher.update(ordered_data.encode('utf-8'))
-            signed = ordered_data
-            signature = ','.join(str(_) for _ in [signed.sig.R.x, signed.sig.R.y, signed.sig.s])
-            headers.update({"X-API-SIG": signature})
 
         async with self._shared_client.request(http_method, url=full_url,
                                                timeout=API_CALL_TIMEOUT,
