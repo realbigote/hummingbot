@@ -22,6 +22,7 @@ cdef class DydxExchange(ExchangeBase):
         public object _polling_update_task
         public object _token_configuration
 
+        dict _fee_rules
         dict _trading_rules
         object _lock
         object _exchange_rates

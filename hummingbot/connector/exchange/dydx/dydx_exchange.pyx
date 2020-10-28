@@ -188,7 +188,7 @@ cdef class DydxExchange(ExchangeBase):
         self._pending_approval_tx_hashes = set()
         self._in_flight_orders = {}
         self._trading_pairs = trading_pairs
-
+        self._fee_rules = {}
         self._order_id_lock = asyncio.Lock()
 
     @property
@@ -299,7 +299,12 @@ cdef class DydxExchange(ExchangeBase):
         price = self.c_quantize_order_price(trading_pair, price)
 
         # Check trading rules
-        trading_rule = self._trading_rules[trading_pair]
+        if order_type == OrderType.LIMIT:
+            trading_rule = self._trading_rules[f"{trading_pair}-limit"]
+            if amount < trading_rule.min_order_size:
+                amount = s_decimal_0
+        elif order_type == OrderType.MARKET:
+            trading_rule = self._trading_rules[f"{trading_pair}-market"]
         if order_type == OrderType.LIMIT and trading_rule.supports_limit_orders is False:
             raise ValueError("LIMIT orders are not supported")
         elif order_type == OrderType.MARKET and trading_rule.supports_market_orders is False:
@@ -418,11 +423,12 @@ cdef class DydxExchange(ExchangeBase):
         try:            
             res = await self._dydx_client.cancel_order(exchange_order_id)
             
-            if code == 102117:
+            if "errors" in res:
+                if res["errors"][0]["msg"] == f"Order with specified id: {exchange_order_id} could not be found"
                 # Order didn't exist on exchange, mark this as canceled
-                self.c_trigger_event(ORDER_CANCELLED_EVENT,cancellation_event)
-            elif code != 0 and (code != 100001 or message != "order in status CANCELLED can't be cancelled"):
-                raise Exception(f"Cancel order returned code {res['resultInfo']['code']} ({res['resultInfo']['message']})")
+                    self.c_trigger_event(ORDER_CANCELLED_EVENT,cancellation_event)
+                else:
+                    raise Exception(f"Cancel order returned {res["errors"]}")
             
             return True
 
@@ -476,7 +482,19 @@ cdef class DydxExchange(ExchangeBase):
                           object amount,
                           object price):
         is_maker = order_type is OrderType.LIMIT
-        return estimate_fee("dydx", is_maker)
+        market = f"{base_currency}-{quote_currency}".upper()
+        if market in self._fee_rules:
+            fee_rule = self._fee_rules[market]
+            if is_maker:
+                return TradeFee(percent=fee_rule["maker"])
+            else:
+                trading_rule = self._trading_rules[f"{market}-limit"] # the small order threshold is the same as the min limit order
+                if amount >= trading_rule.min_order_size:
+                    return TradeFee(percent=fee_rule["largeTakerFee"])
+                else:
+                    return TradeFee(percent=fee_rule["smallTakerFee"])
+        else:
+            return estimate_fee("dydx", is_maker)
 
     # ==========================================================
     # Runtime
@@ -743,7 +761,6 @@ cdef class DydxExchange(ExchangeBase):
     async def _update_trading_rules(self):
         markets_info = await self.api_request("GET", f"{MARKETS_INFO_ROUTE}")
 
-        # dydx fees not available from api
         markets_info = markets_info["markets"]
 
         for market_name in markets_info:
@@ -751,16 +768,28 @@ cdef class DydxExchange(ExchangeBase):
             if "baseCurrency" in market:
                 baseid, quoteid = market['baseCurrency']['soloMarketId'], market['quoteCurrency']['soloMarketId']
                 try:
-                    self._trading_rules[market_name] = TradingRule(
+                    price_increment=Decimal(self.token_configuration.pad(self.token_configuration.unpad(market['minimumTickSize'], baseid), quoteid))
+                    self._trading_rules[f"{market_name}-limit"] = TradingRule(
                         trading_pair=market_name,
-                        min_order_size =Decimal(self.token_configuration.unpad(market['minimumOrderSize'], baseid)),
-                        min_price_increment=Decimal(self.token_configuration.pad(self.token_configuration.unpad(market['minimumTickSize'], baseid), quoteid)),
-                        min_base_amount_increment=Decimal(self.token_configuration.unpad(market['minimumOrderSize'], baseid)),
-                        min_quote_amount_increment=Decimal(self.token_configuration.unpad(market['minimumTickSize'], quoteid)),
-                        min_notional_size = Decimal(self.token_configuration.unpad(market['minimumOrderSize'], baseid)),
+                        min_order_size =Decimal(self.token_configuration.unpad(market['smallOrderThreshold'], baseid)),
+                        min_price_increment=price_increment,
+                        min_notional_size = Decimal(self.token_configuration.unpad(market['smallOrderThreshold'], baseid)) * price_increment,
                         supports_limit_orders = True,
                         supports_market_orders = False
                     )
+                    self._trading_rules[f"{market_name}-market"] = TradingRule(
+                        trading_pair=market_name,
+                        min_order_size =Decimal(self.token_configuration.unpad(market['minimumOrderSize'], baseid)),
+                        min_price_increment=price_increment,                  
+                        min_notional_size = Decimal(self.token_configuration.unpad(market['minimumOrderSize'], baseid)) * price_increment,
+                        supports_limit_orders = False,
+                        supports_market_orders = True
+                    )
+                    self._fee_rules[market_name] = {
+                      "makerFee": market["makerFee"],
+                      "largeTakerFee": market["largeTakerFee"],
+                      "smallTakerFee": market["smallTakerFee"]
+                    }
                 except Exception as e:
                     self.logger().warning("Error updating trading rules")
                     self.logger().warning(str(e))
@@ -790,7 +819,7 @@ cdef class DydxExchange(ExchangeBase):
 
                 # check if this error is because the api cliams to be unaware of this order. If so, and this order
                 # is reasonably old, mark the orde as cancelled
-                if dydx_order_request['resultInfo']['code'] == 107003:
+                if "error" in dydx_order_request:
                     if tracked_order.created_at < (int(time.time()) - UNRECOGNIZED_ORDER_DEBOUCE):
                         self.logger().warning(f"marking {client_order_id} as cancelled")
                         cancellation_event = OrderCancelledEvent(now(), client_order_id)
@@ -809,17 +838,17 @@ cdef class DydxExchange(ExchangeBase):
     # ----------------------------------------------------------
 
     cdef object c_get_order_price_quantum(self, str trading_pair, object price):
-        return self._trading_rules[trading_pair].min_price_increment
+        return self._trading_rules[f"{trading_pair}-limit"].min_price_increment
 
     cdef object c_get_order_size_quantum(self, str trading_pair, object order_size):
-        return self._trading_rules[trading_pair].min_base_amount_increment
+        return self._trading_rules[f"{trading_pair}-limit"].min_base_amount_increment
 
     cdef object c_quantize_order_price(self, str trading_pair, object price):
         return price.quantize(self.c_get_order_price_quantum(trading_pair, price), rounding=ROUND_DOWN)
 
     cdef object c_quantize_order_amount(self, str trading_pair, object amount, object price = 0.0):
         quantized_amount = amount.quantize(self.c_get_order_size_quantum(trading_pair, amount), rounding=ROUND_DOWN)
-        rules = self._trading_rules[trading_pair]
+        rules = self._trading_rules[f"{trading_pair}-market"]
 
         if quantized_amount < rules.min_order_size:
             return s_decimal_0
@@ -840,11 +869,6 @@ cdef class DydxExchange(ExchangeBase):
             if not self._poll_notifier.is_set():
                 self._poll_notifier.set()
         self._last_timestamp = timestamp
-
-    def _encode_request(self, url, method, params):
-        url = urllib.parse.quote(url, safe='')
-        data = urllib.parse.quote("&".join([f"{k}={str(v)}" for k, v in params.items()]), safe='')
-        return "&".join([method, url, data])
 
     async def api_request(self,
                           http_method: str,
