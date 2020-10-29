@@ -14,12 +14,12 @@ from typing import (
 )
 from datetime import datetime, timedelta
 from hummingbot.core.utils.async_utils import safe_ensure_future
-from hummingbot.connector.exchange_base import ExchangeBase
 from hummingbot.connector.exchange_base cimport ExchangeBase
 from hummingbot.core.event.events import (
     TradeType,
     OrderType,
 )
+from hummingbot.core.data_type.limit_order cimport LimitOrder
 from hummingbot.core.data_type.market_order import MarketOrder
 from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.core.network_iterator import NetworkStatus
@@ -171,12 +171,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.slack_update_period = slack_update_period
 
     @property
-    def tracked_taker_orders(self) -> List[Tuple[ExchangeBase, MarketOrder]]:
-        return self._sb_order_tracker.tracked_taker_orders
+    def tracked_limit_orders(self) -> List[Tuple[ExchangeBase, LimitOrder]]:
+        return self._sb_order_tracker.tracked_limit_orders
 
     @property
-    def tracked_maker_orders(self) -> List[Tuple[ExchangeBase, MarketOrder]]:
-        return self._sb_order_tracker.tracked_maker_orders
+    def tracked_market_orders(self) -> List[Tuple[ExchangeBase, MarketOrder]]:
+        return self._sb_order_tracker.tracked_market_orders
 
     @property
     def tracked_taker_orders_data_frame(self) -> List[pd.DataFrame]:
@@ -207,18 +207,20 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         mirrored_market_df = self.market_status_data_frame([self.mirrored_market_pairs[0]])
         mult = mirrored_market_df["Best Bid Price"]
         profit = (total_balance[0] * float(mult)) - float(self.initial_base_amount * self.best_bid_start) + total_balance[1] - float(self.initial_quote_amount)
-        portfolio = (total_balance[0] * float(mult)) - (float(self.initial_base_amount) * float(mult)) + total_balance[1] - float(self.initial_quote_amount)
+        change_in_base = Decimal(total_balance[0]) - self.initial_base_amount
+        change_in_quote = Decimal(total_balance[1]) - self.initial_quote_amount
         current_time = datetime.now().isoformat()
         lines.extend(["", f"   Time: {current_time}"])
         lines.extend(["", f"   Executed Trades: {self.trades_executed}"])
         lines.extend(["", f"   Total Trade Volume: {self.total_trading_volume}"])
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].base_asset}): {total_balance[0]}"])
         lines.extend(["", f"   Total Balance ({self.primary_market_pairs[0].quote_asset}): {total_balance[1]}"])
+        lines.extend(["", f"   Change in base: {change_in_base}"])
+        lines.extend(["", f"   Change in quote: {change_in_quote}"])
+        lines.extend(["", f"   Total pre-fee profit: {-self.pm.total_loss}"])
         lines.extend(["", f"   Overall Change in Holdings: {profit}"])
-        lines.extend(["", f"   Increase in Portfolio: {portfolio}"])
         lines.extend(["", f"   Amount to offset (in base currency): {self.pm.amount_to_offset}"])
         lines.extend(["", f"   Average price of position: {self.pm.avg_price}"])
-        lines.extend(["", f"   Total running loss: {self.pm.total_loss}"])
         lines.extend(["", f"   Active market making orders: {len(self.marked_for_deletion.keys())}"])
         if len(warning_lines) > 0:
             lines.extend(["", "  *** WARNINGS ***"] + warning_lines)
@@ -351,7 +353,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             # Inform the strat that we want to replace this level on the maker exchange
             if order_id in self.marked_for_deletion.keys():
                     order = self.marked_for_deletion[order_id]
-                    self.buys_to_replace.append(order["rank"])
+                    if order["is_buy"]:
+                        self.buys_to_replace.append(order["rank"])
+                    else:
+                        self.sells_to_replace.append(order["rank"])
 
         elif self.is_taker_exchange(market):
             # Update our taker exchange exposures
@@ -364,7 +369,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             raise Exception(f"Unknown exchange for strategy OrderFillEvent handler: {market.name}")
 
         # Emit log messages for this event
-        self.slack_order_filled_message(market_trading_pair_tuple.market, 
+        self.slack_order_filled_message(market.name, 
                                         order_filled_event.amount, 
                                         order_filled_event.price, 
                                         order_filled_event.trade_type is TradeType.BUY)
@@ -441,15 +446,15 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             object market_trading_pair_tuple = self._sb_order_tracker.c_get_market_pair_from_order_id(order_id)
         full_order = self._sb_order_tracker.c_get_limit_order(market_trading_pair_tuple, order_id)
         if fail_event.order_type is OrderType.LIMIT:
-            if not self.fail_message_sent:
-                market = market_trading_pair_tuple.market.name
-                price = full_order.price
-                amount = full_order.quantity
-                buy_sell = "BUY" if full_order.is_buy else "SELL"
-                msg = {"msg_type": "order failed", "data": {"market": market, "price": price, "amount": amount, "buy/sell": buy_sell, "id": order_id}}
+            # if not self.fail_message_sent:
+            #     market = market_trading_pair_tuple.market.name
+            #     price = full_order.price
+            #     amount = full_order.quantity
+            #     buy_sell = "BUY" if full_order.is_buy else "SELL"
+            #     msg = {"msg_type": "order failed", "data": {"market": market, "price": price, "amount": amount, "buy/sell": buy_sell, "id": order_id}}
 
-                SlackPusher(self.slack_url, "ORDER FAILED: " + str(msg))
-                self.fail_message_sent = True
+            #     SlackPusher(self.slack_url, "ORDER FAILED: " + str(msg))
+            #     self.fail_message_sent = True
             self._failed_market_order_count += 1
             self._last_failed_market_order_timestamp = fail_event.timestamp
 
@@ -952,11 +957,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                     quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, Decimal(new_price))
                     quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
 
-                    try:
-                        self.c_buy_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-                    except:
-                        self.logger.error(f"Failed to c_buy_with_specific_market: {mirrored_market_pair.trading_pair}"\
-                                          f" {Decimal(quant_amount)} {Decimal(quant_price)}")
+                    if quant_amount > 0:
+                        try:
+                            self.c_buy_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                        except:
+                            self.logger.error(f"Failed to c_buy_with_specific_market: {mirrored_market_pair.trading_pair}"\
+                                            f" {Decimal(quant_amount)} {Decimal(quant_price)}")
 
             elif self.pm.amount_to_offset > Decimal(0):
             # we are at a surplus of base. get rid of buy orders
@@ -980,8 +986,9 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
                     quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, Decimal(new_price))
                     quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
-                    try:
-                        self.c_sell_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-                    except:
-                        self.logger.error(f"Failed to c_sell_with_specific_market: {mirrored_market_pair.trading_pair}"\
-                                          f" {Decimal(quant_amount)} {Decimal(quant_price)}")
+                    if quant_amount > 0:
+                        try:
+                            self.c_sell_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                        except:
+                            self.logger.error(f"Failed to c_sell_with_specific_market: {mirrored_market_pair.trading_pair}"\
+                                            f" {Decimal(quant_amount)} {Decimal(quant_price)}")

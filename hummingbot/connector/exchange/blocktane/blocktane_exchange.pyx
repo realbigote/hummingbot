@@ -48,6 +48,14 @@ from hummingbot.connector.exchange.blocktane.blocktane_utils import convert_from
 bm_logger = None
 s_decimal_0 = Decimal(0)
 
+class BlocktaneAPIException(IOError):
+    def __init__(self, message, status_code = 0, malformed=False, body = None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.malformed = malformed
+        self.body = body
+
+
 cdef class BlocktaneExchangeTransactionTracker(TransactionTracker):
     cdef:
         BlocktaneExchange _owner
@@ -290,17 +298,16 @@ cdef class BlocktaneExchange(ExchangeBase):
 
     async def get_order(self, client_order_id: str) -> Dict[str, Any]:
         # Used to retrieve a single order by client_order_id
-        path_url = f"/market/orders/clientId/{client_order_id}"
+        path_url = f"/market/orders/{client_order_id}?client_id=true"
 
-        try:
-            result = await self._api_request("GET", path_url=path_url)
-        except IOError as e:
-            return None
-
-        return result
+        return await self._api_request("GET", path_url=path_url)
 
     def issue_creation_event(self, exchange_order_id, tracked_order):
-        tracked_order.update_exchange_order_id(exchange_order_id)
+        if tracked_order.exchange_order_id is not None:
+            # We've already issued this creation event
+            return
+        tracked_order.update_exchange_order_id(str(exchange_order_id))
+        tracked_order.last_state = "PENDING"
         if tracked_order.trade_type is TradeType.SELL:
             cls = SellOrderCreatedEvent 
             tag = self.MARKET_SELL_ORDER_CREATED_EVENT_TAG
@@ -333,22 +340,34 @@ cdef class BlocktaneExchange(ExchangeBase):
                 tracked_orders = list(self._in_flight_orders.values())
                 for tracked_order in tracked_orders:
                     client_order_id = tracked_order.client_order_id
-                    order = await self.get_order(client_order_id)
-                    if order is None and (abs(self._current_timestamp - tracked_order.created_at) > self.ORDER_NOT_EXIST_WAIT_TIME):
-                        # This was an indeterminant order that may or may not have been live on the exchange
-                        # The exchange has informed us that this never became live on the exchange
-                        self.c_trigger_event(
-                            self.MARKET_ORDER_FAILURE_EVENT_TAG,
-                            MarketOrderFailureEvent(self._current_timestamp,
-                                                    client_order_id,
-                                                    tracked_order.order_type)
-                        )
-                        self.logger().warning(
-                            f"Error fetching status update for the order {client_order_id}: "
-                            f"{tracked_order}. Marking as failed"
-                        )
-                        self.c_stop_tracking_order(client_order_id)
-                        continue
+                    if tracked_order.last_state == "NEW" and tracked_order.created_at >= (int(time.time()) - self.ORDER_NOT_EXIST_WAIT_TIME):
+                        continue # Don't query for orders that are waiting for a response from the API unless they are older then ORDER_NOT_EXIST_WAIT_TIME
+                    try:
+                        order = await self.get_order(client_order_id)
+                    except BlocktaneAPIException as e:
+                        if e.status_code == 404:
+                            if  (not e.malformed and e.body == 'record.not_found' and 
+                                tracked_order.created_at < (int(time.time()) - self.ORDER_NOT_EXIST_WAIT_TIME)):
+                                # This was an indeterminant order that may or may not have been live on the exchange
+                                # The exchange has informed us that this never became live on the exchange
+                                self.c_trigger_event(
+                                    self.MARKET_ORDER_FAILURE_EVENT_TAG,
+                                    MarketOrderFailureEvent(self._current_timestamp,
+                                                            client_order_id,
+                                                            tracked_order.order_type)
+                                )
+                                self.logger().warning(
+                                    f"Error fetching status update for the order {client_order_id}: "
+                                    f"{tracked_order}. Marking as failed current_timestamp={self._current_timestamp} created_at:{tracked_order.created_at}"
+                                )
+                                self.c_stop_tracking_order(client_order_id)
+                                continue
+                        else:
+                            self.logger().warning(
+                                f"Error fetching status update for the order {client_order_id}:"
+                                f" HTTP status: {e.status_code} {'malformed: ' + str(e.malformed) if e.malformed else e.body}. Will try again."
+                            )
+                            continue
 
                     if tracked_order.exchange_order_id is None:
                         # This was an indeterminate order that has not yet had a creation event issued
@@ -435,6 +454,19 @@ cdef class BlocktaneExchange(ExchangeBase):
                                                     client_order_id
                                                 ))
                         self.c_stop_tracking_order(client_order_id)
+
+                    if order_state == 'reject':
+                        tracked_order.last_state = order_state
+                        self.c_trigger_event(
+                            self.MARKET_ORDER_FAILURE_EVENT_TAG,
+                            MarketOrderFailureEvent(self._current_timestamp,
+                                                    client_order_id,
+                                                    tracked_order.order_type)
+                        )
+                        self.logger().info(f"The {tracked_order.order_type}-{tracked_order.trade_type} "
+                                        f"{client_order_id} has been rejected according to Blocktane order status API.")
+                        self.c_stop_tracking_order(client_order_id)
+
 
         except Exception as e:
             self.logger().error("Update Order Status Error: " + str(e) + " " + str(e.__cause__))
@@ -552,9 +584,22 @@ cdef class BlocktaneExchange(ExchangeBase):
                                                 OrderCancelledEvent(self._current_timestamp,
                                                                     tracked_order.client_order_id))
                         self.c_stop_tracking_order(tracked_order.client_order_id)
-                    else:
-                        # Ignores all other user stream message types
-                        continue
+
+                    if order_status == 'reject':
+                        tracked_order.last_state = order_status
+                        self.c_trigger_event(
+                            self.MARKET_ORDER_FAILURE_EVENT_TAG,
+                            MarketOrderFailureEvent(self._current_timestamp,
+                                                    tracked_order.client_order_id,
+                                                    tracked_order.order_type)
+                        )
+                        self.logger().info(f"The order {tracked_order.client_order_id} has been rejected "
+                                            f"according to Blocktane WebSocket API.")
+                        self.c_stop_tracking_order(tracked_order.client_order_id)
+
+                else:
+                    # Ignores all other user stream message types
+                    continue
 
             except asyncio.CancelledError:
                 raise
@@ -616,7 +661,7 @@ cdef class BlocktaneExchange(ExchangeBase):
             trade_type,
             price,
             amount,
-            self._current_timestamp
+            int(time.time())
         )
 
     cdef c_stop_tracking_order(self, str order_id):
@@ -679,6 +724,7 @@ cdef class BlocktaneExchange(ExchangeBase):
                 "client_id": str(order_id)
             }
 
+        self.logger().info(f"Requesting order placement for {order_id} at {self._current_timestamp}")
         api_response = await self._api_request("POST", path_url=path_url, params=params)
         return api_response
 
@@ -736,23 +782,25 @@ cdef class BlocktaneExchange(ExchangeBase):
             else:
                 raise ValueError(f"Invalid OrderType {order_type}. Aborting.")
 
-            exchange_order_id = str(order_result["id"])
+            exchange_order_id = str(order_result.get("id"))
             tracked_order = self._in_flight_orders.get(order_id)
-            if tracked_order is not None and exchange_order_id:
+            if tracked_order is not None and exchange_order_id is not None:
                 self.issue_creation_event(exchange_order_id, tracked_order)
+            else:
+                self.logger().error(f"Unable to issue creation event for {order_id}: {tracked_order} {exchange_order_id}")
         except asyncio.TimeoutError:
-            self.logger().info(f"Network timout while submitting order {order_id} to Blocktane. Order will be recovered.")
+            self.logger().error(f"Network timout while submitting order {order_id} to Blocktane. Order will be recovered.")
         except Exception:
-            tracked_order = self._in_flight_orders.get(order_id)
-            tracked_order.last_state = "FAILURE"
-            tracked_order.update_exchange_order_id(tracked_order.exchange_order_id) # a symantic no-op, but prevents deadlock on get_exchange_order_id()
-            self.c_stop_tracking_order(order_id)
             self.logger().error(
-                f"Error submitting buy {order_type} order to Blocktane for "
+                f"Error submitting {order_id}: buy {order_type} order to Blocktane for "
                 f"{decimal_amount} {trading_pair} "
                  f"{decimal_price if order_type.is_limit_type() else ''}.",
                 exc_info=True
             )
+            tracked_order = self._in_flight_orders.get(order_id)
+            tracked_order.last_state = "FAILURE"
+            tracked_order.update_exchange_order_id("0") # prevents deadlock on get_exchange_order_id()
+            self.c_stop_tracking_order(order_id)
             self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG, MarketOrderFailureEvent(self._current_timestamp, order_id, order_type))
             
             
@@ -822,23 +870,25 @@ cdef class BlocktaneExchange(ExchangeBase):
             else:
                 raise ValueError(f"Invalid OrderType {order_type}. Aborting.")
 
-            exchange_order_id = str(order_result["id"])
+            exchange_order_id = str(order_result.get("id"))
             tracked_order = self._in_flight_orders.get(order_id)
-            if tracked_order is not None and exchange_order_id:
+            if tracked_order is not None and exchange_order_id is not None:
                 self.issue_creation_event(exchange_order_id, tracked_order)
+            else:
+                self.logger().error(f"Unable to issue creation event for {order_id}: {tracked_order} {exchange_order_id}")
         except asyncio.TimeoutError:
-            self.logger().info(f"Network timout while submitting order {order_id} to Blocktane. Order will be recovered.")
+            self.logger().error(f"Network timout while submitting order {order_id} to Blocktane. Order will be recovered.")
         except Exception:
-            tracked_order = self._in_flight_orders.get(order_id)
-            tracked_order.last_state = "FAILURE"
-            tracked_order.update_exchange_order_id(tracked_order.exchange_order_id) # a symantic no-op, but prevents deadlock on get_exchange_order_id()
-            self.c_stop_tracking_order(order_id)
             self.logger().error(
-                f"Error submitting sell {order_type} order to Blocktane for "
+                f"Error submitting {order_id}: sell {order_type} order to Blocktane for "
                 f"{decimal_amount} {trading_pair} "
                 f"{decimal_price if order_type.is_limit_type() else ''}.",
                 exc_info=True,
             )
+            tracked_order = self._in_flight_orders.get(order_id)
+            tracked_order.last_state = "FAILURE"
+            tracked_order.update_exchange_order_id("0") # prevents deadlock on get_exchange_order_id()
+            self.c_stop_tracking_order(order_id)
             self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG, MarketOrderFailureEvent(self._current_timestamp, order_id, order_type))
 
     cdef str c_sell(self,
@@ -860,7 +910,7 @@ cdef class BlocktaneExchange(ExchangeBase):
             if tracked_order is None:
                 self.logger().error(f"The order {order_id} is not tracked. ")
                 raise ValueError
-            path_url = f"/market/orders/clientId/{order_id}/cancel"
+            path_url = f"/market/orders/{order_id}/cancel?client_id=true"
 
             cancel_result = await self._api_request("POST", path_url=path_url)
             self.logger().info(f"Requested cancel of order {order_id}")
@@ -936,15 +986,22 @@ cdef class BlocktaneExchange(ExchangeBase):
                                   params=params,
                                   data=body,
                                   timeout=self.API_CALL_TIMEOUT) as response:
-                                  
-            if response.status not in [200, 201]:  # HTTP Response code of 20X generally means it is successful
-                raise IOError(f"Error fetching response from {http_method}-{url}. HTTP Status Code {response.status}: "
-                              f"{await response.text()}")
 
             try:
                 data = await response.json(content_type=None)
             except Exception as e:
-                raise IOError(f"Malformed response. Expected JSON got:{await response.text()}")
+                raise BlocktaneAPIException(f"Malformed response. Expected JSON got:{await response.text()}", 
+                                            status_code=response.status, 
+                                            malformed=True)
+                   
+            if response.status not in [200, 201]:  # HTTP Response code of 20X generally means it is successful
+                try:
+                    error_msg = data['errors'][0]
+                except:
+                    error_msg = await response.text()
+                raise BlocktaneAPIException(f"Error fetching response from {http_method}-{url}. HTTP Status Code {response.status}: "
+                              f"{error_msg}", status_code=response.status, body=error_msg)
+
             return data
 
     async def check_network(self) -> NetworkStatus:

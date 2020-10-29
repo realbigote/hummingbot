@@ -29,6 +29,7 @@ from hummingbot.connector.exchange.loopring.loopring_order_book_tracker import L
 from hummingbot.connector.exchange.loopring.loopring_api_order_book_data_source import LoopringAPIOrderBookDataSource
 from hummingbot.connector.exchange.loopring.loopring_api_token_configuration_data_source import LoopringAPITokenConfigurationDataSource
 from hummingbot.connector.exchange.loopring.loopring_user_stream_tracker import LoopringUserStreamTracker
+from hummingbot.connector.exchange.loopring.loopring_order_status import LoopringOrderStatus
 from hummingbot.core.utils.async_utils import (
     safe_ensure_future,
 )
@@ -52,9 +53,9 @@ from hummingbot.connector.trading_rule cimport TradingRule
 from hummingbot.core.utils.estimate_fee import estimate_fee
 from hummingbot.core.utils.tracking_nonce import get_tracking_nonce
 
-from hummingbot.connector.exchange.loopring.ethsnarks2.eddsa import PureEdDSA, PoseidonEdDSA
-from hummingbot.connector.exchange.loopring.ethsnarks2.field import FQ, SNARK_SCALAR_FIELD
-from hummingbot.connector.exchange.loopring.ethsnarks2.poseidon import poseidon_params, poseidon
+from ethsnarks_loopring import PoseidonEdDSA
+from ethsnarks_loopring import FQ, SNARK_SCALAR_FIELD
+from ethsnarks_loopring import poseidon_params, poseidon
 
 s_logger = None
 s_decimal_0 = Decimal(0)
@@ -92,7 +93,6 @@ TOKENS_INFO_ROUTE = "api/v2/exchange/tokens"
 NEXT_ORDER_ID = "api/v2/orderId"
 ORDER_ROUTE = "api/v3/order"
 ORDER_CANCEL_ROUTE = "api/v2/orders"
-MAXIMUM_FILL_COUNT = 16
 UNRECOGNIZED_ORDER_DEBOUCE = 20  # seconds
 
 class LatchingEventResponder(EventListener):
@@ -385,7 +385,10 @@ cdef class LoopringExchange(ExchangeBase):
 
             status = creation_response["data"]["status"]
             if status != 'NEW_ACTIVED':
-                raise Exception(status)
+                raise Exception(f"Loopring api returned unexpected '{status}' as status of created order")
+            # status = LoopringOrderStatus[creation_response["data"]["status"]]
+            # if status != LoopringOrderStatus.processing:
+            #     raise Exception(f"Loopring api returned unexpected '{status}' as status of created order")
 
             loopring_order_hash = creation_response["data"]["orderHash"]
             in_flight_order.update_exchange_order_id(loopring_order_hash)
@@ -398,7 +401,6 @@ cdef class LoopringExchange(ExchangeBase):
             self.logger().warning(f"Error submitting {order_side.name} {order_type.name} order to Loopring for "
                                   f"{amount} {trading_pair} at {price}.")
             self.logger().info(e)
-            traceback.print_exc()
 
             # Re-sync our next order id after this failure
             base, quote = trading_pair.split('-')
@@ -528,6 +530,7 @@ cdef class LoopringExchange(ExchangeBase):
         self.c_remove_listener(ORDER_CANCELLED_EVENT, cancel_verifier)
 
         return [CancellationResult(order_id=order_id, success=success) for order_id, success in order_status.items()]
+        
     cdef object c_get_fee(self,
                           str base_currency,
                           str quote_currency,
@@ -613,13 +616,7 @@ cdef class LoopringExchange(ExchangeBase):
 
         # Issue relevent events
         for (market_event, new_amount, new_price, new_fee) in issuable_events:
-            if market_event == MarketEvent.OrderCancelled:
-                self.logger().info(f"Successfully cancelled order {tracked_order.client_order_id}")
-                self.stop_tracking(tracked_order.client_order_id)
-                self.c_trigger_event(ORDER_CANCELLED_EVENT,
-                                     OrderCancelledEvent(self._current_timestamp,
-                                                         tracked_order.client_order_id))
-            elif market_event == MarketEvent.OrderFilled:
+            if market_event == MarketEvent.OrderFilled:
                 self.c_trigger_event(ORDER_FILLED_EVENT,
                                      OrderFilledEvent(self._current_timestamp,
                                                       tracked_order.client_order_id,
@@ -630,6 +627,12 @@ cdef class LoopringExchange(ExchangeBase):
                                                       new_amount,
                                                       TradeFee(Decimal(0), [(tracked_order.fee_asset, new_fee)]),
                                                       tracked_order.client_order_id))
+            elif market_event == MarketEvent.OrderCancelled:
+                self.logger().info(f"Successfully cancelled order {tracked_order.client_order_id}")
+                self.stop_tracking(tracked_order.client_order_id)
+                self.c_trigger_event(ORDER_CANCELLED_EVENT,
+                                     OrderCancelledEvent(self._current_timestamp,
+                                                         tracked_order.client_order_id))
             elif market_event == MarketEvent.OrderExpired:
                 self.c_trigger_event(ORDER_EXPIRED_EVENT,
                                      OrderExpiredEvent(self._current_timestamp,
@@ -833,7 +836,7 @@ cdef class LoopringExchange(ExchangeBase):
                     # this order should have a loopring_order_id at this point. If it doesn't, we should cancel it
                     # as we won't be able to poll for updates
                     try:
-                        self.cancel_order(client_order_id)
+                        await self.cancel_order(client_order_id)
                     except Exception:
                         pass
                 continue 
