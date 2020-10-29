@@ -95,6 +95,7 @@ ORDER_ROUTE = "v2/orders"
 ORDER_CANCEL_ROUTE = "v2/orders"
 #MAXIMUM_FILL_COUNT = 16
 #UNRECOGNIZED_ORDER_DEBOUCE = 20  # seconds
+MANUAL_AMOUNT_INC = Decimal('0.00000000001')
 
 class LatchingEventResponder(EventListener):
     def __init__(self, callback : any, num_expected : int):
@@ -841,13 +842,17 @@ cdef class DydxExchange(ExchangeBase):
         return self._trading_rules[f"{trading_pair}-limit"].min_price_increment
 
     cdef object c_get_order_size_quantum(self, str trading_pair, object order_size):
-        return self._trading_rules[f"{trading_pair}-limit"].min_base_amount_increment
+        amount_inc = self._trading_rules[f"{trading_pair}-limit"].min_base_amount_increment
+        if amount_inc < MANUAL_AMOUNT_INC:
+            return MANUAL_AMOUNT_INC
+        else:
+            return amount_inc
 
     cdef object c_quantize_order_price(self, str trading_pair, object price):
-        return price.quantize(self.c_get_order_price_quantum(trading_pair, price), rounding=ROUND_DOWN)
+        return price.quantize(self.c_get_order_price_quantum(trading_pair, price))
 
     cdef object c_quantize_order_amount(self, str trading_pair, object amount, object price = 0.0):
-        quantized_amount = amount.quantize(self.c_get_order_size_quantum(trading_pair, amount), rounding=ROUND_DOWN)
+        quantized_amount = amount.quantize(self.c_get_order_size_quantum(trading_pair, amount))
         rules = self._trading_rules[f"{trading_pair}-market"]
 
         if quantized_amount < rules.min_order_size:
