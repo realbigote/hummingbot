@@ -908,85 +908,69 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
     def _issue_mirrored_orderbook_update(self):
         safe_ensure_future(self.adjust_mirrored_orderbook())
 
+    def _cancel_offsetting_order(self, mirrored_market_pair, order):
+        if order.state != OrderState.PENDING_CANCEL:
+            self.c_cancel_order(mirrored_market_pair, order.id)
+            order.state = OrderState.PENDING_CANCEL
+
     async def adjust_mirrored_orderbook(self):
         async with self.offset_order_tracker:
             self._manage_offsetting_exposure_threashold_warning()
-            if not self.two_sided_mirroring or self.pm.amount_to_offset.is_zero():
+            if not self.two_sided_mirroring:
                 return
             
             mirrored_market_pair = self.mirrored_market_pairs[0]
             mirrored_market: ExchangeBase = mirrored_market_pair.market
-            mirrored_base_asset = mirrored_market_pair.base_asset
-            mirrored_quote_asset = mirrored_market_pair.quote_asset
             current_offsetting_amounts = self.offset_order_tracker.get_total_amounts()
             if self.pm.amount_to_offset < Decimal(0):
-                # we are at a deficit of base. get rid of sell orders
-                for order in self.offset_order_tracker.get_asks():
-                    if order.state != OrderState.PENDING_CANCEL:
-                        self.c_cancel_order(mirrored_market_pair, order.id)
-                        order.state = OrderState.PENDING_CANCEL
-                
-                # Compare current amount to offset vs. current offsetting amount
-                diff : Decimal = self.pm.amount_to_offset + current_offsetting_amounts.buys
-                if diff < 0:
-                    # We need to place more offsetting orders
-                    new_price = self.pm.avg_price * (Decimal(1) + self.max_loss)
-                    quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, Decimal(new_price))
-                    amount = min((mirrored_market.get_balance(mirrored_quote_asset)/quant_price), -diff)
-                    if amount >= self.min_mirroring_amount:
-                        quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
-                        if quant_amount > 0:
-                            try:
-                                order_id = self.c_buy_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-                                self.offset_order_tracker.add_order(Order(order_id, quant_price, quant_amount, TradeType.BUY, OrderState.PENDING))
-                            except:
-                                self.logger.error(f"Failed to c_buy_with_specific_market: {mirrored_market_pair.trading_pair}"\
-                                                f" {Decimal(quant_amount)} {Decimal(quant_price)}")
-
-                elif diff > 0:
-                    # We are trying to offset too much compared to our ammount to offset
-                    # Attempt to cancel enough to make up the difference, starting with the least likely to execute orders
-                    orders = self.offset_order_tracker.get_bids()
-                    orders.sort(key = lambda o: o.price, reverse=False)
-                    for order in orders:
-                        self.c_cancel_order(mirrored_market_pair, order.id)
-                        order.state = OrderState.PENDING_CANCEL
-                        diff += order.amount_remaining
-                        if diff <= 0:
-                            break
-
+                wrong_sided_orders = self.offset_order_tracker.get_asks()
+                right_sided_orders = self.offset_order_tracker.get_bids()
+                right_sided_orders.sort(key = lambda o: o.price, reverse=False)
+                diff : Decimal = abs(self.pm.amount_to_offset) - current_offsetting_amounts.buys
+                max_loss_markdown = (Decimal(1) + self.max_loss)
+                new_order_side = TradeType.BUY
+                place_order_fn = self.buy_with_specific_market
+                mirrored_asset = mirrored_market_pair.quote_asset
             elif self.pm.amount_to_offset > Decimal(0):
-                # we are at a deficit of base. get rid of sell orders
-                for order in self.offset_order_tracker.get_bids():
-                    if order.state != OrderState.PENDING_CANCEL:
-                        self.c_cancel_order(mirrored_market_pair, order.id)
-                        order.state = OrderState.PENDING_CANCEL
-                
-                # Compare current amount to offset vs. current offsetting amount
-                diff : Decimal = self.pm.amount_to_offset - current_offsetting_amounts.sells
-                if diff > 0:
-                    # We need to place more offsetting orders
-                    new_price = self.pm.avg_price * (Decimal(1) - self.max_loss)
-                    quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, Decimal(new_price))
-                    amount = min(mirrored_market.get_available_balance(mirrored_base_asset), diff)
-                    if amount >= self.min_mirroring_amount:
-                        quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
-                        if quant_amount > 0:
-                            try:
-                                order_id = self.c_sell_with_specific_market(mirrored_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
-                                self.offset_order_tracker.add_order(Order(order_id, quant_price, quant_amount, TradeType.SELL, OrderState.PENDING))
-                            except:
-                                self.logger.error(f"Failed to c_sell_with_specific_market: {mirrored_market_pair.trading_pair}"\
-                                                f" {Decimal(quant_amount)} {Decimal(quant_price)}")
+                wrong_sided_orders = self.offset_order_tracker.get_bids()
+                right_sided_orders = self.offset_order_tracker.get_bids()
+                right_sided_orders.sort(key = lambda o: o.price, reverse=True)
+                diff : Decimal = abs(self.pm.amount_to_offset) - current_offsetting_amounts.sells
+                max_loss_markdown = (Decimal(1) - self.max_loss)
+                new_order_side = TradeType.SELL
+                place_order_fn = self.sell_with_specific_market
+                mirrored_asset = mirrored_market_pair.base_asset
+            else:
+                return
 
-                elif diff < 0:
-                    # We are trying to offset too much compared to our ammount to offset
-                    # Attempt to cancel enough to make up the difference, starting with the least likely to execute orders
-                    orders = self.offset_order_tracker.get_bids()
-                    orders.sort(key = lambda o: o.price, reverse=True)
-                    for order in orders:
-                        self.c_cancel_order(mirrored_market_pair, order.id)
-                        order.state = OrderState.PENDING_CANCEL
-                        diff += order.amount_remaining
-                        if diff <= 0:
-                            break
+            # Get rid of wrong sided orders if there are any
+            for order in wrong_sided_orders:
+                self._cancel_offsetting_order(mirrored_market_pair, order)
+            
+            # Compare current amount to offset vs. current offsetting amount from orders
+            if diff > 0:
+                # We need to place more offsetting orders
+                new_price = self.pm.avg_price * max_loss_markdown
+                quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, Decimal(new_price))
+                amount = min((mirrored_market.get_balance(mirrored_asset)/quant_price), diff)
+                if amount >= self.min_mirroring_amount:
+                    quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
+                    if quant_amount > 0:
+                        try:
+                            order_id = place_order_fn(mirrored_market_pair, Decimal(quant_amount), OrderType.LIMIT, Decimal(quant_price))
+                            self.offset_order_tracker.add_order(Order(order_id, quant_price, quant_amount, new_order_side, OrderState.PENDING))
+                        except:
+                            self.logger.error(f"Failed to c_{str(new_order_side).lower()}_with_specific_market: {mirrored_market_pair.trading_pair}"\
+                                            f" {Decimal(quant_amount)} {Decimal(quant_price)}")
+
+            elif diff < 0:
+                # We are trying to offset too much compared to our ammount to offset
+                # Attempt to cancel enough to make up the difference, starting with the least likely to execute orders
+                for order in right_sided_orders:
+                    self._cancel_offsetting_order(mirrored_market_pair, order)
+                    diff -= order.amount_remaining
+                    if diff <= 0:
+                        break
+                # We might now be at a deficit of offsetting amount, but we won't place any new orders under the assumption
+                # that some of these cancelled orders will execute before we can cancel them.
+                # If this is not the case, it will be picked up and offset on the next call to this function
