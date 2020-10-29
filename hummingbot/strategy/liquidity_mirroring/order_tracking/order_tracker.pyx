@@ -1,3 +1,4 @@
+import asyncio
 from decimal import Decimal
 
 from hummingbot.core.event.events import TradeType
@@ -13,6 +14,13 @@ class OrderTracker:
         self._orders = {}
         self._bids = {}
         self._asks = {}
+        self._lock = asyncio.Lock()
+
+    async def __aenter__(self):
+        await self._lock.acquire()
+
+    async def __aexit__(self, exc_type, exc, tb):
+        self._lock.release()
 
     def add_order(self, order: Order):
         if order.id in self._orders:
@@ -47,24 +55,34 @@ class OrderTracker:
     
     def cancel(self, id: str):
         order = self.remove_order(id)
+        if order is None:
+            return
         order.state = OrderState.CANCELED
 
     def fail(self, id: str):
         order = self.remove_order(id)
+        if order is None:
+            return
         order.state = OrderState.FAILED
 
     def complete(self, id: str):
         order = self.remove_order(id)
+        if order is None:
+            return
         order.state = OrderState.COMPLETE
         order.amount_remaining = Decimal(0)
 
     def update_order(self, id: str, new_state: OrderState, amount_filled: Decimal):
         order = self.get_order(id)
+        if order is None:
+            return
         order.state = new_state
         order.amount_remaining -= amount_filled
 
     def fill(self, id: str, amount_filled: Decimal):
         order = self.get_order(id)
+        if order is None:
+            return
         order.amount_remaining -= amount_filled
 
     def get_order(self, id: str):
