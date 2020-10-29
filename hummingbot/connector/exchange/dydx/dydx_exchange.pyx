@@ -424,11 +424,11 @@ cdef class DydxExchange(ExchangeBase):
             res = await self._dydx_client.cancel_order(exchange_order_id)
             
             if "errors" in res:
-                if res["errors"][0]["msg"] == f"Order with specified id: {exchange_order_id} could not be found"
+                if res["errors"][0]["msg"] == f"Order with specified id: {exchange_order_id} could not be found":
                 # Order didn't exist on exchange, mark this as canceled
                     self.c_trigger_event(ORDER_CANCELLED_EVENT,cancellation_event)
                 else:
-                    raise Exception(f"Cancel order returned {res["errors"]}")
+                    raise Exception(f"Cancel order returned {res}")
             
             return True
 
