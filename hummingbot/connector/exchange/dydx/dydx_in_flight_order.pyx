@@ -131,6 +131,9 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
 
         new_status: DydxOrderStatus = DydxOrderStatus[data["status"]]
         new_executed_amount_base: Decimal = self.market.token_configuration.unpad(data["filledAmount"], base_id)
+
+        # TODO: we need to query for fills for each order that has a changed filledAmount to be able to issue the fill 
+        # events with the proper executed price
         price: Decimal = self.market.token_configuration.pad(self.market.token_configuration.unpad(data["price"], base_id), quote_id)
         new_executed_amount_quote: Decimal = price * new_executed_amount_base
 

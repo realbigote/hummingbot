@@ -12,6 +12,7 @@ DEFAULT_FEES = [0.0, 0.2]
 
 DYDX_ROOT_API = "https://api.dydx.exchange/v1"
 
+
 def convert_from_exchange_trading_pair(exchange_trading_pair: str) -> str:
     # dydx returns trading pairs in the correct format natively
     return exchange_trading_pair
@@ -21,7 +22,8 @@ def convert_to_exchange_trading_pair(hb_trading_pair: str) -> str:
     # dydx expects trading pairs in the same format as hummingbot internally represents them
     return hb_trading_pair
 
+
 def hash_order_id(hex_str_id):
-        hex_num = int(hex_str_id, 16)
-        reduced_num = hex_num % 10e10
-        return reduced_num
+    hex_num = int(hex_str_id, 16)
+    reduced_num = hex_num % 10e10
+    return reduced_num

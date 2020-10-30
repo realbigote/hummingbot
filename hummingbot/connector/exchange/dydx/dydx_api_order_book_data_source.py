@@ -109,8 +109,8 @@ class DydxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 metadata={"id": trading_pair}
             )
             order_book: OrderBook = self.order_book_create_function()
-            #bids, asks = self.active_order_tracker.convert_snapshot_message_to_order_book_row(snapshot_msg)
-            #order_book.apply_snapshot(bids, asks, snapshot_msg.update_id)
+            bids, asks = self.active_order_tracker.convert_snapshot_message_to_order_book_row(snapshot_msg)
+            order_book.apply_snapshot(bids, asks, snapshot_msg.update_id)
             return order_book
 
     async def _inner_messages(self, ws: websockets.WebSocketClientProtocol) -> AsyncIterable[str]:

@@ -281,7 +281,7 @@ cdef class DydxExchange(ExchangeBase):
         if order_type is OrderType.LIMIT_MAKER:
             post_only=True
 
-        return await self._dydx_client.place_orer(
+        return self._dydx_client.place_orer(
           market=trading_pair,
           side=order_side,
           amount=order_details["amountS"],
@@ -352,10 +352,6 @@ cdef class DydxExchange(ExchangeBase):
             self.logger().info(e)
             traceback.print_exc()
 
-            # Re-sync our next order id after this failure
-            base, quote = trading_pair.split('-')
-            token_sell_id = self._token_configuration.get_tokenid(base) if order_side is TradeType.SELL else self._token_configuration.get_tokenid(quote)
-
             # Stop tracking this order
             self.stop_tracking(client_order_id)
             self.c_trigger_event(ORDER_FAILURE_EVENT, MarketOrderFailureEvent(now(), client_order_id, order_type))
@@ -425,6 +421,8 @@ cdef class DydxExchange(ExchangeBase):
             res = await self._dydx_client.cancel_order(exchange_order_id)
             
             if "errors" in res:
+                # TODO: Verify what happens if we try to cancel an order before it fully exists (we have a response from place order)
+                # If this says that it doesn't exist, don't stop tracking this order until X time has passed
                 if res["errors"][0]["msg"] == f"Order with specified id: {exchange_order_id} could not be found":
                 # Order didn't exist on exchange, mark this as canceled
                     self.c_trigger_event(ORDER_CANCELLED_EVENT,cancellation_event)
@@ -475,6 +473,7 @@ cdef class DydxExchange(ExchangeBase):
         self.c_remove_listener(ORDER_CANCELLED_EVENT, cancel_verifier)
 
         return [CancellationResult(order_id=order_id, success=success) for order_id, success in order_status.items()]
+
     cdef object c_get_fee(self,
                           str base_currency,
                           str quote_currency,
@@ -482,6 +481,7 @@ cdef class DydxExchange(ExchangeBase):
                           object order_side,
                           object amount,
                           object price):
+        # TODO: support fee overrides from hummingbot configs (see c_get_fee on other exchanges)
         is_maker = order_type is OrderType.LIMIT
         market = f"{base_currency}-{quote_currency}".upper()
         if market in self._fee_rules:
@@ -757,6 +757,7 @@ cdef class DydxExchange(ExchangeBase):
     async def _update_balances(self):
         wallet_address = self._dydx_auth.generate_auth_dict()['wallet_address']
         balances_response = await self.api_request("GET", f"{BALANCES_INFO_ROUTE}".replace(':wallet',wallet_address))
+        # TODO: the _set_balances function is expecting a list of balance updates with the token id given as "marketId": <tokenid>
         await self._set_balances(balances_response['accounts'][0]["balances"], True)
 
     async def _update_trading_rules(self):
@@ -766,6 +767,7 @@ cdef class DydxExchange(ExchangeBase):
 
         for market_name in markets_info:
             market = markets_info[market_name]
+            # TODO: change min amount increment to be taken as the 'decimals' entry
             if "baseCurrency" in market:
                 baseid, quoteid = market['baseCurrency']['soloMarketId'], market['quoteCurrency']['soloMarketId']
                 try:
@@ -843,6 +845,7 @@ cdef class DydxExchange(ExchangeBase):
 
     cdef object c_get_order_size_quantum(self, str trading_pair, object order_size):
         amount_inc = self._trading_rules[f"{trading_pair}-limit"].min_base_amount_increment
+        # TODO: change this based on the min amount increment from the exchange being taken as the 'decimals' entry
         if amount_inc < MANUAL_AMOUNT_INC:
             return MANUAL_AMOUNT_INC
         else:
@@ -896,7 +899,7 @@ cdef class DydxExchange(ExchangeBase):
         async with self._shared_client.request(http_method, url=full_url,
                                                timeout=API_CALL_TIMEOUT,
                                                data=data, params=params, headers=headers) as response:
-            if response.status != 200:
+            if response.status != 200: #TODO >= 300 instead?
                 self.logger().info(f"Issue with dydx API {http_method} to {url}, response: ")
                 self.logger().info(await response.text())
                 raise IOError(f"Error fetching data from {full_url}. HTTP status is {response.status}.")
