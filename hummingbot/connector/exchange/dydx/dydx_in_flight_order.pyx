@@ -119,7 +119,7 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
             created_at
         )
 
-    def update(self, data: Dict[str, Any], fills: List[Dict[str, Any]]) -> List[Any]:
+    def update(self, data: Dict[str, Any], dydx_client) -> List[Any]:
         events: List[Any] = []
 
         base: str
@@ -131,19 +131,27 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
         #fee_currency_id: int = self.market.token_configuration.get_tokenid(self.fee_asset)
 
         new_status: DydxOrderStatus = DydxOrderStatus[data["status"]]
+        filled_amount = self.market.token_configuration.unpad(data["filled"],base_id)
+
         new_executed_amount_quote: Decimal = 0
         new_executed_amount_base: Decimal = 0
 
-        for fill in fills:
-            if fill["orderId"] == self.exchange_order_id:
-                if fill["uuid"] in self.fill_ids:
-                    continue
-                else:
-                    self.fill_ids.append(fill["uuid"])
-                    executed_amount_base: Decimal = self.market.token_configuration.unpad(fill["amount"], base_id)
-                    price: Decimal = self.market.token_configuration.pad(self.market.token_configuration.unpad(fill["price"], base_id), quote_id)
-                    new_executed_amount_quote += price * executed_amount_base
-                    new_executed_amount_base += executed_amount_base
+        if filled_amount > self.executed_amount_base:
+
+            fills = self._dydx_client.get_my_fills(
+              market=[self.trading_pair]
+            )
+
+            for fill in fills:
+                if fill["orderId"] == self.exchange_order_id:
+                    if fill["uuid"] in self.fill_ids:
+                        continue
+                    else:
+                        self.fill_ids.append(fill["uuid"])
+                        executed_amount_base: Decimal = self.market.token_configuration.unpad(fill["amount"], base_id)
+                        price: Decimal = self.market.token_configuration.pad(self.market.token_configuration.unpad(fill["price"], base_id), quote_id)
+                        new_executed_amount_quote += price * executed_amount_base
+                        new_executed_amount_base += executed_amount_base
 
         if new_executed_amount_base > self.executed_amount_base or new_executed_amount_quote > self.executed_amount_quote:
             diff_base: Decimal = new_executed_amount_base - self.executed_amount_base

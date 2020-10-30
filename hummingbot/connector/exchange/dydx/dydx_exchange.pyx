@@ -564,10 +564,7 @@ cdef class DydxExchange(ExchangeBase):
     # updates to orders and balances
 
     def _update_inflight_order(self, tracked_order: DydxInFlightOrder, event: Dict[str, Any]):
-        fills = self._dydx_client.get_my_fills(
-          market=[tracked_order.trading_pair]
-        )
-        issuable_events: List[MarketEvent] = tracked_order.update(event, fills["fills"])
+        issuable_events: List[MarketEvent] = tracked_order.update(event, self._dydx_client)
 
         # Issue relevent events
         for (market_event, new_amount, new_price, new_fee) in issuable_events:
