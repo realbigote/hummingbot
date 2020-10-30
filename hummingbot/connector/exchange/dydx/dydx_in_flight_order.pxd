@@ -5,3 +5,4 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
         public object market
         public object status
         public long long created_at
+        public list fill_ids

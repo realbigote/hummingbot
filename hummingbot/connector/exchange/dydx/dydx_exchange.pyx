@@ -22,6 +22,7 @@ from dydx.client import Client as DYDXClient
 import dydx.constants as consts
 import dydx.util as utils
 
+from hummingbot.client.config.fee_overrides_config_map import fee_overrides_config_map
 from hummingbot.core.data_type.cancellation_result import CancellationResult
 from hummingbot.core.data_type.limit_order import LimitOrder
 from hummingbot.core.data_type.order_book cimport OrderBook
@@ -191,6 +192,7 @@ cdef class DydxExchange(ExchangeBase):
         self._trading_pairs = trading_pairs
         self._fee_rules = {}
         self._order_id_lock = asyncio.Lock()
+        self._fee_override = ("dydx_maker_fee_amount" in fee_overrides_config_map)
 
     @property
     def name(self) -> str:
@@ -481,10 +483,9 @@ cdef class DydxExchange(ExchangeBase):
                           object order_side,
                           object amount,
                           object price):
-        # TODO: support fee overrides from hummingbot configs (see c_get_fee on other exchanges)
         is_maker = order_type is OrderType.LIMIT
         market = f"{base_currency}-{quote_currency}".upper()
-        if market in self._fee_rules:
+        if (market in self._fee_rules) and (not self._fee_override):
             fee_rule = self._fee_rules[market]
             if is_maker:
                 return TradeFee(percent=fee_rule["maker"])
@@ -563,7 +564,10 @@ cdef class DydxExchange(ExchangeBase):
     # updates to orders and balances
 
     def _update_inflight_order(self, tracked_order: DydxInFlightOrder, event: Dict[str, Any]):
-        issuable_events: List[MarketEvent] = tracked_order.update(event)
+        fills = self._dydx_client.get_my_fills(
+          market=[tracked_order.trading_pair]
+        )
+        issuable_events: List[MarketEvent] = tracked_order.update(event, fills["fills"])
 
         # Issue relevent events
         for (market_event, new_amount, new_price, new_fee) in issuable_events:
@@ -644,32 +648,7 @@ cdef class DydxExchange(ExchangeBase):
                 tokens = set(self.token_configuration.get_tokens())
 
             async with self._lock:
-                completed_tokens = set()
-                if 'balanceUpdates' in updates:
-                    for data in updates['balanceUpdates']:
-                        padded_total_amount: str = data['newWei']
-                        token_id: int = data['marketId']
-                        completed_tokens.add(token_id)
-
-                        token_symbol: str = self._token_configuration.get_symbol(token_id)
-                        total_amount: Decimal = self._token_configuration.unpad(padded_total_amount, token_id)        
-
-                        self._account_balances[token_symbol] = total_amount
-                        self._account_available_balances[token_symbol] = total_amount
-
-                elif 'balanceUpdate' in updates:
-                    data = updates['balanceUpdate']
-                    padded_total_amount: str = data['newWei']
-                    token_id: int = data['marketId']
-                    completed_tokens.add(token_id)
-                    if token_id in tokens:
-                        token_symbol: str = self._token_configuration.get_symbol(token_id)
-                        total_amount: Decimal = self._token_configuration.unpad(padded_total_amount, token_id)        
-
-                        self._account_balances[token_symbol] = total_amount
-                        self._account_available_balances[token_symbol] = total_amount
-                
-                elif is_snapshot:
+                if is_snapshot:
                     for market in updates.keys():
                         data = updates[market]
 
@@ -682,6 +661,17 @@ cdef class DydxExchange(ExchangeBase):
 
                             self._account_balances[token_symbol] = total_amount
                             self._account_available_balances[token_symbol] = total_amount
+                elif 'balanceUpdate' in updates:
+                    data = updates['balanceUpdate']
+                    padded_total_amount: str = data['newWei']
+                    token_id: int = data['marketId']
+                    if token_id in tokens:
+                        token_symbol: str = self._token_configuration.get_symbol(token_id)
+                        total_amount: Decimal = self._token_configuration.unpad(padded_total_amount, token_id)        
+
+                        self._account_balances[token_symbol] = total_amount
+                        self._account_available_balances[token_symbol] = total_amount
+                
         except Exception as e:
             self.logger().error(f"Could not set balance {repr(e)}")
 
@@ -757,7 +747,6 @@ cdef class DydxExchange(ExchangeBase):
     async def _update_balances(self):
         wallet_address = self._dydx_auth.generate_auth_dict()['wallet_address']
         balances_response = await self.api_request("GET", f"{BALANCES_INFO_ROUTE}".replace(':wallet',wallet_address))
-        # TODO: the _set_balances function is expecting a list of balance updates with the token id given as "marketId": <tokenid>
         await self._set_balances(balances_response['accounts'][0]["balances"], True)
 
     async def _update_trading_rules(self):
@@ -767,15 +756,16 @@ cdef class DydxExchange(ExchangeBase):
 
         for market_name in markets_info:
             market = markets_info[market_name]
-            # TODO: change min amount increment to be taken as the 'decimals' entry
             if "baseCurrency" in market:
                 baseid, quoteid = market['baseCurrency']['soloMarketId'], market['quoteCurrency']['soloMarketId']
+                decimals = market['baseCurrency']['decimals']
                 try:
                     price_increment=Decimal(self.token_configuration.pad(self.token_configuration.unpad(market['minimumTickSize'], baseid), quoteid))
                     self._trading_rules[f"{market_name}-limit"] = TradingRule(
                         trading_pair=market_name,
                         min_order_size =Decimal(self.token_configuration.unpad(market['smallOrderThreshold'], baseid)),
                         min_price_increment=price_increment,
+                        min_base_amount_increment=Decimal(f"1e-{decimals}"),
                         min_notional_size = Decimal(self.token_configuration.unpad(market['smallOrderThreshold'], baseid)) * price_increment,
                         supports_limit_orders = True,
                         supports_market_orders = False
@@ -783,7 +773,8 @@ cdef class DydxExchange(ExchangeBase):
                     self._trading_rules[f"{market_name}-market"] = TradingRule(
                         trading_pair=market_name,
                         min_order_size =Decimal(self.token_configuration.unpad(market['minimumOrderSize'], baseid)),
-                        min_price_increment=price_increment,                  
+                        min_price_increment=price_increment,
+                        min_base_amount_increment=Decimal(f"1e-{decimals}"),
                         min_notional_size = Decimal(self.token_configuration.unpad(market['minimumOrderSize'], baseid)) * price_increment,
                         supports_limit_orders = False,
                         supports_market_orders = True
@@ -844,12 +835,7 @@ cdef class DydxExchange(ExchangeBase):
         return self._trading_rules[f"{trading_pair}-limit"].min_price_increment
 
     cdef object c_get_order_size_quantum(self, str trading_pair, object order_size):
-        amount_inc = self._trading_rules[f"{trading_pair}-limit"].min_base_amount_increment
-        # TODO: change this based on the min amount increment from the exchange being taken as the 'decimals' entry
-        if amount_inc < MANUAL_AMOUNT_INC:
-            return MANUAL_AMOUNT_INC
-        else:
-            return amount_inc
+        return self._trading_rules[f"{trading_pair}-limit"].min_base_amount_increment
 
     cdef object c_quantize_order_price(self, str trading_pair, object price):
         return price.quantize(self.c_get_order_price_quantum(trading_pair, price))
@@ -899,7 +885,7 @@ cdef class DydxExchange(ExchangeBase):
         async with self._shared_client.request(http_method, url=full_url,
                                                timeout=API_CALL_TIMEOUT,
                                                data=data, params=params, headers=headers) as response:
-            if response.status != 200: #TODO >= 300 instead?
+            if response.status > 299:
                 self.logger().info(f"Issue with dydx API {http_method} to {url}, response: ")
                 self.logger().info(await response.text())
                 raise IOError(f"Error fetching data from {full_url}. HTTP status is {response.status}.")

@@ -38,6 +38,7 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
         self.executed_amount_base = filled_size
         self.executed_amount_quote = filled_volume
         self.fee_paid = filled_fee
+        self.fill_ids = []
 
         (base, quote) = self.market.split_trading_pair(trading_pair)
         self.fee_asset = base if trade_type is TradeType.BUY else quote
@@ -118,7 +119,7 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
             created_at
         )
 
-    def update(self, data: Dict[str, Any]) -> List[Any]:
+    def update(self, data: Dict[str, Any], fills: List[Dict[str, Any]]) -> List[Any]:
         events: List[Any] = []
 
         base: str
@@ -130,12 +131,19 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
         #fee_currency_id: int = self.market.token_configuration.get_tokenid(self.fee_asset)
 
         new_status: DydxOrderStatus = DydxOrderStatus[data["status"]]
-        new_executed_amount_base: Decimal = self.market.token_configuration.unpad(data["filledAmount"], base_id)
+        new_executed_amount_quote: Decimal = 0
+        new_executed_amount_base: Decimal = 0
 
-        # TODO: we need to query for fills for each order that has a changed filledAmount to be able to issue the fill 
-        # events with the proper executed price
-        price: Decimal = self.market.token_configuration.pad(self.market.token_configuration.unpad(data["price"], base_id), quote_id)
-        new_executed_amount_quote: Decimal = price * new_executed_amount_base
+        for fill in fills:
+            if fill["orderId"] == self.exchange_order_id:
+                if fill["uuid"] in self.fill_ids:
+                    continue
+                else:
+                    self.fill_ids.append(fill["uuid"])
+                    executed_amount_base: Decimal = self.market.token_configuration.unpad(fill["amount"], base_id)
+                    price: Decimal = self.market.token_configuration.pad(self.market.token_configuration.unpad(fill["price"], base_id), quote_id)
+                    new_executed_amount_quote += price * executed_amount_base
+                    new_executed_amount_base += executed_amount_base
 
         if new_executed_amount_base > self.executed_amount_base or new_executed_amount_quote > self.executed_amount_quote:
             diff_base: Decimal = new_executed_amount_base - self.executed_amount_base

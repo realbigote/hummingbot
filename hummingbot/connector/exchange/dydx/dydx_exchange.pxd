@@ -33,3 +33,4 @@ cdef class DydxExchange(ExchangeBase):
         dict _dydx_tokenids
         list _trading_pairs
         object _dydx_order_sign_param
+        bint _fee_override
