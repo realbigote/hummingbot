@@ -46,7 +46,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
     OPTION_LOG_INSUFFICIENT_ASSET = 1 << 5
     OPTION_LOG_ALL = 0xfffffffffffffff
     MARKET_ORDER_MAX_TRACKING_TIME = 0.4 * 10
-    FAILED_ORDER_COOL_OFF_TIME = 0.0
 
     CANCEL_EXPIRY_DURATION = 60.0
     @classmethod
@@ -72,6 +71,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                  bid_amount_percents: list,
                  ask_amount_percents: list,
                  order_replacement_threshold: Decimal,
+                 post_only: bool,
                  slack_hook: str,
                  slack_update_period: Decimal,
                  logging_options: int = OPTION_LOG_ORDER_COMPLETED,
@@ -96,7 +96,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self._next_trade_delay = next_trade_delay_interval
         self._last_trade_timestamps = {}
         self._failed_order_tolerance = failed_order_tolerance
-        self._cool_off_logged = False
         self.two_sided_mirroring = two_sided_mirroring
         self.order_replacement_threshold = Decimal(order_replacement_threshold)
         self._failed_market_order_count = 0
@@ -171,6 +170,10 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.start_time = datetime.timestamp(datetime.now())
         self.slack_update_period = slack_update_period
 
+        self.mm_order_type = OrderType.LIMIT
+        if post_only and OrderType.LIMIT_MAKER in primary_market_pairs[0].market.supported_order_types():
+            self.mm_order_type = OrderType.LIMIT_MAKER
+
     @property
     def tracked_limit_orders(self) -> List[Tuple[ExchangeBase, LimitOrder]]:
         return self._sb_order_tracker.tracked_limit_orders
@@ -223,6 +226,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         lines.extend(["", f"   Amount to offset (in base currency): {self.pm.amount_to_offset}"])
         lines.extend(["", f"   Average price of position: {self.pm.avg_price}"])
         lines.extend(["", f"   Active market making orders: {len(self.marked_for_deletion.keys())}"])
+        lines.extend(["", f"   Offsetting bids:"])
+        for order in self.offset_order_tracker.get_bids():
+            lines.extend(["", f"{order}"])
+        lines.extend(["", f"   Offsetting asks:"])
+        for order in self.offset_order_tracker.get_asks():
+            lines.extend(["", f"{order}"])
         if len(warning_lines) > 0:
             lines.extend(["", "  *** WARNINGS ***"] + warning_lines)
 
@@ -307,15 +316,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 safe_ensure_future(self.mirrored_market_pairs[0].market.cancel_all(5.0))
         finally:
             self._last_timestamp = timestamp
-
-    def cancel_offsetting_orders(self):
-        mirrored_market_pair: MarketTradingPairTuple = self.mirrored_market_pairs[0]
-        active_orders = self._sb_order_tracker.market_pair_to_active_orders
-        current_orders = []
-        if mirrored_market_pair in active_orders:
-            current_orders = active_orders[mirrored_market_pair][:]
-        for order in current_orders:
-            self.c_cancel_order(mirrored_market_pair,order.client_order_id)
 
     cdef bint is_maker_exchange(self, object market):
         return market == self.primary_market_pairs[0].market
@@ -485,68 +485,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 self._issue_mirrored_orderbook_update()
             self.log_with_clock(logging.INFO,
                                 f"Limit order canceled on {market_trading_pair_tuple[0].name}: {order_id}")
-
-    cdef bint c_ready_for_new_orders(self, list market_trading_pair_tuples):
-        """
-        Check whether we are ready for making new mirroring orders or not. Conditions where we should not make further
-        new orders include:
-
-         1. There's an in-flight market order that's still being resolved.
-         2. We're still within the cool-off period from the last trade, which means the exchange balances may be not
-            accurate temporarily.
-
-        If none of the above conditions are matched, then we're ready for new orders.
-
-        :param market_trading_pair_tuples: list of mirroring market pairs
-        :return: True if ready, False if not
-        """
-        cdef:
-            double time_left
-            dict tracked_taker_orders = self._sb_order_tracker.c_get_taker_orders()
-
-        ready_ts_from_failed_order = (self._last_failed_market_order_timestamp/1000.0) + \
-            self._failed_market_order_count * self.FAILED_ORDER_COOL_OFF_TIME
-        # Wait for FAILED_ORDER_COOL_OFF_TIME * failed_market_order_count before retrying
-        if ready_ts_from_failed_order > self._current_timestamp:
-            time_left = ready_ts_from_failed_order - self._current_timestamp
-            if not self._cool_off_logged:
-                self.log_with_clock(
-                    logging.INFO,
-                    f"Cooling off from failed order. "
-                    f"Resuming in {int(time_left)} seconds."
-                )
-                self._cool_off_logged = True
-            return False
-
-        for market_trading_pair_tuple in market_trading_pair_tuples:
-            # Do not continue if there are pending market order
-            if len(tracked_taker_orders.get(market_trading_pair_tuple, {})) > 0:
-                # consider market order completed if it was already x time old
-                if any([order.timestamp - self._current_timestamp < self.MARKET_ORDER_MAX_TRACKING_TIME
-                       for order in tracked_taker_orders[market_trading_pair_tuple].values()]):
-                    return False
-            # Wait for the cool off interval before the next trade, so wallet balance is up to date
-            ready_to_trade_time = self._last_trade_timestamps.get(market_trading_pair_tuple, 0) + self._next_trade_delay
-            if market_trading_pair_tuple in self._last_trade_timestamps and ready_to_trade_time > self._current_timestamp:
-                time_left = self._current_timestamp - self._last_trade_timestamps[market_trading_pair_tuple] - self._next_trade_delay
-                if not self._cool_off_logged:
-                    self.log_with_clock(
-                        logging.INFO,
-                        f"Cooling off from previous trade on {market_trading_pair_tuple.market.name}. "
-                        f"Resuming in {int(time_left)} seconds."
-                    )
-                    self._cool_off_logged = True
-                return False
-
-        if self._cool_off_logged:
-            self.log_with_clock(
-                logging.INFO,
-                f"Cool off completed. Liquidity Mirroring strategy is now ready for new orders."
-            )
-            # reset cool off log tag when strategy is ready for new orders
-            self._cool_off_logged = False
-
-        return True
 
     def check_flat_fee_coverage(self, market, flat_fees):
         covered = True
@@ -749,7 +687,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         try:
                             if (primary_market.get_available_balance(primary_market_pair.quote_asset) > quant_price * quant_amount
                                     and self.check_flat_fee_coverage(primary_market, bid_fee_object.flat_fees)):
-                                order_id = self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                                order_id = self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),self.mm_order_type,Decimal(quant_price))
                                 self.marked_for_deletion[order_id] = {"is_buy": True,
                                                                       "rank": 0,
                                                                       "price": adjusted_bid}
@@ -788,7 +726,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                             try:
                                 if (primary_market.get_available_balance(primary_market_pair.quote_asset) > quant_price * quant_amount 
                                         and self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
-                                    order_id = self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                                    order_id = self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),self.mm_order_type,Decimal(quant_price))
                                     self.marked_for_deletion[order_id] = {"is_buy": True,
                                                                             "rank": (i+1),
                                                                             "price": bid_price}
@@ -842,7 +780,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         try:
                             if (primary_market.get_available_balance(primary_market_pair.base_asset) > quant_amount
                                     and self.check_flat_fee_coverage(primary_market, ask_fee_object.flat_fees)):
-                                order_id = self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                                order_id = self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),self.mm_order_type,Decimal(quant_price))
                                 self.marked_for_deletion[order_id] = {"is_buy": False,
                                                                       "rank": 0,
                                                                       "price": adjusted_ask}
@@ -881,7 +819,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                             try:
                                 if (primary_market.get_available_balance(primary_market_pair.base_asset) > quant_amount
                                         and self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
-                                    order_id = self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),OrderType.LIMIT,Decimal(quant_price))
+                                    order_id = self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),self.mm_order_type,Decimal(quant_price))
                                     self.marked_for_deletion[order_id] = {"is_buy": False,
                                                                           "rank": (i+1),
                                                                           "price": ask_price}
@@ -913,6 +851,13 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             self.c_cancel_order(mirrored_market_pair, order.id)
             order.state = OrderState.PENDING_CANCEL
 
+    def _limit_order_amount(self, mirrored_market: ExchangeBase, mirrored_asset: str, amount: Decimal, quant_price: Decimal, side: TradeType):
+        if side is TradeType.BUY:
+            return min((mirrored_market.get_balance(mirrored_asset)/quant_price), amount)
+        else:
+            return min(mirrored_market.get_balance(mirrored_asset), amount)
+        
+
     async def adjust_mirrored_orderbook(self):
         async with self.offset_order_tracker:
             self._manage_offsetting_exposure_threashold_warning()
@@ -924,8 +869,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             current_offsetting_amounts = self.offset_order_tracker.get_total_amounts()
             if self.pm.amount_to_offset < Decimal(0):
                 wrong_sided_orders = self.offset_order_tracker.get_asks()
-                right_sided_orders = self.offset_order_tracker.get_bids()
-                right_sided_orders.sort(key = lambda o: o.price, reverse=False)
+                right_sided_orders = sorted(self.offset_order_tracker.get_bids(), key = lambda o: o.price, reverse=False)
                 diff : Decimal = abs(self.pm.amount_to_offset) - current_offsetting_amounts.buys
                 max_loss_markdown = (Decimal(1) + self.max_loss)
                 new_order_side = TradeType.BUY
@@ -933,8 +877,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 mirrored_asset = mirrored_market_pair.quote_asset
             elif self.pm.amount_to_offset > Decimal(0):
                 wrong_sided_orders = self.offset_order_tracker.get_bids()
-                right_sided_orders = self.offset_order_tracker.get_bids()
-                right_sided_orders.sort(key = lambda o: o.price, reverse=True)
+                right_sided_orders = sorted(self.offset_order_tracker.get_asks(), key = lambda o: o.price, reverse=True)
                 diff : Decimal = abs(self.pm.amount_to_offset) - current_offsetting_amounts.sells
                 max_loss_markdown = (Decimal(1) - self.max_loss)
                 new_order_side = TradeType.SELL
@@ -948,11 +891,11 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 self._cancel_offsetting_order(mirrored_market_pair, order)
             
             # Compare current amount to offset vs. current offsetting amount from orders
-            if diff > 0:
+            if diff > 0:                
                 # We need to place more offsetting orders
                 new_price = self.pm.avg_price * max_loss_markdown
                 quant_price = mirrored_market.c_quantize_order_price(mirrored_market_pair.trading_pair, Decimal(new_price))
-                amount = min((mirrored_market.get_balance(mirrored_asset)/quant_price), diff)
+                amount = self._limit_order_amount(mirrored_market, mirrored_asset, diff, quant_price, new_order_side)
                 if amount >= self.min_mirroring_amount:
                     quant_amount = mirrored_market.c_quantize_order_amount(mirrored_market_pair.trading_pair, Decimal(amount))
                     if quant_amount > 0:

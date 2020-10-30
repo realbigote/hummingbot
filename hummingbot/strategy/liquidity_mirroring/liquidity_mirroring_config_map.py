@@ -174,5 +174,11 @@ liquidity_mirroring_config_map = {
         type_str="bool",
         on_validated=lambda value: configure_offsetting_exchange(value)
     ),
+    "post_only": ConfigVar(
+        key="post_only",
+        prompt="Use POST-only order types on primary exchange if supported (True/False) >>> ",
+        default=False,
+        type_str="bool"
+    )
 }
 
