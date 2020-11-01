@@ -286,8 +286,8 @@ cdef class DydxExchange(ExchangeBase):
         return self._dydx_client.place_orer(
           market=trading_pair,
           side=order_side,
-          amount=order_details["amountS"],
-          price=order_details["amountB"],
+          amount=order_details["amount"],
+          price=order_details["price"],
           killOrFill=False,
           post_only=post_only,
         )

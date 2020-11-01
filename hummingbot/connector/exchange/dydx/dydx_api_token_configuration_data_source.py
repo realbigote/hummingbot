@@ -93,21 +93,13 @@ class DydxAPITokenConfigurationDataSource():
         """ Returns the buying and selling amounts for unidirectional orders, based on the order
             side, price and amount and returns the padded values.
         """
-        quote_amount = amount * price
-        padded_amount = self.pad(amount, baseid)
-        padded_quote_amount = self.pad(quote_amount, quoteid)
 
-        if side is TradeType.SELL:
-            return {
-                "tokenSId": baseid,
-                "tokenBId": quoteid,
-                "amountS": padded_amount,
-                "amountB": padded_quote_amount,
-            }
-        else:
-            return {
-                "tokenSId": quoteid,
-                "tokenBId": baseid,
-                "amountS": padded_quote_amount,
-                "amountB": padded_amount,
-            }
+        padded_amount = self.pad(amount, baseid)
+        adjusted_price = self.unpad(self.pad(price, baseid), quoteid)
+
+        return {
+            "baseTokenId": baseid,
+            "quoteTokenId": quoteid,
+            "amount": padded_amount,
+            "price": adjusted_price,
+        }
