@@ -34,3 +34,4 @@ cdef class DydxExchange(ExchangeBase):
         list _trading_pairs
         object _dydx_order_sign_param
         bint _fee_override
+        dict _reserved_balances

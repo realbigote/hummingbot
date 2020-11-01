@@ -183,7 +183,9 @@ cdef class DydxExchange(ExchangeBase):
 
         self._dydx_private_key = wallet.private_key
         self._dydx_node = ethereum_rpc_url
-        self._dydx_client: DYDXClient = DYDXClient(private_key=self._dydx_private_key, node=self._dydx_node)
+        self._dydx_client: DYDXClient = DYDXClient(private_key=self._dydx_private_key, 
+                                                    node=self._dydx_node,
+                                                    account_number=consts.ACCOUNT_NUMBERS_SPOT)
         # State
         self._lock = asyncio.Lock()
         self._trading_rules = {}
@@ -193,6 +195,7 @@ cdef class DydxExchange(ExchangeBase):
         self._fee_rules = {}
         self._order_id_lock = asyncio.Lock()
         self._fee_override = ("dydx_maker_fee_amount" in fee_overrides_config_map)
+        self._reserved_balances = {}
 
     @property
     def name(self) -> str:
@@ -556,9 +559,16 @@ cdef class DydxExchange(ExchangeBase):
     def start_tracking(self, in_flight_order):
         self._in_flight_orders[in_flight_order.client_order_id] = in_flight_order
 
+        old_reserved = self._reserved_balances.get(in_flight_order.reserved_asset, Decimal(0))
+        self._reserved_balances[in_flight_order.reserved_asset] = old_reserved + in_flight_order.reserved_balance
+
     def stop_tracking(self, client_order_id):
         if client_order_id in self._in_flight_orders:
             del self._in_flight_orders[client_order_id]
+
+        old_reserved = self._reserved_balances.get(in_flight_order.reserved_asset, Decimal(0))
+        self._reserved_balances[in_flight_order.reserved_asset] = old_reserved - in_flight_order.reserved_balance
+        
 
     # ----------------------------------------
     # updates to orders and balances
@@ -637,6 +647,14 @@ cdef class DydxExchange(ExchangeBase):
 
                 self.c_stop_tracking_order(tracked_order.client_order_id)
 
+    def _set_balance_for_token(self, token_id: int, padded_total_amount: str):
+        token_symbol: str = self._token_configuration.get_symbol(token_id)
+        total_amount: Decimal = self._token_configuration.unpad(padded_total_amount, token_id)        
+
+        self._account_balances[token_symbol] = total_amount
+        reserved_balance = self.reserved_balance.get(token_symbol, Decimal(0))
+        self._account_available_balances[token_symbol] = total_amount - reserved_balance
+
     async def _set_balances(self, updates, is_snapshot=False):
         try:
             tokens = set(self.token_configuration.get_tokens())
@@ -646,28 +664,17 @@ cdef class DydxExchange(ExchangeBase):
 
             async with self._lock:
                 if is_snapshot:
-                    for market in updates.keys():
-                        data = updates[market]
-
+                    for token_id, data in updates.items():
                         padded_total_amount: str = data['wei']
-                        token_id: int = data['marketId']
-                        if token_id in self._token_configuration._symbol_lookup:
-                            token_symbol: str = self._token_configuration.get_symbol(token_id)
-                        
-                            total_amount: Decimal = self._token_configuration.unpad(padded_total_amount, token_id)        
+                        if token_id in tokens:
+                            self._set_balance_for_token(token_id, padded_total_amount)
 
-                            self._account_balances[token_symbol] = total_amount
-                            self._account_available_balances[token_symbol] = total_amount
                 elif 'balanceUpdate' in updates:
                     data = updates['balanceUpdate']
                     padded_total_amount: str = data['newWei']
                     token_id: int = data['marketId']
                     if token_id in tokens:
-                        token_symbol: str = self._token_configuration.get_symbol(token_id)
-                        total_amount: Decimal = self._token_configuration.unpad(padded_total_amount, token_id)        
-
-                        self._account_balances[token_symbol] = total_amount
-                        self._account_available_balances[token_symbol] = total_amount
+                        self._set_balance_for_token(token_id, padded_total_amount)
                 
         except Exception as e:
             self.logger().error(f"Could not set balance {repr(e)}")
@@ -742,9 +749,8 @@ cdef class DydxExchange(ExchangeBase):
                 self.logger().info(e)
 
     async def _update_balances(self):
-        wallet_address = self._dydx_auth.generate_auth_dict()['wallet_address']
-        balances_response = await self.api_request("GET", f"{BALANCES_INFO_ROUTE}".replace(':wallet',wallet_address))
-        await self._set_balances(balances_response['accounts'][0]["balances"], True)
+        current_balances = self._dydx_client.get_my_balances()
+        await self._set_balances(current_balances["balances"], True)
 
     async def _update_trading_rules(self):
         markets_info = await self.api_request("GET", f"{MARKETS_INFO_ROUTE}")

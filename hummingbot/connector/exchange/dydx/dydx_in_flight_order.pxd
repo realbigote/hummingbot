@@ -6,3 +6,4 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
         public object status
         public long long created_at
         public list fill_ids
+        public str reserved_asset

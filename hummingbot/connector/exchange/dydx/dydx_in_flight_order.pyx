@@ -42,6 +42,7 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
 
         (base, quote) = self.market.split_trading_pair(trading_pair)
         self.fee_asset = base if trade_type is TradeType.BUY else quote
+        self.reserved_asset = quote if trade_type is TradeType.BUY else base
 
     @property
     def is_done(self) -> bool:
@@ -58,6 +59,17 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
     @property
     def description(self):
         return f"{str(self.order_type).lower()} {str(self.trade_type).lower()}"
+
+    @property
+    def amount_remaining(self):
+        return self.amount - self.executed_amount_base
+
+    @property
+    def reserved_balance(self):
+        if self.trade_type is TradeType.SELL:
+            return self.amount_remaining
+        else:
+            return self.amount_remaining * self.price
 
     def to_json(self):
         return json.dumps({
