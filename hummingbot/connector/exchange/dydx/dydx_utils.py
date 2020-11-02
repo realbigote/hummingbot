@@ -24,6 +24,5 @@ def convert_to_exchange_trading_pair(hb_trading_pair: str) -> str:
 
 
 def hash_order_id(hex_str_id):
-    hex_num = int(hex_str_id, 16)
-    reduced_num = hex_num % 10e10
+    reduced_num = hash(hex_str_id)
     return reduced_num
