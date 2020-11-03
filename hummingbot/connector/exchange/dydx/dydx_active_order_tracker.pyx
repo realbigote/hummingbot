@@ -5,7 +5,6 @@ import logging
 
 import numpy as np
 import math
-from decimal import Decimal
 
 from hummingbot.logger import HummingbotLogger
 from hummingbot.core.data_type.order_book_row import ClientOrderBookRow
@@ -14,6 +13,8 @@ from hummingbot.connector.exchange.dydx.dydx_utils import hash_order_id
 
 s_empty_diff = np.ndarray(shape=(0, 4), dtype="float64")
 _ddaot_logger = None
+
+ORDER_SIZE_PRECISION = float(0.00001) 
 
 cdef class DydxActiveOrderTracker:
     def __init__(self, token_configuration, active_asks=None, active_bids=None):
@@ -64,7 +65,7 @@ cdef class DydxActiveOrderTracker:
         self._active_bids_by_id.clear()
         self._active_asks_by_id.clear()
         for bid_order in message.bids:
-            price, amount = self.get_rates_and_quantities(Decimal(bid_order["price"]), Decimal(bid_order["amount"]), message.content["market"])
+            price, amount = self.get_rates_and_quantities(float(bid_order["price"]), float(bid_order["amount"]), message.content["market"])
             level_id = hash_order_id(bid_order["id"])
             if price in self.active_bids_by_price:
                 self.active_bids_by_price[price]["totalAmount"] += amount
@@ -77,7 +78,7 @@ cdef class DydxActiveOrderTracker:
             self.active_bids_by_id[level_id] = {"price": price, "amount": amount}
 
         for ask_order in message.asks:
-            price, amount = self.get_rates_and_quantities(Decimal(ask_order["price"]), Decimal(ask_order["amount"]), message.content["market"])
+            price, amount = self.get_rates_and_quantities(float(ask_order["price"]), float(ask_order["amount"]), message.content["market"])
             level_id = hash_order_id(ask_order["id"])
             if price in self.active_asks_by_price:
                 self.active_asks_by_price[price]["totalAmount"] += amount
@@ -91,22 +92,20 @@ cdef class DydxActiveOrderTracker:
         # Return the sorted snapshot tables.
         bids_list = []
         for price in sorted(self.active_bids_by_price.keys(), reverse=True):
-            for bid_order_id in self.active_bids_by_price[price]["order_ids"]:
-                bids_list.append([
-                  message.timestamp,
-                  Decimal(price),
-                  Decimal(self.active_bids_by_id[bid_order_id]["amount"]),
-                  bid_order_id
-                ])
+            bids_list.append([
+              message.timestamp,
+              float(price),
+              float(self.active_bids_by_price[price]["totalAmount"]),
+              self.active_bids_by_price[price]["order_ids"][0]
+            ])
         asks_list = []
         for price in sorted(self.active_asks_by_price.keys(), reverse=False):
-            for ask_order_id in self.active_asks_by_price[price]["order_ids"]:
-                asks_list.append([
-                  message.timestamp,
-                  Decimal(price),
-                  Decimal(self.active_asks_by_id[ask_order_id]["amount"]),
-                  ask_order_id
-                ])
+            asks_list.append([
+              message.timestamp,
+              float(price),
+              float(self.active_asks_by_price[price]["totalAmount"]),
+              self.active_asks_by_price[price]["order_ids"][0]
+            ])
         cdef:
             np.ndarray[np.float64_t, ndim=2] bids = np.array(
                 bids_list, dtype="float64", ndmin=2)
@@ -146,23 +145,56 @@ cdef class DydxActiveOrderTracker:
 
         level_id = hash_order_id(content["id"])
         if msg_type == "NEW":
-            price = Decimal(content["price"])
-            amount = Decimal(content["amount"])
-            correct_price, correct_amount = self.get_rates_and_quantities(price, amount, market)
+            price = float(content["price"])
+            amount = float(content["amount"])
+            correct_price, preliminary_amount = self.get_rates_and_quantities(price, amount, market)
             if order_side == "BUY":
-                self.active_bids_by_id[level_id] = {"price": correct_price, "amount": correct_amount}
+                self.active_bids_by_id[level_id] = {"price": correct_price, "amount": preliminary_amount}
+
+                if correct_price in self.active_bids_by_price:
+                    self.active_bids_by_price[correct_price]["totalAmount"] += preliminary_amount
+                    correct_amount = self.active_bids_by_price[correct_price]["totalAmount"]
+                    self.active_bids_by_price[correct_price]["order_ids"].append(level_id)
+                else:
+                    correct_amount = preliminary_amount
+                    self.active_bids_by_price[correct_price] = {
+                        "totalAmount": correct_amount,
+                        "order_ids": [level_id]
+                    }
             else:
-                self.active_asks_by_id[level_id] = {"price": correct_price, "amount": correct_amount}
+                self.active_asks_by_id[level_id] = {"price": correct_price, "amount": preliminary_amount}
+                
+                if correct_price in self.active_asks_by_price:
+                    self.active_asks_by_price[correct_price]["totalAmount"] += preliminary_amount
+                    correct_amount = self.active_asks_by_price[correct_price]["totalAmount"]
+                    self.active_asks_by_price[correct_price]["order_ids"].append(level_id)
+                else:
+                    correct_amount = preliminary_amount
+                    self.active_asks_by_price[correct_price] = {
+                        "totalAmount": correct_amount,
+                        "order_ids": [level_id]
+                    }
         elif msg_type in ["UPDATED", "REMOVED"]:
             if order_side == "BUY":
                 prev_order = self.active_bids_by_id[level_id]
+                correct_price = prev_order["price"]
+                prev_order_list = self.active_bids_by_price[correct_price]
             else:
                 prev_order = self.active_asks_by_id[level_id]
-            correct_price = prev_order["price"]
+                correct_price = prev_order["price"]
+                prev_order_list = self.active_asks_by_price[correct_price]
             if msg_type == "UPDATED":
-                dummy_price, correct_amount = self.get_rates_and_quantities(correct_price, Decimal(content["amount"]), market)
+                dummy_price, preliminary_amount = self.get_rates_and_quantities(correct_price, float(content["amount"]), market)
+                prev_order_list["totalAmount"] = prev_order_list["totalAmount"] - prev_order["amount"] + preliminary_amount
+                correct_amount = prev_order_list["totalAmount"]
+                prev_order["amount"] = preliminary_amount
             else:
-                dummy_price, correct_amount = self.get_rates_and_quantities(correct_price, Decimal(0), market)
+                dummy_price, preliminary_amount = self.get_rates_and_quantities(correct_price, float(0), market)
+                prev_order_list["totalAmount"] = prev_order_list["totalAmount"] - prev_order["amount"] + preliminary_amount
+                if prev_order_list["totalAmount"] < ORDER_SIZE_PRECISION:
+                    prev_order_list["totalAmount"] = float(0)
+                correct_amount = prev_order_list["totalAmount"]
+                prev_order_list["order_ids"].remove(level_id)
 
         if correct_price is not None:
             if order_side == "BUY":
