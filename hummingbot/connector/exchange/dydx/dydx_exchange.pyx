@@ -251,10 +251,10 @@ cdef class DydxExchange(ExchangeBase):
     # Account Balances
 
     cdef object c_get_balance(self, str currency):
-        return self._account_balances[currency]
+        return self._account_balances.get(currency, Decimal(0))
 
     cdef object c_get_available_balance(self, str currency):
-        return self._account_available_balances[currency]
+        return self._account_available_balances.get(currency, Decimal(0))
 
     # ==========================================================
     # Order Submission
@@ -286,13 +286,13 @@ cdef class DydxExchange(ExchangeBase):
         if order_type is OrderType.LIMIT_MAKER:
             post_only=True
 
-        return self._dydx_client.place_orer(
+        return self._dydx_client.place_order(
           market=trading_pair,
           side=order_side,
           amount=order_details["amount"],
           price=order_details["price"],
-          killOrFill=False,
-          post_only=post_only,
+          fillOrKill=False,
+          postOnly=post_only,
         )
 
     async def execute_order(self, order_side, client_order_id, trading_pair, amount, order_type, price):
@@ -305,23 +305,23 @@ cdef class DydxExchange(ExchangeBase):
         price = self.c_quantize_order_price(trading_pair, price)
 
         # Check trading rules
-        if order_type == OrderType.LIMIT:
+        if order_type.is_limit_type():
             trading_rule = self._trading_rules[f"{trading_pair}-limit"]
             if amount < trading_rule.min_order_size:
                 amount = s_decimal_0
         elif order_type == OrderType.MARKET:
             trading_rule = self._trading_rules[f"{trading_pair}-market"]
-        if order_type == OrderType.LIMIT and trading_rule.supports_limit_orders is False:
+        if order_type.is_limit_type() and trading_rule.supports_limit_orders is False:
             raise ValueError("LIMIT orders are not supported")
         elif order_type == OrderType.MARKET and trading_rule.supports_market_orders is False:
             raise ValueError("MARKET orders are not supported")
 
-        #if amount < trading_rule.min_order_size:
-        #    raise ValueError(f"Order amount({str(amount)}) is less than the minimum allowable amount({str(trading_rule.min_order_size)})")
+        if amount < trading_rule.min_order_size:
+            raise ValueError(f"Order amount({str(amount)}) is less than the minimum allowable amount({str(trading_rule.min_order_size)})")
         if amount > trading_rule.max_order_size:
-            raise ValueError(f"Order amount({str(amount)}) is greater than the maximum allowable amount({str(trading_rule.max_order_size)})")
-        #if amount*price < trading_rule.min_notional_size:
-        #    raise ValueError(f"Order notional value({str(amount*price)}) is less than the minimum allowable notional value for an order ({str(trading_rule.min_notional_size)})")
+           raise ValueError(f"Order amount({str(amount)}) is greater than the maximum allowable amount({str(trading_rule.max_order_size)})")
+        f amount*price < trading_rule.min_notional_size:
+            raise ValueError(f"Order notional value({str(amount*price)}) is less than the minimum allowable notional value for an order ({str(trading_rule.min_notional_size)})")
 
         try:
             created_at: int = int(time.time())
@@ -340,11 +340,12 @@ cdef class DydxExchange(ExchangeBase):
             if "order" not in creation_response.keys():
                 raise Exception(creation_response['errors'][0]['msg'])
 
-            status = creation_response["order"]["status"]
+            order = creation_response["order"]
+            status = order["status"]
             if status not in ['PENDING', 'OPEN']:
                 raise Exception(status)
 
-            dydx_order_id = create_response["data"]["id"]
+            dydx_order_id = order["id"]
             in_flight_order.update_exchange_order_id(dydx_order_id)
 
             # Begin tracking order
@@ -354,8 +355,7 @@ cdef class DydxExchange(ExchangeBase):
         except Exception as e:
             self.logger().warning(f"Error submitting {order_side.name} {order_type.name} order to dydx for "
                                   f"{amount} {trading_pair} at {price}.")
-            self.logger().info(e)
-            traceback.print_exc()
+            self.logger().info(e, exc_info=True)
 
             # Stop tracking this order
             self.stop_tracking(client_order_id)
@@ -563,11 +563,14 @@ cdef class DydxExchange(ExchangeBase):
         self._reserved_balances[in_flight_order.reserved_asset] = old_reserved + in_flight_order.reserved_balance
 
     def stop_tracking(self, client_order_id):
+        in_flight_order = self._in_flight_orders.get(client_order_id)
+        if in_flight_order is None:
+            return
+        old_reserved = self._reserved_balances.get(in_flight_order.reserved_asset, Decimal(0))
+        self._reserved_balances[in_flight_order.reserved_asset] = old_reserved - in_flight_order.reserved_balance
         if client_order_id in self._in_flight_orders:
             del self._in_flight_orders[client_order_id]
 
-        old_reserved = self._reserved_balances.get(in_flight_order.reserved_asset, Decimal(0))
-        self._reserved_balances[in_flight_order.reserved_asset] = old_reserved - in_flight_order.reserved_balance
         
 
     # ----------------------------------------
@@ -647,37 +650,35 @@ cdef class DydxExchange(ExchangeBase):
 
                 self.c_stop_tracking_order(tracked_order.client_order_id)
 
-    def _set_balance_for_token(self, token_id: int, padded_total_amount: str):
+    def _set_balance_for_token(self, token_str: str, padded_total_amount: str):
+        token_id = int(token_str)
         token_symbol: str = self._token_configuration.get_symbol(token_id)
+        if token_symbol is None:
+            return
         total_amount: Decimal = self._token_configuration.unpad(padded_total_amount, token_id)        
 
         self._account_balances[token_symbol] = total_amount
-        reserved_balance = self.reserved_balance.get(token_symbol, Decimal(0))
+        reserved_balance = self._reserved_balances.get(token_symbol, Decimal(0))
         self._account_available_balances[token_symbol] = total_amount - reserved_balance
 
     async def _set_balances(self, updates, is_snapshot=False):
         try:
-            tokens = set(self.token_configuration.get_tokens())
-            if len(tokens) == 0:
+            if len(self.token_configuration.get_tokens()) == 0:
                 await self.token_configuration._configure()
-                tokens = set(self.token_configuration.get_tokens())
-
             async with self._lock:
                 if is_snapshot:
                     for token_id, data in updates.items():
                         padded_total_amount: str = data['wei']
-                        if token_id in tokens:
-                            self._set_balance_for_token(token_id, padded_total_amount)
+                        self._set_balance_for_token(token_id, padded_total_amount)
 
                 elif 'balanceUpdate' in updates:
                     data = updates['balanceUpdate']
                     padded_total_amount: str = data['newWei']
                     token_id: int = data['marketId']
-                    if token_id in tokens:
-                        self._set_balance_for_token(token_id, padded_total_amount)
+                    self._set_balance_for_token(token_id, padded_total_amount)
                 
         except Exception as e:
-            self.logger().error(f"Could not set balance {repr(e)}")
+            self.logger().error(f"Could not set balance {repr(e)}", exc_info=True)
 
     # ----------------------------------------
     # User stream updates

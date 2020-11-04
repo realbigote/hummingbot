@@ -46,11 +46,10 @@ class DydxAPITokenConfigurationDataSource():
 
             response_dict: Dict[str, Any] = await response.json()
 
-            for market in response_dict['markets']:
-                details = response_dict['markets'][market]
+            for market, details in response_dict['markets'].items():
                 if "baseCurrency" in details:
-                    self._token_configurations[details['baseCurrency']['currency']] = details['baseCurrency']
-                    self._token_configurations[details['quoteCurrency']['currency']] = details['quoteCurrency']
+                    self._token_configurations[details['baseCurrency']['soloMarketId']] = details['baseCurrency']
+                    self._token_configurations[details['quoteCurrency']['soloMarketId']] = details['quoteCurrency']
                     self._tokenid_lookup[details['baseCurrency']['currency']] = details['baseCurrency']['soloMarketId']
                     self._tokenid_lookup[details['quoteCurrency']['currency']] = details['quoteCurrency']['soloMarketId']
                     self._symbol_lookup[details['baseCurrency']['soloMarketId']] = details['baseCurrency']['currency']
@@ -81,10 +80,6 @@ class DydxAPITokenConfigurationDataSource():
         based on the "decimals" setting from the token configuration for the referenced token
         """
         return str(Decimal(volume) // self._decimals[tokenid])
-
-    def get_config(self, tokenid: int) -> Dict[str, Any]:
-        """ Returns the token configuration for the referenced token id """
-        return self._token_configurations.get(tokenid)
 
     def get_tokens(self) -> List[int]:
         return list(self._token_configurations.keys())
