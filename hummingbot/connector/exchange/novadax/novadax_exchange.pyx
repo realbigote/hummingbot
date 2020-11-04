@@ -7,6 +7,7 @@ from aiokafka import (
 )
 import asyncio
 from async_timeout import timeout
+import copy
 from novadax import RequestClient as NovaClient
 from decimal import Decimal
 from functools import partial
@@ -56,6 +57,7 @@ from hummingbot.core.data_type.order_book cimport OrderBook
 from hummingbot.connector.exchange.novadax.novadax_order_book_tracker import NovadaxOrderBookTracker
 from hummingbot.connector.exchange.novadax.novadax_user_stream_tracker import NovadaxUserStreamTracker
 from hummingbot.connector.exchange.novadax.novadax_in_flight_order import NovadaxInFlightOrder
+from hummingbot.connector.exchange.novadax.novadax_utils import convert_to_exchange_trading_pair, convert_from_exchange_trading_pair
 from hummingbot.core.data_type.user_stream_tracker import UserStreamTrackerDataSourceType
 from hummingbot.core.data_type.cancellation_result import CancellationResult
 from hummingbot.core.data_type.transaction_tracker import TransactionTracker
@@ -111,20 +113,16 @@ cdef class NovadaxExchange(ExchangeBase):
                  novadax_api_key: str = None,
                  novadax_api_secret: str = None,
                  novadax_uid: str = None,
-                 order_book_tracker_data_source_type: OrderBookTrackerDataSourceType =
-                 OrderBookTrackerDataSourceType.EXCHANGE_API,
-                 user_stream_tracker_data_source_type: UserStreamTrackerDataSourceType =
-                 UserStreamTrackerDataSourceType.EXCHANGE_API,
+                 poll_interval: float = 5.0,
                  trading_pairs: Optional[List[str]] = None,
                  trading_required: bool = True):
 
         super().__init__()
+        self._real_time_balance_update = False
         self._trading_required = trading_required
-        self._order_book_tracker = NovadaxOrderBookTracker(data_source_type=order_book_tracker_data_source_type,
-                                                           trading_pairs=trading_pairs)
+        self._order_book_tracker = NovadaxOrderBookTracker(trading_pairs=trading_pairs)
         self._novadax_client = NovaClient(novadax_api_key, novadax_api_secret)
-        self._user_stream_tracker = NovadaxUserStreamTracker(
-            data_source_type=user_stream_tracker_data_source_type, novadax_client=self._novadax_client, novadax_uid=novadax_uid)
+        self._user_stream_tracker = NovadaxUserStreamTracker(novadax_client=self._novadax_client, novadax_uid=novadax_uid)
         self._ev_loop = asyncio.get_event_loop()
         self._poll_notifier = asyncio.Event()
         self._last_timestamp = 0
@@ -133,7 +131,6 @@ cdef class NovadaxExchange(ExchangeBase):
         self._tx_tracker = NovadaxExchangeTransactionTracker(self)
         self._trading_rules = {}  # Dict[trading_pair:str, TradingRule]
         self._last_update_trade_fees_timestamp = 0
-        self._data_source_type = order_book_tracker_data_source_type
         self._status_polling_task = None
         self._user_stream_event_listener_task = None
         self._trading_rules_polling_task = None
@@ -220,7 +217,7 @@ cdef class NovadaxExchange(ExchangeBase):
 
         for balance_entry in account_balances["data"]:
             asset_name = balance_entry["currency"]
-            available_balance = Decimal(balance_entry["available"])
+            available_balance = Decimal(balance_entry["available"]) # FIXME: is this correct? It looks like "balance" is the available balance and "available" is the total
             total_balance = available_balance + Decimal(balance_entry["hold"]) 
             self._account_available_balances[asset_name] = available_balance
             self._account_balances[asset_name] = total_balance
@@ -230,6 +227,9 @@ cdef class NovadaxExchange(ExchangeBase):
         for asset_name in asset_names_to_remove:
             del self._account_available_balances[asset_name]
             del self._account_balances[asset_name]
+
+        self._in_flight_orders_snapshot = {k: copy.copy(v) for k, v in self._in_flight_orders.items()}
+        self._in_flight_orders_snapshot_timestamp = self._current_timestamp
 
     cdef object c_get_fee(self,
                           str base_currency,
@@ -297,7 +297,7 @@ cdef class NovadaxExchange(ExchangeBase):
             list retval = []
         for rule in trading_pair_rules:
             try:
-                trading_pair = rule.get("symbol")
+                trading_pair = convert_from_exchange_trading_pair(rule.get("symbol"))
 
                 min_order_size = Decimal(rule.get("minOrderAmount"))
                 min_price_increment = Decimal(f"1e-{rule.get('pricePrecision')}")
@@ -319,6 +319,13 @@ cdef class NovadaxExchange(ExchangeBase):
             except Exception:
                 self.logger().error(f"Error parsing the trading pair rule {rule}. Skipping.", exc_info=True)
         return retval
+
+    @property
+    def in_flight_orders(self) -> Dict[str, NovadaxInFlightOrder]:
+        return self._in_flight_orders
+
+    def supported_order_types(self):
+        return [OrderType.LIMIT, OrderType.MARKET]
 
     async def _update_order_status(self):
         cdef:
@@ -414,29 +421,6 @@ cdef class NovadaxExchange(ExchangeBase):
                                                  ))
                     self.c_stop_tracking_order(client_order_id)
 
-    async def _iter_kafka_messages(self, topic: str) -> AsyncIterable[ConsumerRecord]:
-        while True:
-            try:
-                consumer = AIOKafkaConsumer(topic, loop=self._ev_loop, bootstrap_servers=conf.kafka_bootstrap_server)
-                await consumer.start()
-                partition = list(consumer.assignment())[0]
-                await consumer.seek_to_end(partition)
-
-                while True:
-                    response = await consumer.getmany(partition, timeout_ms=1000)
-                    if partition in response:
-                        for record in response[partition]:
-                            yield record
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                self.logger().network(
-                    "Unknown error. Retrying after 5 seconds.",
-                    exc_info=True,
-                    app_warning_msg="Could not fetch message from Kafka. Check network connection."
-                )
-                await asyncio.sleep(5.0)
-
     async def _iter_user_event_queue(self) -> AsyncIterable[Dict[str, any]]:
         while True:
             try:
@@ -491,7 +475,7 @@ cdef class NovadaxExchange(ExchangeBase):
                                                                   tracked_order.trade_type,
                                                                   tracked_order.order_type,
                                                                   tracked_order.price,
-                                                                  tracked_order.executed_amount_base,
+                                                                  tracked_order.executed_amount_base, # WOW! FIXME, this repeatedly reports fills for multi-parted filled orders
                                                                   tracked_order.fee_paid,
                                                                   tracked_order.exchange_order_id))
                         else:
@@ -682,7 +666,7 @@ cdef class NovadaxExchange(ExchangeBase):
                           price: Optional[Decimal] = s_decimal_NaN):
         cdef:
             TradingRule trading_rule = self._trading_rules[trading_pair]
-            object m = trading_pair.split("_")
+            object m = self.split_trading_pair(trading_pair)
             str base_currency = m[0]
             str quote_currency = m[1]
             object buy_fee = self.c_get_fee(base_currency, quote_currency, order_type, TradeType.BUY, amount, price)
