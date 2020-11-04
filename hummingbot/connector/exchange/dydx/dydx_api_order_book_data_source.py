@@ -183,9 +183,10 @@ class DydxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     async for raw_msg in self._inner_messages(ws):
                         msg = ujson.loads(raw_msg)
                         if "contents" in msg:
-                            for datum in msg["contents"]["trades"]:
-                                trade_msg: OrderBookMessage = DydxOrderBook.trade_message_from_exchange(datum, msg)
-                                output.put_nowait(trade_msg)
+                            if "trades" in msg["contents"]:
+                                for datum in msg["contents"]["trades"]:
+                                    trade_msg: OrderBookMessage = DydxOrderBook.trade_message_from_exchange(datum, msg)
+                                    output.put_nowait(trade_msg)
             except asyncio.CancelledError:
                 raise
             except Exception:

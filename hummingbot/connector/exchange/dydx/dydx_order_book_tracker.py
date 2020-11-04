@@ -54,8 +54,7 @@ class DydxOrderBookTracker(OrderBookTracker):
         self._ev_loop: asyncio.BaseEventLoop = asyncio.get_event_loop()
         self._dydx_auth = DydxAuth(dydx_auth)
         self._token_configuration: DydxAPITokenConfigurationDataSource = token_configuration
-        self.token_configuration
-        self._active_order_trackers: Dict[str, DydxActiveOrderTracker] = defaultdict(lambda: DydxActiveOrderTracker(self._token_configuration))
+        self._active_order_trackers: Dict[str, DydxActiveOrderTracker] = defaultdict(lambda: DydxActiveOrderTracker(self.token_configuration))
 
     @property
     def token_configuration(self) -> DydxAPITokenConfigurationDataSource:

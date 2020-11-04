@@ -165,7 +165,7 @@ cdef class DydxExchange(ExchangeBase):
             trading_pairs=trading_pairs,
             rest_api_url=self.API_REST_ENDPOINT,
             websocket_url=self.WS_ENDPOINT,
-            token_configuration = self._token_configuration
+            token_configuration = self.token_configuration
         )        
         self._user_stream_tracker = DydxUserStreamTracker(
             orderbook_tracker_data_source=self._order_book_tracker.data_source,

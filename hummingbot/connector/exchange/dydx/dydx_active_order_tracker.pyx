@@ -190,11 +190,12 @@ cdef class DydxActiveOrderTracker:
                 prev_order["amount"] = preliminary_amount
             else:
                 dummy_price, preliminary_amount = self.get_rates_and_quantities(correct_price, float(0), market)
-                prev_order_list["totalAmount"] = prev_order_list["totalAmount"] - prev_order["amount"] + preliminary_amount
-                if prev_order_list["totalAmount"] < ORDER_SIZE_PRECISION:
-                    prev_order_list["totalAmount"] = float(0)
-                correct_amount = prev_order_list["totalAmount"]
-                prev_order_list["order_ids"].remove(level_id)
+                if level_id in prev_order_list["order_ids"]:
+                    prev_order_list["totalAmount"] = prev_order_list["totalAmount"] - prev_order["amount"] + preliminary_amount
+                    if prev_order_list["totalAmount"] < ORDER_SIZE_PRECISION:
+                        prev_order_list["totalAmount"] = float(0)
+                    prev_order_list["order_ids"].remove(level_id)
+                correct_amount = prev_order_list["totalAmount"]    
 
         if correct_price is not None:
             if order_side == "BUY":
