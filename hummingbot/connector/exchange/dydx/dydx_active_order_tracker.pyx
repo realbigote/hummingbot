@@ -176,14 +176,23 @@ cdef class DydxActiveOrderTracker:
                     }
         elif msg_type in ["UPDATED", "REMOVED"]:
             if order_side == "BUY":
-                prev_order = self.active_bids_by_id[level_id]
+                try:
+                    prev_order = self.active_bids_by_id[level_id]
+                except:
+                    self.logger().warning("Unrecognized order id")
+                    raise
                 correct_price = prev_order["price"]
                 prev_order_list = self.active_bids_by_price[correct_price]
             else:
-                prev_order = self.active_asks_by_id[level_id]
+                try:
+                    prev_order = self.active_asks_by_id[level_id]
+                except:
+                    self.logger().warning("Unrecognized order id")
+                    raise
                 correct_price = prev_order["price"]
                 prev_order_list = self.active_asks_by_price[correct_price]
             if msg_type == "UPDATED":
+                self.logger().warning(f"{content}")
                 dummy_price, preliminary_amount = self.get_rates_and_quantities(correct_price, float(content["amount"]), market)
                 prev_order_list["totalAmount"] = prev_order_list["totalAmount"] - prev_order["amount"] + preliminary_amount
                 correct_amount = prev_order_list["totalAmount"]

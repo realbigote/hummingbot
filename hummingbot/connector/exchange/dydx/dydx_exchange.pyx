@@ -320,7 +320,7 @@ cdef class DydxExchange(ExchangeBase):
             raise ValueError(f"Order amount({str(amount)}) is less than the minimum allowable amount({str(trading_rule.min_order_size)})")
         if amount > trading_rule.max_order_size:
            raise ValueError(f"Order amount({str(amount)}) is greater than the maximum allowable amount({str(trading_rule.max_order_size)})")
-        f amount*price < trading_rule.min_notional_size:
+        if amount*price < trading_rule.min_notional_size:
             raise ValueError(f"Order notional value({str(amount*price)}) is less than the minimum allowable notional value for an order ({str(trading_rule.min_notional_size)})")
 
         try:
@@ -652,10 +652,10 @@ cdef class DydxExchange(ExchangeBase):
 
     def _set_balance_for_token(self, token_str: str, padded_total_amount: str):
         token_id = int(token_str)
-        token_symbol: str = self._token_configuration.get_symbol(token_id)
+        token_symbol: str = self.token_configuration.get_symbol(token_id)
         if token_symbol is None:
             return
-        total_amount: Decimal = self._token_configuration.unpad(padded_total_amount, token_id)        
+        total_amount: Decimal = self.token_configuration.unpad(padded_total_amount, token_id)        
 
         self._account_balances[token_symbol] = total_amount
         reserved_balance = self._reserved_balances.get(token_symbol, Decimal(0))
