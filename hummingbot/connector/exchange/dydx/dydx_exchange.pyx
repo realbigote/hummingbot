@@ -19,6 +19,7 @@ from decimal import *
 from libc.stdint cimport int64_t
 
 from dydx.client import Client as DYDXClient
+from dydx.exceptions import DydxAPIError
 import dydx.constants as consts
 import dydx.util as utils
 
@@ -95,7 +96,7 @@ MARKETS_INFO_ROUTE = "v2/markets"
 ORDER_ROUTE = "v2/orders"
 ORDER_CANCEL_ROUTE = "v2/orders"
 #MAXIMUM_FILL_COUNT = 16
-#UNRECOGNIZED_ORDER_DEBOUCE = 20  # seconds
+UNRECOGNIZED_ORDER_DEBOUCE = 20  # seconds
 MANUAL_AMOUNT_INC = Decimal('0.00000000001')
 
 class LatchingEventResponder(EventListener):
@@ -420,22 +421,22 @@ cdef class DydxExchange(ExchangeBase):
 
         if in_flight_order is None:
             self.c_trigger_event(ORDER_CANCELLED_EVENT, cancellation_event)
-            return
-
-        try:            
-            res = await self._dydx_client.cancel_order(exchange_order_id)
-            
-            if "errors" in res:
-                # TODO: Verify what happens if we try to cancel an order before it fully exists (we have a response from place order)
-                # If this says that it doesn't exist, don't stop tracking this order until X time has passed
-                if res["errors"][0]["msg"] == f"Order with specified id: {exchange_order_id} could not be found":
-                # Order didn't exist on exchange, mark this as canceled
-                    self.c_trigger_event(ORDER_CANCELLED_EVENT,cancellation_event)
-                else:
-                    raise Exception(f"Cancel order returned {res}")
-            
             return True
 
+        try:            
+            res = self._dydx_client.cancel_order(exchange_order_id)
+            return True
+
+        except DydxAPIError as e:
+            # TODO: Verify what happens if we try to cancel an order before it fully exists (we have a response from place order)
+            # If this says that it doesn't exist, don't stop tracking this order until X time has passed
+            if f"Order with specified id: {exchange_order_id} could not be found" in str(e):
+                # Order didn't exist on exchange, mark this as canceled
+                self.c_trigger_event(ORDER_CANCELLED_EVENT,cancellation_event)
+                self.c_stop_tracking_order(in_flight_order.client_order_id)
+                return True
+            else:
+                return False
         except Exception as e:
             self.logger().warning(f"Failed to cancel order {client_order_id}")
             self.logger().info(e)
@@ -708,7 +709,7 @@ cdef class DydxExchange(ExchangeBase):
                 elif topic == 'orders':
                     exchange_order_id: str = data['order']['id']
 
-                    for o in self._in_flight_orders:
+                    for o in self._in_flight_orders.values(): #TODO: add lookup by exchange order id
                         if o.exchange_order_id == exchange_order_id:
                             tracked_order: DydxInFlightOrder = o
                             break
@@ -808,16 +809,18 @@ cdef class DydxExchange(ExchangeBase):
                         pass
                 continue 
 
+            dydx_order_request = None
             try:
-                dydx_order_request = await self.api_request("GET", f"{MAINNET_API_REST_ENDPOINT}{GET_ORDER_ROUTE}/{dydx_order_id}")
+                dydx_order_request = self._dydx_client.get_order(dydx_order_id)
                 data = dydx_order_request["order"]
-            except Exception:
+            except Exception as e:
                 self.logger().warning(f"Failed to fetch tracked dydx order " \
-                                      f"{client_order_id }({tracked_order.exchange_order_id}) from api (code: {dydx_order_request['resultInfo']['code']})")
+                                      f"{client_order_id }({tracked_order.exchange_order_id}) from api "\
+                                      f"(code: {dydx_order_request['resultInfo']['code'] if dydx_order_request is not None else 'None'})")
 
                 # check if this error is because the api cliams to be unaware of this order. If so, and this order
                 # is reasonably old, mark the orde as cancelled
-                if "error" in dydx_order_request:
+                if "could not be found" in str(msg):
                     if tracked_order.created_at < (int(time.time()) - UNRECOGNIZED_ORDER_DEBOUCE):
                         self.logger().warning(f"marking {client_order_id} as cancelled")
                         cancellation_event = OrderCancelledEvent(now(), client_order_id)

@@ -50,11 +50,11 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
 
     @property
     def is_cancelled(self) -> bool:
-        return self.status == DydxOrderStatus.CANCELED
+        return self.status in [DydxOrderStatus.CANCELED, DydxOrderStatus.expired]
 
     @property
     def is_failure(self) -> bool:
-        return self.status >= DydxOrderStatus.FAILED
+        return self.status >= DydxOrderStatus.failed
 
     @property
     def description(self):
@@ -143,7 +143,7 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
         #fee_currency_id: int = self.market.token_configuration.get_tokenid(self.fee_asset)
 
         new_status: DydxOrderStatus = DydxOrderStatus[data["status"]]
-        filled_amount = self.market.token_configuration.unpad(data["filled"],base_id)
+        filled_amount = self.market.token_configuration.unpad(data["filledAmount"],base_id)
 
         new_executed_amount_quote: Decimal = 0
         new_executed_amount_base: Decimal = 0
@@ -175,14 +175,16 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
 
             events.append((MarketEvent.OrderFilled, diff_base, price, 0))
 
-        if not self.is_done and new_status == DydxOrderStatus.cancelled:
-            events.append((MarketEvent.OrderCancelled, None, None, None))
-
-        if not self.is_done and new_status == DydxOrderStatus.expired:
-            events.append((MarketEvent.OrderExpired, None, None, None))
-
-        if not self.is_done and new_status == DydxOrderStatus.failed:
-            events.append( (MarketEvent.OrderFailure, None, None, None) )
+        if not self.is_done and new_status == DydxOrderStatus.CANCELED:
+            reason = data.get('cancelReason')
+            if reason is None and reason == "EXPIRED":
+                events.append((MarketEvent.OrderExpired, None, None, None))
+                new_status = DydxOrderStatus.expired
+            elif reason is None and reason in ["UNDERCOLLATERALIZED", "FAILED"]:
+                events.append( (MarketEvent.OrderFailure, None, None, None) )
+                new_status = DydxOrderStatus.failed
+            else:
+                events.append((MarketEvent.OrderCancelled, None, None, None))
 
         self.status = new_status
         self.last_state = str(new_status)
