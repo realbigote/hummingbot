@@ -192,7 +192,6 @@ cdef class DydxActiveOrderTracker:
                 correct_price = prev_order["price"]
                 prev_order_list = self.active_asks_by_price[correct_price]
             if msg_type == "UPDATED":
-                self.logger().warning(f"{content}")
                 dummy_price, preliminary_amount = self.get_rates_and_quantities(correct_price, float(content["amount"]), market)
                 prev_order_list["totalAmount"] = prev_order_list["totalAmount"] - prev_order["amount"] + preliminary_amount
                 correct_amount = prev_order_list["totalAmount"]
