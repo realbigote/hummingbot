@@ -69,6 +69,15 @@ s_logger = None
 s_decimal_0 = Decimal(0)
 s_decimal_NaN = Decimal("NaN")
 
+BUY_ORDER_COMPLETED_EVENT = MarketEvent.BuyOrderCompleted.value
+SELL_ORDER_COMPLETED_EVENT = MarketEvent.SellOrderCompleted.value
+ORDER_CANCELLED_EVENT = MarketEvent.OrderCancelled.value
+ORDER_EXPIRED_EVENT = MarketEvent.OrderExpired.value
+ORDER_FILLED_EVENT = MarketEvent.OrderFilled.value
+ORDER_FAILURE_EVENT = MarketEvent.OrderFailure.value
+BUY_ORDER_CREATED_EVENT = MarketEvent.BuyOrderCreated.value
+SELL_ORDER_CREATED_EVENT = MarketEvent.SellOrderCreated.value
+
 cdef class NovadaxExchangeTransactionTracker(TransactionTracker):
     cdef:
         NovadaxExchange _owner
@@ -83,16 +92,6 @@ cdef class NovadaxExchangeTransactionTracker(TransactionTracker):
 
 
 cdef class NovadaxExchange(ExchangeBase):
-    MARKET_RECEIVED_ASSET_EVENT_TAG = MarketEvent.ReceivedAsset.value
-    MARKET_BUY_ORDER_COMPLETED_EVENT_TAG = MarketEvent.BuyOrderCompleted.value
-    MARKET_SELL_ORDER_COMPLETED_EVENT_TAG = MarketEvent.SellOrderCompleted.value
-    MARKET_ORDER_CANCELLED_EVENT_TAG = MarketEvent.OrderCancelled.value
-    MARKET_TRANSACTION_FAILURE_EVENT_TAG = MarketEvent.TransactionFailure.value
-    MARKET_ORDER_FAILURE_EVENT_TAG = MarketEvent.OrderFailure.value
-    MARKET_ORDER_FILLED_EVENT_TAG = MarketEvent.OrderFilled.value
-    MARKET_BUY_ORDER_CREATED_EVENT_TAG = MarketEvent.BuyOrderCreated.value
-    MARKET_SELL_ORDER_CREATED_EVENT_TAG = MarketEvent.SellOrderCreated.value
-
     API_CALL_TIMEOUT = 10.0
     SHORT_POLL_INTERVAL = 5.0
     UPDATE_ORDER_STATUS_MIN_INTERVAL = 10.0
@@ -127,16 +126,14 @@ cdef class NovadaxExchange(ExchangeBase):
         self._poll_notifier = asyncio.Event()
         self._last_timestamp = 0
         self._in_flight_orders = {}  # Dict[client_order_id:str, novadaxInFlightOrder]
+        self._in_flight_orders_by_exchange_id = {} # Dict[exchange_id:str, novadaxInFlightOrder]
         self._order_not_found_records = {}  # Dict[client_order_id:str, count:int]
         self._tx_tracker = NovadaxExchangeTransactionTracker(self)
         self._trading_rules = {}  # Dict[trading_pair:str, TradingRule]
-        self._last_update_trade_fees_timestamp = 0
         self._status_polling_task = None
         self._user_stream_event_listener_task = None
         self._trading_rules_polling_task = None
-        self._async_scheduler = AsyncCallScheduler(call_interval=0.5)
         self._last_poll_timestamp = 0
-        self._throttler = Throttler((10.0, 1.0))
 
     @property
     def name(self) -> str:
@@ -189,21 +186,76 @@ cdef class NovadaxExchange(ExchangeBase):
     async def get_active_exchange_markets(self) -> pd.DataFrame:
         return await NovadaxAPIOrderBookDataSource.get_active_exchange_markets()
 
-    async def schedule_async_call(
-            self,
-            coro: Coroutine,
-            timeout_seconds: float,
-            app_warning_msg: str = "novadax API call failed. Check API key and network connection.") -> any:
-        return await self._async_scheduler.schedule_async_call(coro, timeout_seconds, app_warning_msg=app_warning_msg)
+    # ----------------------------------------
+    # updates to orders and balances
 
-    async def query_url(self, url, request_weight: int = 1) -> any:
-        async with self._throttler.weighted_task(request_weight=request_weight):
-            async with aiohttp.ClientSession() as client:
-                async with client.get(url, timeout=self.API_CALL_TIMEOUT) as response:
-                    if response.status != 200:
-                        raise IOError(f"Error fetching data from {url}. HTTP status is {response.status}.")
-                    data = await response.json()
-                    return data
+    def _update_inflight_order(self, tracked_order: NovadaxInFlightOrder, event: Dict[str, Any]):
+        issuable_events: List[MarketEvent] = tracked_order.update(event)
+
+        # Issue relevent events
+        for (market_event, new_amount, new_price, new_fee) in issuable_events:
+            if market_event == MarketEvent.OrderFilled:
+                self.c_trigger_event(ORDER_FILLED_EVENT,
+                                     OrderFilledEvent(self._current_timestamp,
+                                                      tracked_order.client_order_id,
+                                                      tracked_order.trading_pair,
+                                                      tracked_order.trade_type,
+                                                      tracked_order.order_type,
+                                                      new_price,
+                                                      new_amount,
+                                                      TradeFee(Decimal(0), [(tracked_order.fee_asset, new_fee)]),
+                                                      tracked_order.client_order_id))
+            elif market_event == MarketEvent.OrderCancelled:
+                self.logger().info(f"Successfully cancelled order {tracked_order.client_order_id}")
+                self.stop_tracking(tracked_order.client_order_id)
+                self.c_trigger_event(ORDER_CANCELLED_EVENT,
+                                     OrderCancelledEvent(self._current_timestamp,
+                                                         tracked_order.client_order_id))
+            elif market_event == MarketEvent.OrderFailure:
+                self.c_trigger_event(ORDER_FAILURE_EVENT,
+                                     MarketOrderFailureEvent(self._current_timestamp,
+                                                             tracked_order.client_order_id,
+                                                             tracked_order.order_type))
+
+            # Complete the order if relevent
+            if tracked_order.is_done:
+                if not tracked_order.is_failure:
+                    if tracked_order.trade_type is TradeType.BUY:
+                        self.logger().info(f"The market buy order {tracked_order.client_order_id} has completed ")
+                        self.c_trigger_event(BUY_ORDER_COMPLETED_EVENT,
+                                             BuyOrderCompletedEvent(self._current_timestamp,
+                                                                    tracked_order.client_order_id,
+                                                                    tracked_order.base_asset,
+                                                                    tracked_order.quote_asset,
+                                                                    tracked_order.fee_asset,
+                                                                    tracked_order.executed_amount_base,
+                                                                    tracked_order.executed_amount_quote,
+                                                                    tracked_order.fee_paid,
+                                                                    tracked_order.order_type))
+                    else:
+                        self.logger().info(f"The market sell order {tracked_order.client_order_id} has completed ")
+                        self.c_trigger_event(SELL_ORDER_COMPLETED_EVENT,
+                                             SellOrderCompletedEvent(self._current_timestamp,
+                                                                     tracked_order.client_order_id,
+                                                                     tracked_order.base_asset,
+                                                                     tracked_order.quote_asset,
+                                                                     tracked_order.fee_asset,
+                                                                     tracked_order.executed_amount_base,
+                                                                     tracked_order.executed_amount_quote,
+                                                                     tracked_order.fee_paid,
+                                                                     tracked_order.order_type))
+                else:
+                    # check if its a cancelled order
+                    # if its a cancelled order, check in flight orders
+                    # if present in in flight orders issue cancel and stop tracking order
+                    if tracked_order.is_cancelled:
+                        if tracked_order.client_order_id in self._in_flight_orders:
+                            self.logger().info(f"Successfully cancelled order {tracked_order.client_order_id}.")
+                    else:
+                        self.logger().info(f"The market order {tracked_order.client_order_id} has failed according to "
+                                           f"order status API.")
+
+                self.c_stop_tracking_order(tracked_order.client_order_id)
 
     async def _update_balances(self):
         cdef:
@@ -338,12 +390,9 @@ cdef class NovadaxExchange(ExchangeBase):
         if current_tick > last_tick and len(self._in_flight_orders) > 0:
             tracked_orders = list(self._in_flight_orders.values())
             self.logger().debug("Polling for order status updates of %d orders.", len(tracked_orders))
-            results = [self._novadax_client.get_order(o.exchange_order_id) for o in tracked_orders]
-            for order_details, tracked_order in zip(results, tracked_orders):
+            for tracked_order in tracked_orders:
+                order_details = self._novadax_client.get_order(tracked_order.exchange_id)
                 client_order_id = tracked_order.client_order_id
-                # If the order has already been cancelled or has failed do nothing
-                if client_order_id not in self._in_flight_orders:
-                    continue
 
                 if isinstance(order_details, Exception):
                     if order_details.message == "Order not found":
@@ -354,7 +403,7 @@ cdef class NovadaxExchange(ExchangeBase):
                             # it as failed. See: https://github.com/CoinAlpha/hummingbot/issues/601
                             continue
                         self.c_trigger_event(
-                            self.MARKET_ORDER_FAILURE_EVENT_TAG,
+                            ORDER_FAILURE_EVENT,
                             MarketOrderFailureEvent(self._current_timestamp, client_order_id, tracked_order.order_type)
                         )
                         self.c_stop_tracking_order(client_order_id)
@@ -366,60 +415,7 @@ cdef class NovadaxExchange(ExchangeBase):
                     continue
 
                 # Update order execution status
-                tracked_order.last_state = order_details["data"]["status"]
-                order_type = OrderType.LIMIT if order_details["data"]["type"] == "LIMIT" else OrderType.MARKET
-                executed_amount_base = Decimal(order_details["data"]["filledAmount"])
-                executed_amount_quote = Decimal(order_details["data"]["filledValue"])
-
-                if tracked_order.is_done:
-                    if not tracked_order.is_failure:
-                        if tracked_order.trade_type is TradeType.BUY:
-                            self.logger().info(f"The market buy order {tracked_order.client_order_id} has completed "
-                                               f"according to order status API.")
-                            self.c_trigger_event(self.MARKET_BUY_ORDER_COMPLETED_EVENT_TAG,
-                                                 BuyOrderCompletedEvent(self._current_timestamp,
-                                                                        client_order_id,
-                                                                        tracked_order.base_asset,
-                                                                        tracked_order.quote_asset,
-                                                                        (tracked_order.fee_asset
-                                                                         or tracked_order.base_asset),
-                                                                        executed_amount_base,
-                                                                        executed_amount_quote,
-                                                                        tracked_order.fee_paid,
-                                                                        order_type))
-                        else:
-                            self.logger().info(f"The market sell order {client_order_id} has completed "
-                                               f"according to order status API.")
-                            self.c_trigger_event(self.MARKET_SELL_ORDER_COMPLETED_EVENT_TAG,
-                                                 SellOrderCompletedEvent(self._current_timestamp,
-                                                                         client_order_id,
-                                                                         tracked_order.base_asset,
-                                                                         tracked_order.quote_asset,
-                                                                         (tracked_order.fee_asset
-                                                                          or tracked_order.quote_asset),
-                                                                         executed_amount_base,
-                                                                         executed_amount_quote,
-                                                                         tracked_order.fee_paid,
-                                                                         order_type))
-                    else:
-                        # check if its a cancelled order
-                        # if its a cancelled order, issue cancel and stop tracking order
-                        if tracked_order.is_cancelled:
-                            self.logger().info(f"Successfully cancelled order {client_order_id}.")
-                            self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
-                                                 OrderCancelledEvent(
-                                                     self._current_timestamp,
-                                                     client_order_id))
-                        else:
-                            self.logger().info(f"The market order {client_order_id} has failed according to "
-                                               f"order status API.")
-                            self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG,
-                                                 MarketOrderFailureEvent(
-                                                     self._current_timestamp,
-                                                     client_order_id,
-                                                     order_type
-                                                 ))
-                    self.c_stop_tracking_order(client_order_id)
+                self._update_inflight_order(tracked_order, order_details)
 
     async def _iter_user_event_queue(self) -> AsyncIterable[Dict[str, any]]:
         while True:
@@ -439,110 +435,21 @@ cdef class NovadaxExchange(ExchangeBase):
         async for event_message in self._iter_user_event_queue():
             try:
                 event_type = event_message[0]
-
                 if event_type == "order":
                     execution_type = event_message[1].get("status")
                     exchange_id = event_message[1]["id"]
-                    tracked_order = None
-                    for o in self._in_flight_orders:
-                        if o.exchange_order_id == exchange_id:
-                            tracked_order = o
+                    tracked_order = self._in_flight_orders_by_exchange_id.get(exchange_id, None)
+                    if tracked_order is None:
+                        for o in self._in_flight_orders: # FIXME: add a lookup by exchange order id
+                            if o.exchange_order_id == exchange_id:
+                                tracked_order = o
 
                     if tracked_order is None:
-                        # Hiding the messages for now. Root cause to be investigated in later sprints.
                         self.logger().debug(f"Unrecognized order ID from user stream: {exchange_id}.")
                         self.logger().debug(f"Event: {event_message}")
                         continue
 
-                    tracked_order.update_with_execution_report(event_message[1])
-
-                    if execution_type == "PARTIAL_FILLED":
-                        order_filled_event = order_filled_event._replace(trade_fee=self.c_get_fee(
-                            tracked_order.base_asset,
-                            tracked_order.quote_asset,
-                            OrderType.LIMIT if event_message[1]["type"] == "LIMIT" else OrderType.MARKET,
-                            TradeType.BUY if event_message[1]["side"] == "BUY" else TradeType.SELL,
-                            Decimal(event_message[1]["price"]),
-                            Decimal(event_message[1]["filledAmount"])
-                        ))
-                        if tracked_order.trade_type is TradeType.BUY:
-                            self.logger().info(f"Filled {tracked_order.executed_amount_base} out of {tracked_order.amount} of the "
-                                f"limit order {tracked_order.client_order_id} according to the RPC transaction logs.")
-                            self.c_trigger_event(self.MARKET_ORDER_FILLED_EVENT_TAG,
-                                                 OrderFilledEvent(self._current_timestamp,
-                                                                  tracked_order.client_order_id,
-                                                                  tracked_order.trading_pair,
-                                                                  tracked_order.trade_type,
-                                                                  tracked_order.order_type,
-                                                                  tracked_order.price,
-                                                                  tracked_order.executed_amount_base, # WOW! FIXME, this repeatedly reports fills for multi-parted filled orders
-                                                                  tracked_order.fee_paid,
-                                                                  tracked_order.exchange_order_id))
-                        else:
-                            self.logger().info(f"Filled {tracked_order.executed_amount_base} out of {tracked_order.amount} of the "
-                                           f"limit order {tracked_order.client_order_id} according to the RPC transaction logs.")
-                            self.c_trigger_event(self.MARKET_ORDER_FILLED_EVENT_TAG,
-                                                 OrderFilledEvent(self._current_timestamp,
-                                                                  tracked_order.client_order_id,
-                                                                  tracked_order.trading_pair,
-                                                                  tracked_order.trade_type,
-                                                                  tracked_order.order_type,
-                                                                  tracked_order.price,
-                                                                  tracked_order.executed_amount_base,
-                                                                  tracked_order.fee_paid,
-                                                                  tracked_order.exchange_order_id))
-
-                    if tracked_order.is_done:
-                        if not tracked_order.is_failure:
-                            if tracked_order.trade_type is TradeType.BUY:
-                                self.logger().info(f"The market buy order {tracked_order.client_order_id} has completed "
-                                                   f"according to user stream.")
-                                self.c_trigger_event(self.MARKET_BUY_ORDER_COMPLETED_EVENT_TAG,
-                                                     BuyOrderCompletedEvent(self._current_timestamp,
-                                                                            tracked_order.client_order_id,
-                                                                            tracked_order.base_asset,
-                                                                            tracked_order.quote_asset,
-                                                                            (tracked_order.fee_asset
-                                                                             or tracked_order.base_asset),
-                                                                            tracked_order.executed_amount_base,
-                                                                            tracked_order.executed_amount_quote,
-                                                                            tracked_order.fee_paid,
-                                                                            tracked_order.order_type))
-                            else:
-                                self.logger().info(f"The market sell order {tracked_order.client_order_id} has completed "
-                                                   f"according to user stream.")
-                                self.c_trigger_event(self.MARKET_SELL_ORDER_COMPLETED_EVENT_TAG,
-                                                     SellOrderCompletedEvent(self._current_timestamp,
-                                                                             tracked_order.client_order_id,
-                                                                             tracked_order.base_asset,
-                                                                             tracked_order.quote_asset,
-                                                                             (tracked_order.fee_asset
-                                                                              or tracked_order.quote_asset),
-                                                                             tracked_order.executed_amount_base,
-                                                                             tracked_order.executed_amount_quote,
-                                                                             tracked_order.fee_paid,
-                                                                             tracked_order.order_type))
-                        else:
-                            # check if its a cancelled order
-                            # if its a cancelled order, check in flight orders
-                            # if present in in flight orders issue cancel and stop tracking order
-                            if tracked_order.is_cancelled:
-                                if tracked_order.client_order_id in self._in_flight_orders:
-                                    self.logger().info(f"Successfully cancelled order {tracked_order.client_order_id}.")
-                                    self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
-                                                         OrderCancelledEvent(
-                                                             self._current_timestamp,
-                                                             tracked_order.client_order_id))
-                            else:
-                                self.logger().info(f"The market order {tracked_order.client_order_id} has failed according to "
-                                                   f"order status API.")
-                                self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG,
-                                                     MarketOrderFailureEvent(
-                                                         self._current_timestamp,
-                                                         tracked_order.client_order_id,
-                                                         tracked_order.order_type
-                                                     ))
-                        self.c_stop_tracking_order(tracked_order.client_order_id)
+                    self._update_order_status(tracked_order, event_message)
 
             except asyncio.CancelledError:
                 raise
@@ -608,7 +515,6 @@ cdef class NovadaxExchange(ExchangeBase):
 
     cdef c_stop(self, Clock clock):
         ExchangeBase.c_stop(self, clock)
-        self._async_scheduler.stop()
 
     async def start_network(self):
         self._order_book_tracker.start()
@@ -666,11 +572,6 @@ cdef class NovadaxExchange(ExchangeBase):
                           price: Optional[Decimal] = s_decimal_NaN):
         cdef:
             TradingRule trading_rule = self._trading_rules[trading_pair]
-            object m = self.split_trading_pair(trading_pair)
-            str base_currency = m[0]
-            str quote_currency = m[1]
-            object buy_fee = self.c_get_fee(base_currency, quote_currency, order_type, TradeType.BUY, amount, price)
-            double adjusted_amount
 
         decimal_amount = self.c_quantize_order_amount(trading_pair, amount)
         decimal_price = (self.c_quantize_order_price(trading_pair, price)
@@ -725,7 +626,9 @@ cdef class NovadaxExchange(ExchangeBase):
                 self.logger().info(f"Created {order_type} buy order {order_id} for "
                                    f"{decimal_amount} {trading_pair}.")
                 tracked_order.exchange_order_id = exchange_order_id
-            self.c_trigger_event(self.MARKET_BUY_ORDER_CREATED_EVENT_TAG,
+                self._in_flight_orders_by_exchange_id[exchange_order_id] = tracked_order
+
+            self.c_trigger_event(BUY_ORDER_CREATED_EVENT,
                                  BuyOrderCreatedEvent(
                                      self._current_timestamp,
                                      order_type,
@@ -748,7 +651,7 @@ cdef class NovadaxExchange(ExchangeBase):
                 exc_info=True,
                 app_warning_msg=f"Failed to submit buy order to novadax. Check API key and network connection."
             )
-            self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG,
+            self.c_trigger_event(ORDER_FAILURE_EVENT,
                                  MarketOrderFailureEvent(self._current_timestamp, order_id, order_type))
 
     cdef str c_buy(self, str trading_pair, object amount, object order_type=OrderType.MARKET, object price=s_decimal_0,
@@ -822,8 +725,9 @@ cdef class NovadaxExchange(ExchangeBase):
                 self.logger().info(f"Created {order_type} sell order {order_id} for "
                                    f"{decimal_amount} {trading_pair}.")
                 tracked_order.exchange_order_id = exchange_order_id
+                self._in_flight_orders_by_exchange_id[exchange_order_id] = tracked_order
 
-            self.c_trigger_event(self.MARKET_SELL_ORDER_CREATED_EVENT_TAG,
+            self.c_trigger_event(SELL_ORDER_CREATED_EVENT,
                                  SellOrderCreatedEvent(
                                      self._current_timestamp,
                                      order_type,
@@ -844,7 +748,7 @@ cdef class NovadaxExchange(ExchangeBase):
                 exc_info=True,
                 app_warning_msg=f"Failed to submit sell order to novadax. Check API key and network connection."
             )
-            self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG,
+            self.c_trigger_event(ORDER_FAILURE_EVENT,
                                  MarketOrderFailureEvent(self._current_timestamp, order_id, order_type))
 
     cdef str c_sell(self, str trading_pair, object amount, object order_type=OrderType.MARKET, object price=s_decimal_0,
@@ -863,11 +767,11 @@ cdef class NovadaxExchange(ExchangeBase):
             cancel_result = self._novadax_client.cancle_order(o.exchange_order_id)
             
         except Exception as e:
-            if e.message == "Order not found":
+            if e.message == "Order not found": # TODO: add a check here for the order being old enough before canceling (or verify that this works no matter how new the order is)
                 # The order was never there to begin with. So cancelling it is a no-op but semantically successful.
                 self.logger().debug(f"The order {order_id} does not exist on novadax. No cancellation needed.")
                 self.c_stop_tracking_order(order_id)
-                self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
+                self.c_trigger_event(ORDER_CANCELLED_EVENT,
                                      OrderCancelledEvent(self._current_timestamp, order_id))
                 return {
                     # Required by cancel_all() below.
@@ -877,10 +781,7 @@ cdef class NovadaxExchange(ExchangeBase):
                 raise e
 
         if isinstance(cancel_result, dict) and cancel_result["message"] == "Success":
-            self.logger().info(f"Successfully cancelled order {order_id}.")
-            self.c_stop_tracking_order(order_id)
-            self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
-                                 OrderCancelledEvent(self._current_timestamp, order_id))
+            self.logger().info(f"Successfully requested cancellation of order {order_id}.")
             cancel_result["client_order_id"] = order_id
         return cancel_result
 
@@ -934,7 +835,7 @@ cdef class NovadaxExchange(ExchangeBase):
                                 object price,
                                 object amount,
                                 object order_type):
-        self._in_flight_orders[order_id] = NovadaxInFlightOrder(
+        order: NovadaxInFlightOrder = NovadaxInFlightOrder(
             client_order_id=order_id,
             exchange_order_id=exchange_order_id,
             trading_pair=trading_pair,
@@ -943,10 +844,14 @@ cdef class NovadaxExchange(ExchangeBase):
             price=price,
             amount=amount
         )
+        self._in_flight_orders[order_id] = order
 
     cdef c_stop_tracking_order(self, str order_id):
         if order_id in self._in_flight_orders:
-            del self._in_flight_orders[order_id]
+            order = self._in_flight_orders.pop(order_id)
+            exchange_id = order.exchange_id
+            if exchange_id is not None:
+                del self._in_flight_orders_by_exchange_id[exchange_id]
         if order_id in self._order_not_found_records:
             del self._order_not_found_records[order_id]
 
