@@ -180,7 +180,7 @@ cdef class DydxActiveOrderTracker:
                     prev_order = self.active_bids_by_id[level_id]
                 except:
                     self.logger().warning("Unrecognized order id")
-                    raise
+                    raise KeyError
                 correct_price = prev_order["price"]
                 prev_order_list = self.active_bids_by_price[correct_price]
             else:
@@ -188,7 +188,7 @@ cdef class DydxActiveOrderTracker:
                     prev_order = self.active_asks_by_id[level_id]
                 except:
                     self.logger().warning("Unrecognized order id")
-                    raise
+                    raise KeyError
                 correct_price = prev_order["price"]
                 prev_order_list = self.active_asks_by_price[correct_price]
             if msg_type == "UPDATED":

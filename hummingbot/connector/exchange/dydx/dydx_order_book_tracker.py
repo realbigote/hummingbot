@@ -90,6 +90,8 @@ class DydxOrderBookTracker(OrderBookTracker):
 
             except asyncio.CancelledError:
                 raise
+            except KeyError:
+                pass
             except Exception:
                 self.logger().network(
                     f"Unexpected error tracking order book for {trading_pair}.",
