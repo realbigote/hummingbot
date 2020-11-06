@@ -14,8 +14,6 @@ from hummingbot.connector.exchange.dydx.dydx_utils import hash_order_id
 s_empty_diff = np.ndarray(shape=(0, 4), dtype="float64")
 _ddaot_logger = None
 
-ORDER_SIZE_PRECISION = float(0.00001) 
-
 cdef class DydxActiveOrderTracker:
     def __init__(self, token_configuration, active_asks=None, active_bids=None):
         super().__init__()
@@ -199,9 +197,16 @@ cdef class DydxActiveOrderTracker:
             else:
                 dummy_price, preliminary_amount = self.get_rates_and_quantities(correct_price, float(0), market)
                 if level_id in prev_order_list["order_ids"]:
-                    prev_order_list["totalAmount"] = prev_order_list["totalAmount"] - prev_order["amount"] + preliminary_amount
-                    if prev_order_list["totalAmount"] < ORDER_SIZE_PRECISION:
-                        prev_order_list["totalAmount"] = float(0)
+                    new_total_amount = float(0)
+                    for o_id in prev_order_list["order_ids"]:
+                        if o_id == level_id:
+                            continue
+                        else:
+                            if order_side == 'BUY':
+                                new_total_amount += self.active_bids_by_id[o_id]["amount"]
+                            else:
+                                new_total_amount += self.active_asks_by_id[o_id]["amount"]
+                    prev_order_list["totalAmount"] = new_total_amount
                     prev_order_list["order_ids"].remove(level_id)
                 correct_amount = prev_order_list["totalAmount"]    
 
