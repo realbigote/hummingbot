@@ -561,14 +561,18 @@ cdef class DydxExchange(ExchangeBase):
         self._in_flight_orders[in_flight_order.client_order_id] = in_flight_order
 
         old_reserved = self._reserved_balances.get(in_flight_order.reserved_asset, Decimal(0))
-        self._reserved_balances[in_flight_order.reserved_asset] = old_reserved + in_flight_order.reserved_balance
+        new_reserved = old_reserved + in_flight_order.reserved_balance
+        self._reserved_balances[in_flight_order.reserved_asset] = new_reserved
+        self._account_available_balances[token_symbol] = self._account_balances[token_symbol] - new_reserved
 
     def stop_tracking(self, client_order_id):
         in_flight_order = self._in_flight_orders.get(client_order_id)
         if in_flight_order is None:
             return
         old_reserved = self._reserved_balances.get(in_flight_order.reserved_asset, Decimal(0))
-        self._reserved_balances[in_flight_order.reserved_asset] = old_reserved - in_flight_order.reserved_balance
+        new_reserved = max(old_reserved - in_flight_order.reserved_balance, Decimal(0))
+        self._reserved_balances[in_flight_order.reserved_asset] = new_reserved
+        self._account_available_balances[token_symbol] = self._account_balances[token_symbol] - new_reserved
         if client_order_id in self._in_flight_orders:
             del self._in_flight_orders[client_order_id]
 
