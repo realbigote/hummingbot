@@ -9,6 +9,7 @@ import asyncio
 from async_timeout import timeout
 import copy
 from novadax import RequestClient as NovaClient
+from novadax.exception.novadax_exception import RequestException as RequestException
 from decimal import Decimal
 from functools import partial
 import logging
@@ -187,6 +188,15 @@ cdef class NovadaxExchange(ExchangeBase):
         return await NovadaxAPIOrderBookDataSource.get_active_exchange_markets()
 
     # ----------------------------------------
+    # Account Balances
+
+    cdef object c_get_balance(self, str currency):
+        return self._account_balances[currency]
+
+    cdef object c_get_available_balance(self, str currency):
+        return self._account_available_balances[currency]
+
+    # ----------------------------------------
     # updates to orders and balances
 
     def _update_inflight_order(self, tracked_order: NovadaxInFlightOrder, event: Dict[str, Any]):
@@ -207,7 +217,7 @@ cdef class NovadaxExchange(ExchangeBase):
                                                       tracked_order.client_order_id))
             elif market_event == MarketEvent.OrderCancelled:
                 self.logger().info(f"Successfully cancelled order {tracked_order.client_order_id}")
-                self.stop_tracking(tracked_order.client_order_id)
+                self.c_stop_tracking_order(tracked_order.client_order_id)
                 self.c_trigger_event(ORDER_CANCELLED_EVENT,
                                      OrderCancelledEvent(self._current_timestamp,
                                                          tracked_order.client_order_id))
@@ -244,15 +254,11 @@ cdef class NovadaxExchange(ExchangeBase):
                                                                      tracked_order.executed_amount_quote,
                                                                      tracked_order.fee_paid,
                                                                      tracked_order.order_type))
+                elif tracked_order.is_cancelled:
+                    if tracked_order.client_order_id in self._in_flight_orders:
+                        self.logger().info(f"Successfully cancelled order {tracked_order.client_order_id}.")
                 else:
-                    # check if its a cancelled order
-                    # if its a cancelled order, check in flight orders
-                    # if present in in flight orders issue cancel and stop tracking order
-                    if tracked_order.is_cancelled:
-                        if tracked_order.client_order_id in self._in_flight_orders:
-                            self.logger().info(f"Successfully cancelled order {tracked_order.client_order_id}.")
-                    else:
-                        self.logger().info(f"The market order {tracked_order.client_order_id} has failed according to "
+                    self.logger().info(f"The market order {tracked_order.client_order_id} has failed according to "
                                            f"order status API.")
 
                 self.c_stop_tracking_order(tracked_order.client_order_id)
@@ -262,23 +268,14 @@ cdef class NovadaxExchange(ExchangeBase):
             dict account_info
             list balances
             str asset_name
-            set local_asset_names = set(self._account_balances.keys())
-            set remote_asset_names = set()
-            set asset_names_to_remove
-        account_balances = self._novadax_client.get_account_balance()
 
+        account_balances = self._novadax_client.get_account_balance()
         for balance_entry in account_balances["data"]:
             asset_name = balance_entry["currency"]
-            available_balance = Decimal(balance_entry["available"]) # FIXME: is this correct? It looks like "balance" is the available balance and "available" is the total
-            total_balance = available_balance + Decimal(balance_entry["hold"]) 
+            available_balance = Decimal(balance_entry["balance"]) # FIXME: is this correct? It looks like "balance" is the available balance and "available" is the total
+            total_balance = Decimal(balance_entry["available"]) 
             self._account_available_balances[asset_name] = available_balance
             self._account_balances[asset_name] = total_balance
-            remote_asset_names.add(asset_name)
-
-        asset_names_to_remove = local_asset_names.difference(remote_asset_names)
-        for asset_name in asset_names_to_remove:
-            del self._account_available_balances[asset_name]
-            del self._account_balances[asset_name]
 
         self._in_flight_orders_snapshot = {k: copy.copy(v) for k, v in self._in_flight_orders.items()}
         self._in_flight_orders_snapshot_timestamp = self._current_timestamp
@@ -391,7 +388,9 @@ cdef class NovadaxExchange(ExchangeBase):
             tracked_orders = list(self._in_flight_orders.values())
             self.logger().debug("Polling for order status updates of %d orders.", len(tracked_orders))
             for tracked_order in tracked_orders:
-                order_details = self._novadax_client.get_order(tracked_order.exchange_id)
+                if tracked_order.exchange_order_id is None:
+                    continue # TODO: add something here to remove these if they never get an exchange_order_id
+                order_details = self._novadax_client.get_order(tracked_order.exchange_order_id)
                 client_order_id = tracked_order.client_order_id
 
                 if isinstance(order_details, Exception):
@@ -415,7 +414,7 @@ cdef class NovadaxExchange(ExchangeBase):
                     continue
 
                 # Update order execution status
-                self._update_inflight_order(tracked_order, order_details)
+                self._update_inflight_order(tracked_order, order_details['data'])
 
     async def _iter_user_event_queue(self) -> AsyncIterable[Dict[str, any]]:
         while True:
@@ -436,7 +435,6 @@ cdef class NovadaxExchange(ExchangeBase):
             try:
                 event_type = event_message[0]
                 if event_type == "order":
-                    execution_type = event_message[1].get("status")
                     exchange_id = event_message[1]["id"]
                     tracked_order = self._in_flight_orders_by_exchange_id.get(exchange_id, None)
                     if tracked_order is None:
@@ -449,7 +447,7 @@ cdef class NovadaxExchange(ExchangeBase):
                         self.logger().debug(f"Event: {event_message}")
                         continue
 
-                    self._update_order_status(tracked_order, event_message)
+                    self._update_inflight_order(tracked_order, event_message)
 
             except asyncio.CancelledError:
                 raise
@@ -596,7 +594,7 @@ cdef class NovadaxExchange(ExchangeBase):
                     order_type
                 )
                 order_result = self._novadax_client.create_order(
-                                                    trading_pair,
+                                                    convert_to_exchange_trading_pair(trading_pair),
                                                     "LIMIT",
                                                     "BUY",
                                                     order_decimal_price,
@@ -612,7 +610,7 @@ cdef class NovadaxExchange(ExchangeBase):
                     order_type
                 )
                 order_result = self._novadax_client.create_order(
-                                                    trading_pair,
+                                                    convert_to_exchange_trading_pair(trading_pair),
                                                     "MARKET",
                                                     "BUY",
                                                     order_decimal_price,
@@ -695,7 +693,7 @@ cdef class NovadaxExchange(ExchangeBase):
                     order_type
                 )
                 order_result = self._novadax_client.create_order(
-                                                    trading_pair,
+                                                    convert_to_exchange_trading_pair(trading_pair),
                                                     "LIMIT",
                                                     "SELL",
                                                     order_decimal_price,
@@ -711,7 +709,7 @@ cdef class NovadaxExchange(ExchangeBase):
                     order_type
                 )
                 order_result = self._novadax_client.create_order(
-                                                    trading_pair,
+                                                    convert_to_exchange_trading_pair(trading_pair),
                                                     "MARKET",
                                                     "SELL",
                                                     order_decimal_price,
@@ -766,8 +764,20 @@ cdef class NovadaxExchange(ExchangeBase):
             #this is the spelling they use: -------\/
             cancel_result = self._novadax_client.cancle_order(o.exchange_order_id)
             
-        except Exception as e:
-            if e.message == "Order not found": # TODO: add a check here for the order being old enough before canceling (or verify that this works no matter how new the order is)
+        except RequestException as e:
+            if e.code in ["A30008", "A30009"]: # Closed/Cancelled
+                self.logger().debug(f"The order {order_id} was already closed, cancellation request ignored.")
+                return {
+                    # Required by cancel_all() below.
+                    "client_order_id": order_id
+                }
+            elif e.code == "A30010":    # Cancelling
+                self.logger().info(f"Successfully requested cancellation of order {order_id}.")
+                return {
+                    # Required by cancel_all() below.
+                    "client_order_id": order_id
+                }
+            elif e.code == "A30001": # TODO: add a check here for the order being old enough before canceling (or verify that this works no matter how new the order is)
                 # The order was never there to begin with. So cancelling it is a no-op but semantically successful.
                 self.logger().debug(f"The order {order_id} does not exist on novadax. No cancellation needed.")
                 self.c_stop_tracking_order(order_id)
@@ -849,8 +859,8 @@ cdef class NovadaxExchange(ExchangeBase):
     cdef c_stop_tracking_order(self, str order_id):
         if order_id in self._in_flight_orders:
             order = self._in_flight_orders.pop(order_id)
-            exchange_id = order.exchange_id
-            if exchange_id is not None:
+            exchange_id = order.exchange_order_id
+            if exchange_id is not None and exchange_id != '':
                 del self._in_flight_orders_by_exchange_id[exchange_id]
         if order_id in self._order_not_found_records:
             del self._order_not_found_records[order_id]

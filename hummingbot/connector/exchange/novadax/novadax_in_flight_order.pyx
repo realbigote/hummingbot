@@ -37,7 +37,7 @@ cdef class NovadaxInFlightOrder(InFlightOrderBase):
             initial_state
         )
         
-        (base, quote) = self.market.split_trading_pair(trading_pair)
+        (base, quote) = NovadaxExchange.split_trading_pair(trading_pair)
         self.fee_asset = base if trade_type is TradeType.BUY else quote
         self.trade_id_set = set()
         self.status = NovadaxOrderStatus[initial_state]
@@ -76,7 +76,8 @@ cdef class NovadaxInFlightOrder(InFlightOrderBase):
     def update(self, data: Dict[str, Any]) -> List[Any]:
         events: List[Any] = []
 
-        new_status: LoopringOrderStatus = NovadaxOrderStatus[data["status"]]
+
+        new_status: NovadaxOrderStatus = NovadaxOrderStatus[data["status"]]
         new_executed_amount_base: Decimal = Decimal(data["filledAmount"])
         new_executed_amount_quote: Decimal = Decimal(data["filledValue"])
         new_fee_paid: Decimal = Decimal(data["filledFee"])
