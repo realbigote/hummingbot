@@ -39,6 +39,7 @@ cdef class DydxExchange(ExchangeBase):
     cdef c_start_tracking_order(self, 
                                 object side,
                                 str client_order_id,
+                                object order_type,
                                 long long created_at,
                                 str hash,
                                 str trading_pair,

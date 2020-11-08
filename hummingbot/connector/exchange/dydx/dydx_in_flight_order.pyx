@@ -119,6 +119,7 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
                             market: DydxExchange,
                             side: TradeType,
                             client_order_id: str,
+                            order_type: OrderType,
                             created_at: int,
                             hash: str,
                             trading_pair: str,
@@ -129,7 +130,7 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
             client_order_id,
             hash,
             trading_pair,
-            OrderType.LIMIT, # TODO: fix this to the actual type (ie. LIMIT_MAKER)
+            order_type,
             side,
             price,
             amount,
@@ -139,6 +140,9 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
             Decimal(0),
             created_at
         )
+
+    def fills_covered(self) -> bool:
+        return self.executed_amount_base == self._last_executed_amount_from_order_status
 
     def _enqueue_completion_event(self):
         if (self.status is DydxOrderStatus.done and 
@@ -162,12 +166,12 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
             self._queued_fill_events.append( (MarketEvent.OrderFilled, amount, price, fee) )
             self._enqueue_completion_event()
 
-    def _issue_order_events(self) -> List[Any]:
+    def get_issuable_events(self) -> List[Any]:
         # We can always issue our fill events
         events: List[Any] = self._queued_fill_events.copy()
         self._queued_fill_events.clear()
 
-        if self.executed_amount_base == self._last_executed_amount_from_order_status:
+        if self.executed_amount_base >= self._last_executed_amount_from_order_status:
             # We have all the fill reports up to our observed order status, so we can issue all
             # order status update related events.
             events.extend(self._queued_events)
@@ -175,7 +179,7 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
         
         return events
 
-    def update(self, data: Dict[str, Any], dydx_client) -> List[Any]:
+    def update(self, data: Dict[str, Any]) -> List[Any]:
         base: str
         quote: str
         trading_pair: str = data["market"]

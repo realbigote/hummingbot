@@ -18,10 +18,8 @@ import logging
 from decimal import *
 from libc.stdint cimport int64_t
 
-from dydx.client import Client as DYDXClient
 from dydx.exceptions import DydxAPIError
-import dydx.constants as consts
-import dydx.util as utils
+import dydx.constants as dydx_consts
 
 from hummingbot.client.config.fee_overrides_config_map import fee_overrides_config_map
 from hummingbot.core.data_type.cancellation_result import CancellationResult
@@ -32,6 +30,7 @@ from hummingbot.core.network_iterator import NetworkStatus
 from hummingbot.wallet.ethereum.web3_wallet import Web3Wallet
 from hummingbot.connector.exchange_base import ExchangeBase
 from hummingbot.connector.exchange.dydx.dydx_auth import DydxAuth
+from hummingbot.connector.exchange.dydx.dydx_client_wrapper import DYDXClientWrapper
 from hummingbot.connector.exchange.dydx.dydx_order_book_tracker import DydxOrderBookTracker
 from hummingbot.connector.exchange.dydx.dydx_api_order_book_data_source import DydxAPIOrderBookDataSource
 from hummingbot.connector.exchange.dydx.dydx_api_token_configuration_data_source import DydxAPITokenConfigurationDataSource
@@ -64,11 +63,6 @@ s_logger = None
 s_decimal_0 = Decimal(0)
 s_decimal_NaN = Decimal("nan")
 
-
-def num_d(amount):
-    return abs(Decimal(amount).normalize().as_tuple().exponent)
-
-
 def now():
     return int(time.time()) * 1000
 
@@ -85,19 +79,10 @@ API_CALL_TIMEOUT = 10.0
 
 # ==========================================================
 
-GET_ORDER_ROUTE = "v2/orders/"
 MAINNET_API_REST_ENDPOINT = "https://api.dydx.exchange/"
 MAINNET_WS_ENDPOINT = "wss://api.dydx.exchange/v1/ws"
-#EXCHANGE_INFO_ROUTE = "api/v2/timestamp"
-BALANCES_INFO_ROUTE = "v1/accounts/:wallet"
 MARKETS_INFO_ROUTE = "v2/markets"
-#TOKENS_INFO_ROUTE = "api/v2/exchange/tokens"
-#NEXT_ORDER_ID = "api/v2/orderId"
-ORDER_ROUTE = "v2/orders"
-ORDER_CANCEL_ROUTE = "v2/orders"
-#MAXIMUM_FILL_COUNT = 16
 UNRECOGNIZED_ORDER_DEBOUCE = 20  # seconds
-MANUAL_AMOUNT_INC = Decimal('0.00000000001')
 
 class LatchingEventResponder(EventListener):
     def __init__(self, callback : any, num_expected : int):
@@ -184,9 +169,9 @@ cdef class DydxExchange(ExchangeBase):
 
         self._dydx_private_key = wallet.private_key
         self._dydx_node = ethereum_rpc_url
-        self.dydx_client: DYDXClient = DYDXClient(private_key=self._dydx_private_key, 
+        self.dydx_client: DYDXClientWrapper = DYDXClientWrapper(private_key=self._dydx_private_key, 
                                                     node=self._dydx_node,
-                                                    account_number=consts.ACCOUNT_NUMBERS_SPOT)
+                                                    account_number=dydx_consts.ACCOUNT_NUMBERS_SPOT)
         # State
         self._lock = asyncio.Lock()
         self._trading_rules = {}
@@ -287,13 +272,14 @@ cdef class DydxExchange(ExchangeBase):
         if order_type is OrderType.LIMIT_MAKER:
             post_only=True
 
-        return self.dydx_client.place_order(
+        return await self.dydx_client.place_order(
           market=trading_pair,
           side=order_side,
           amount=order_details["amount"],
           price=order_details["price"],
           fillOrKill=False,
           postOnly=post_only,
+          clientId=client_order_id,
         )
 
     async def execute_order(self, order_side, client_order_id, trading_pair, amount, order_type, price):
@@ -326,7 +312,7 @@ cdef class DydxExchange(ExchangeBase):
 
         try:
             created_at: int = int(time.time())
-            self.c_start_tracking_order(order_side, client_order_id, created_at, None, trading_pair, price, amount)
+            self.c_start_tracking_order(order_side, client_order_id, order_type, created_at, None, trading_pair, price, amount)
 
             try:
                 creation_response = await self.place_order(client_order_id, trading_pair, amount, order_side is TradeType.BUY, order_type, price)
@@ -415,7 +401,7 @@ cdef class DydxExchange(ExchangeBase):
             return True
 
         try:            
-            res = self.dydx_client.cancel_order(exchange_order_id)
+            res = await self.dydx_client.cancel_order(exchange_order_id)
             return True
 
         except DydxAPIError as e:
@@ -498,7 +484,7 @@ cdef class DydxExchange(ExchangeBase):
         await self._token_configuration._configure()
         self._order_book_tracker.start()
         if self._trading_required:
-            exchange_info = await self.api_request("GET", MARKETS_INFO_ROUTE)
+            exchange_info = await self.dydx_client.get_markets()
 
             tokens = set()
             for pair in self._trading_pairs:
@@ -547,12 +533,21 @@ cdef class DydxExchange(ExchangeBase):
     cdef c_start_tracking_order(self, 
                                 object order_side,
                                 str client_order_id,
+                                object order_type,
                                 long long created_at,
                                 str hash,
                                 str trading_pair,
                                 object price,
                                 object amount):
-        in_flight_order = DydxInFlightOrder.from_dydx_order(self, order_side, client_order_id, created_at, None, trading_pair, price, amount)
+        in_flight_order = DydxInFlightOrder.from_dydx_order(self, 
+                                                            order_side, 
+                                                            client_order_id, 
+                                                            order_type, 
+                                                            created_at, 
+                                                            None, 
+                                                            trading_pair, 
+                                                            price, 
+                                                            amount)
         self._in_flight_orders[in_flight_order.client_order_id] = in_flight_order
 
         old_reserved = self._reserved_balances.get(in_flight_order.reserved_asset, Decimal(0))
@@ -582,7 +577,7 @@ cdef class DydxExchange(ExchangeBase):
     # updates to orders and balances
 
     def _issue_order_events(self,  tracked_order: DydxInFlightOrder):
-        issuable_events: List[MarketEvent] = tracked_order.get_issuable_events(event, self.dydx_client)
+        issuable_events: List[MarketEvent] = tracked_order.get_issuable_events()
 
         # Issue relevent events
         for (market_event, new_amount, new_price, new_fee) in issuable_events:
@@ -726,19 +721,17 @@ cdef class DydxExchange(ExchangeBase):
                         base, quote = self.split_trading_pair(tracked_order.trading_pair)
                         base_id = self.token_configuration.get_tokenid(base)
                         quote_id = self.token_configuration.get_tokenid(quote)
+                        id = fill['uuid']
                         liquidity = OrderType.LIMIT if fill['liquidity'] == 'MAKER' else OrderType.MARKET
                         amount = self.token_configuration.unpad(fill['amount'], base_id)
                         price = self.token_configuration.unpad_price(fill['price'], base_id, quote_id)
                         fee_paid = c_get_fee(base, quote, liquidity, tracked_order.trade_type, amount, price)
-                        tracked_order.register_fill(amount, price, fee_paid)
+                        tracked_order.register_fill(id, amount, price, fee_paid)
                         self._issue_order_events(tracked_order)
 
                         # TODO: if we get a fill report before we get an exchange order id back from palce_order, we
                         # will lose our fill report. We need a structure that holds these unlinked fill reports until they
                         # are either claimed by getting an exchange_order_id or we have no order placement requests in-transit
-
-                        # TODO: also add polling for fills for each order in case we lose packets from the stream
-
                     else:
                         self.logger().debug(f"Unrecognized user stream event topic type for orders channel: {message_type}.")    
                 else:
@@ -771,11 +764,11 @@ cdef class DydxExchange(ExchangeBase):
                 self.logger().info(e)
 
     async def _update_balances(self):
-        current_balances = self.dydx_client.get_my_balances()
+        current_balances = await self.dydx_client.get_my_balances()
         await self._set_balances(current_balances["balances"], True)
 
     async def _update_trading_rules(self):
-        markets_info = await self.api_request("GET", f"{MARKETS_INFO_ROUTE}")["markets"]
+        markets_info = await self.dydx_client.get_markets()["markets"]
         for market_name in markets_info:
             market = markets_info[market_name]
             if "baseCurrency" in market:
@@ -828,7 +821,7 @@ cdef class DydxExchange(ExchangeBase):
 
             dydx_order_request = None
             try:
-                dydx_order_request = self.dydx_client.get_order(dydx_order_id)
+                dydx_order_request = await self.dydx_client.get_order(dydx_order_id)
                 data = dydx_order_request["order"]
             except Exception as e:
                 self.logger().warning(f"Failed to fetch tracked dydx order " \
@@ -847,10 +840,35 @@ cdef class DydxExchange(ExchangeBase):
 
             try:
                 tracked_order.update(data)
+                if not tracked_order.fills_covered():
+                    # We're missing fill reports for this order, so poll for them as well
+                    await self._update_fills(tracked_order)
                 self._issue_order_events(tracked_order)
             except Exception as e:
                 self.logger().error(f"Failed to update dydx order {tracked_order.exchange_order_id}")
                 self.logger().error(e)
+
+    async def _update_fills(self, tracked_order: DydxInFlightOrder):
+        base, quote = self.split_trading_pair(tracked_order.trading_pair)
+        base_id = self.token_configuration.get_tokenid(base)
+        quote_id = self.token_configuration.get_tokenid(quote)
+        try:
+            data = await self.dydx_client.get_fills(tracked_order.exchange_order_id)
+            for fill in data['fills']:
+                if fill['orderId'] == tracked_order.exchange_order_id:
+                    id = fill['uuid']
+                    liquidity = OrderType.LIMIT if fill['liquidity'] == 'MAKER' else OrderType.MARKET
+                    amount = self.token_configuration.unpad(fill['amount'], base_id)
+                    price = self.token_configuration.unpad_price(fill['price'], base_id, quote_id)
+                    fee_paid = c_get_fee(base, quote, liquidity, tracked_order.trade_type, amount, price)
+                    tracked_order.register_fill(id, amount, price, fee_paid)
+
+        except DydxAPIError as e:
+            self.logger().warning(f"Unable to poll for fills for order {tracked_order.client_order_id}"\
+                                  f"(tracked_order.exchange_order_id): {e.status} {e.msg}")
+        except KeyError as e:
+            self.logger().warning(f"Unable to poll for fills for order {tracked_order.client_order_id}"\
+                                  f"(tracked_order.exchange_order_id): unexpected response data {data}")
 
     # ==========================================================
     # Miscellaneous
