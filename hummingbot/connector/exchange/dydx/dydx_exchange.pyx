@@ -184,7 +184,7 @@ cdef class DydxExchange(ExchangeBase):
 
         self._dydx_private_key = wallet.private_key
         self._dydx_node = ethereum_rpc_url
-        self._dydx_client: DYDXClient = DYDXClient(private_key=self._dydx_private_key, 
+        self.dydx_client: DYDXClient = DYDXClient(private_key=self._dydx_private_key, 
                                                     node=self._dydx_node,
                                                     account_number=consts.ACCOUNT_NUMBERS_SPOT)
         # State
@@ -287,7 +287,7 @@ cdef class DydxExchange(ExchangeBase):
         if order_type is OrderType.LIMIT_MAKER:
             post_only=True
 
-        return self._dydx_client.place_order(
+        return self.dydx_client.place_order(
           market=trading_pair,
           side=order_side,
           amount=order_details["amount"],
@@ -326,8 +326,7 @@ cdef class DydxExchange(ExchangeBase):
 
         try:
             created_at: int = int(time.time())
-            in_flight_order = DydxInFlightOrder.from_dydx_order(self, order_side, client_order_id, created_at, None, trading_pair, price, amount)
-            self.start_tracking(in_flight_order)
+            self.c_start_tracking_order(order_side, client_order_id, created_at, None, trading_pair, price, amount)
 
             try:
                 creation_response = await self.place_order(client_order_id, trading_pair, amount, order_side is TradeType.BUY, order_type, price)
@@ -347,11 +346,16 @@ cdef class DydxExchange(ExchangeBase):
                 raise Exception(status)
 
             dydx_order_id = order["id"]
-            in_flight_order.update_exchange_order_id(dydx_order_id)
+            in_flight_order = self._in_flight_orders.get(client_order_id)
+            if in_flight_order is not None:
+                in_flight_order.update_exchange_order_id(dydx_order_id)
 
-            # Begin tracking order
-            self.logger().info(
-                f"Created {in_flight_order.description} order {client_order_id} for {amount} {trading_pair}.")
+                # Begin tracking order
+                self.logger().info(
+                    f"Created {in_flight_order.description} order {client_order_id} for {amount} {trading_pair}.")
+            else:
+                 self.logger().info(
+                    f"Created order {client_order_id} for {amount} {trading_pair}.")
 
         except Exception as e:
             self.logger().warning(f"Error submitting {order_side.name} {order_type.name} order to dydx for "
@@ -359,7 +363,7 @@ cdef class DydxExchange(ExchangeBase):
             self.logger().info(e, exc_info=True)
 
             # Stop tracking this order
-            self.stop_tracking(client_order_id)
+            self.c_stop_tracking_order(client_order_id)
             self.c_trigger_event(ORDER_FAILURE_EVENT, MarketOrderFailureEvent(now(), client_order_id, order_type))
 
     async def execute_buy(self,
@@ -368,16 +372,9 @@ cdef class DydxExchange(ExchangeBase):
                           amount: Decimal,
                           order_type: OrderType,
                           price: Optional[Decimal] = Decimal('NaN')):
-        try:
-            await self.execute_order(TradeType.BUY, order_id, trading_pair, amount, order_type, price)
-
-            self.c_trigger_event(BUY_ORDER_CREATED_EVENT,
-                                 BuyOrderCreatedEvent(now(), order_type, trading_pair, Decimal(amount), Decimal(price), order_id))
-        except ValueError as e:
-            # Stop tracking this order
-            self.stop_tracking(order_id)
-            self.c_trigger_event(ORDER_FAILURE_EVENT, MarketOrderFailureEvent(now(), order_id, order_type))
-            raise e
+        await self.execute_order(TradeType.BUY, order_id, trading_pair, amount, order_type, price)
+        self.c_trigger_event(BUY_ORDER_CREATED_EVENT,
+                                BuyOrderCreatedEvent(now(), order_type, trading_pair, Decimal(amount), Decimal(price), order_id))
 
     async def execute_sell(self,
                            order_id: str,
@@ -385,15 +382,9 @@ cdef class DydxExchange(ExchangeBase):
                            amount: Decimal,
                            order_type: OrderType,
                            price: Optional[Decimal] = Decimal('NaN')):
-        try:
-            await self.execute_order(TradeType.SELL, order_id, trading_pair, amount, order_type, price)
-            self.c_trigger_event(SELL_ORDER_CREATED_EVENT,
-                                 SellOrderCreatedEvent(now(), order_type, trading_pair, Decimal(amount), Decimal(price), order_id))
-        except ValueError as e:
-            # Stop tracking this order
-            self.stop_tracking(order_id)
-            self.c_trigger_event(ORDER_FAILURE_EVENT, MarketOrderFailureEvent(now(), order_id, order_type))
-            raise e
+        await self.execute_order(TradeType.SELL, order_id, trading_pair, amount, order_type, price)
+        self.c_trigger_event(SELL_ORDER_CREATED_EVENT,
+                                SellOrderCreatedEvent(now(), order_type, trading_pair, Decimal(amount), Decimal(price), order_id))
 
     cdef str c_buy(self, str trading_pair, object amount, object order_type = OrderType.LIMIT, object price = 0.0,
                    dict kwargs = {}):
@@ -424,7 +415,7 @@ cdef class DydxExchange(ExchangeBase):
             return True
 
         try:            
-            res = self._dydx_client.cancel_order(exchange_order_id)
+            res = self.dydx_client.cancel_order(exchange_order_id)
             return True
 
         except DydxAPIError as e:
@@ -444,10 +435,6 @@ cdef class DydxExchange(ExchangeBase):
 
     cdef c_cancel(self, str trading_pair, str client_order_id):
         safe_ensure_future(self.cancel_order(client_order_id))
-
-    cdef c_stop_tracking_order(self, str order_id):
-        if order_id in self._in_flight_orders:
-            del self._in_flight_orders[order_id]
 
     async def cancel_all(self, timeout_seconds: float) -> List[CancellationResult]:
         cancellation_queue = self._in_flight_orders.copy()
@@ -557,41 +544,54 @@ cdef class DydxExchange(ExchangeBase):
             in_flight_json: Dict[Str, Any] = json.loads(in_flight_repr)
             self._in_flight_orders[order_id] = DydxInFlightOrder.from_json(self, in_flight_json)
 
-    def start_tracking(self, in_flight_order):
+    cdef c_start_tracking_order(self, 
+                                object order_side,
+                                str client_order_id,
+                                long long created_at,
+                                str hash,
+                                str trading_pair,
+                                object price,
+                                object amount):
+        in_flight_order = DydxInFlightOrder.from_dydx_order(self, order_side, client_order_id, created_at, None, trading_pair, price, amount)
         self._in_flight_orders[in_flight_order.client_order_id] = in_flight_order
 
         old_reserved = self._reserved_balances.get(in_flight_order.reserved_asset, Decimal(0))
         new_reserved = old_reserved + in_flight_order.reserved_balance
         self._reserved_balances[in_flight_order.reserved_asset] = new_reserved
-        self._account_available_balances[token_symbol] = self._account_balances[token_symbol] - new_reserved
+        self._account_available_balances[in_flight_order.reserved_asset] = \
+            max(self._account_balances.get(in_flight_order.reserved_asset, Decimal(0)) - new_reserved, Decimal(0))
 
-    def stop_tracking(self, client_order_id):
+    cdef c_stop_tracking_order(self, str client_order_id):
         in_flight_order = self._in_flight_orders.get(client_order_id)
-        if in_flight_order is None:
-            return
-        old_reserved = self._reserved_balances.get(in_flight_order.reserved_asset, Decimal(0))
-        new_reserved = max(old_reserved - in_flight_order.reserved_balance, Decimal(0))
-        self._reserved_balances[in_flight_order.reserved_asset] = new_reserved
-        self._account_available_balances[token_symbol] = self._account_balances[token_symbol] - new_reserved
-        if client_order_id in self._in_flight_orders:
-            del self._in_flight_orders[client_order_id]
+        if in_flight_order is not None:
+            old_reserved = self._reserved_balances.get(in_flight_order.reserved_asset, Decimal(0))
+            new_reserved = max(old_reserved - in_flight_order.reserved_balance, Decimal(0))
+            self._reserved_balances[in_flight_order.reserved_asset] = new_reserved
+            self._account_available_balances[in_flight_order.reserved_asset] = \
+                max(self._account_balances.get(in_flight_order.reserved_asset, Decimal(0)) - new_reserved, Decimal(0))
+            if client_order_id in self._in_flight_orders:
+                del self._in_flight_orders[client_order_id]
 
-        
+    cdef object c_get_order_by_exchange_id(self, str exchange_order_id):
+        for o in self._in_flight_orders.values(): #TODO: add lookup by exchange order id
+            if o.exchange_order_id == exchange_order_id:
+                return o
+        return None
 
     # ----------------------------------------
     # updates to orders and balances
 
-    def _update_inflight_order(self, tracked_order: DydxInFlightOrder, event: Dict[str, Any]):
-        issuable_events: List[MarketEvent] = tracked_order.update(event, self._dydx_client)
+    def _issue_order_events(self,  tracked_order: DydxInFlightOrder):
+        issuable_events: List[MarketEvent] = tracked_order.get_issuable_events(event, self.dydx_client)
 
         # Issue relevent events
         for (market_event, new_amount, new_price, new_fee) in issuable_events:
             if market_event == MarketEvent.OrderCancelled:
                 self.logger().info(f"Successfully cancelled order {tracked_order.client_order_id}")
-                self.stop_tracking(tracked_order.client_order_id)
                 self.c_trigger_event(ORDER_CANCELLED_EVENT,
                                      OrderCancelledEvent(self._current_timestamp,
                                                          tracked_order.client_order_id))
+                self.c_stop_tracking_order(tracked_order.client_order_id)
             elif market_event == MarketEvent.OrderFilled:
                 self.c_trigger_event(ORDER_FILLED_EVENT,
                                      OrderFilledEvent(self._current_timestamp,
@@ -607,53 +607,43 @@ cdef class DydxExchange(ExchangeBase):
                 self.c_trigger_event(ORDER_EXPIRED_EVENT,
                                      OrderExpiredEvent(self._current_timestamp,
                                                        tracked_order.client_order_id))
+                self.c_stop_tracking_order(tracked_order.client_order_id)
             elif market_event == MarketEvent.OrderFailure:
+                self.logger().info(f"The market order {tracked_order.client_order_id} has failed according to "
+                                   f"order status API.")
                 self.c_trigger_event(ORDER_FAILURE_EVENT,
                                      MarketOrderFailureEvent(self._current_timestamp,
                                                              tracked_order.client_order_id,
                                                              tracked_order.order_type))
-
-            # Complete the order if relevent
-            if tracked_order.is_done:
-                if not tracked_order.is_failure:
-                    if tracked_order.trade_type is TradeType.BUY:
-                        self.logger().info(f"The market buy order {tracked_order.client_order_id} has completed "
-                                           f"according to user stream.")
-                        self.c_trigger_event(BUY_ORDER_COMPLETED_EVENT,
-                                             BuyOrderCompletedEvent(self._current_timestamp,
-                                                                    tracked_order.client_order_id,
-                                                                    tracked_order.base_asset,
-                                                                    tracked_order.quote_asset,
-                                                                    tracked_order.fee_asset,
-                                                                    tracked_order.executed_amount_base,
-                                                                    tracked_order.executed_amount_quote,
-                                                                    tracked_order.fee_paid,
-                                                                    tracked_order.order_type))
-                    else:
-                        self.logger().info(f"The market sell order {tracked_order.client_order_id} has completed "
-                                           f"according to user stream.")
-                        self.c_trigger_event(SELL_ORDER_COMPLETED_EVENT,
-                                             SellOrderCompletedEvent(self._current_timestamp,
-                                                                     tracked_order.client_order_id,
-                                                                     tracked_order.base_asset,
-                                                                     tracked_order.quote_asset,
-                                                                     tracked_order.fee_asset,
-                                                                     tracked_order.executed_amount_base,
-                                                                     tracked_order.executed_amount_quote,
-                                                                     tracked_order.fee_paid,
-                                                                     tracked_order.order_type))
-                else:
-                    # check if its a cancelled order
-                    # if its a cancelled order, check in flight orders
-                    # if present in in flight orders issue cancel and stop tracking order
-                    if tracked_order.is_cancelled:
-                        if tracked_order.client_order_id in self._in_flight_orders:
-                            self.logger().info(f"Successfully cancelled order {tracked_order.client_order_id}.")
-                    else:
-                        self.logger().info(f"The market order {tracked_order.client_order_id} has failed according to "
-                                           f"order status API.")
-
                 self.c_stop_tracking_order(tracked_order.client_order_id)
+            elif market_event == MarketEvent.BuyOrderCompleted:
+                self.logger().info(f"The market buy order {tracked_order.client_order_id} has completed "
+                                    f"according to user stream.")
+                self.c_trigger_event(BUY_ORDER_COMPLETED_EVENT,
+                                        BuyOrderCompletedEvent(self._current_timestamp,
+                                                            tracked_order.client_order_id,
+                                                            tracked_order.base_asset,
+                                                            tracked_order.quote_asset,
+                                                            tracked_order.fee_asset,
+                                                            tracked_order.executed_amount_base,
+                                                            tracked_order.executed_amount_quote,
+                                                            tracked_order.fee_paid,
+                                                            tracked_order.order_type))
+                self.c_stop_tracking_order(tracked_order.client_order_id)
+            elif market_event == MarketEvent.SellOrderCompleted:
+                self.logger().info(f"The market sell order {tracked_order.client_order_id} has completed "
+                                    f"according to user stream.")
+                self.c_trigger_event(SELL_ORDER_COMPLETED_EVENT,
+                                        SellOrderCompletedEvent(self._current_timestamp,
+                                                                tracked_order.client_order_id,
+                                                                tracked_order.base_asset,
+                                                                tracked_order.quote_asset,
+                                                                tracked_order.fee_asset,
+                                                                tracked_order.executed_amount_base,
+                                                                tracked_order.executed_amount_quote,
+                                                                tracked_order.fee_paid,
+                                                                tracked_order.order_type))
+                self.c_stop_tracking_order(tracked_order.client_order_id)    
 
     def _set_balance_for_token(self, token_str: str, padded_total_amount: str):
         token_id = int(token_str)
@@ -711,20 +701,46 @@ cdef class DydxExchange(ExchangeBase):
                 if topic == 'balance_updates':
                     await self._set_balances(data, is_snapshot=False)
                 elif topic == 'orders':
-                    exchange_order_id: str = data['order']['id']
+                    message_type = data['type']
+                    if message_type == 'ORDER':
+                        exchange_order_id: str = data['order']['id']
+                        tracked_order: DydxInFlightOrder = c_get_order_by_exchange_id(exchange_order_id)
 
-                    for o in self._in_flight_orders.values(): #TODO: add lookup by exchange order id
-                        if o.exchange_order_id == exchange_order_id:
-                            tracked_order: DydxInFlightOrder = o
-                            break
+                        if tracked_order is None:
+                            self.logger().debug(f"Unrecognized order ID from user stream: {exchange_order_id}.")
+                            self.logger().debug(f"Event: {event_message}")
+                            continue
 
-                    if tracked_order is None:
-                        self.logger().warning(f"Unrecognized order ID from user stream: {client_order_id}.")
-                        self.logger().warning(f"Event: {event_message}")
-                        continue
+                        # update the tracked order
+                        tracked_order.update(data['order'])
+                        self._issue_order_events(tracked_order)
+                    elif message_type == 'FILL':
+                        fill = data['fill']
+                        exchange_order_id: str = fill['id']
+                        tracked_order: DydxInFlightOrder = c_get_order_by_exchange_id(exchange_order_id)
+                        if tracked_order is None:
+                            self.logger().debug(f"Unrecognized order ID from user stream fill report: {exchange_order_id}.")
+                            self.logger().debug(f"Event: {event_message}")
+                            continue
 
-                    # update the tracked order
-                    self._update_inflight_order(tracked_order, data['order'])
+                        base, quote = self.split_trading_pair(tracked_order.trading_pair)
+                        base_id = self.token_configuration.get_tokenid(base)
+                        quote_id = self.token_configuration.get_tokenid(quote)
+                        liquidity = OrderType.LIMIT if fill['liquidity'] == 'MAKER' else OrderType.MARKET
+                        amount = self.token_configuration.unpad(fill['amount'], base_id)
+                        price = self.token_configuration.unpad_price(fill['price'], base_id, quote_id)
+                        fee_paid = c_get_fee(base, quote, liquidity, tracked_order.trade_type, amount, price)
+                        tracked_order.register_fill(amount, price, fee_paid)
+                        self._issue_order_events(tracked_order)
+
+                        # TODO: if we get a fill report before we get an exchange order id back from palce_order, we
+                        # will lose our fill report. We need a structure that holds these unlinked fill reports until they
+                        # are either claimed by getting an exchange_order_id or we have no order placement requests in-transit
+
+                        # TODO: also add polling for fills for each order in case we lose packets from the stream
+
+                    else:
+                        self.logger().debug(f"Unrecognized user stream event topic type for orders channel: {message_type}.")    
                 else:
                     self.logger().debug(f"Unrecognized user stream event topic: {topic}.")
 
@@ -755,43 +771,40 @@ cdef class DydxExchange(ExchangeBase):
                 self.logger().info(e)
 
     async def _update_balances(self):
-        current_balances = self._dydx_client.get_my_balances()
+        current_balances = self.dydx_client.get_my_balances()
         await self._set_balances(current_balances["balances"], True)
 
     async def _update_trading_rules(self):
-        markets_info = await self.api_request("GET", f"{MARKETS_INFO_ROUTE}")
-
-        markets_info = markets_info["markets"]
-
+        markets_info = await self.api_request("GET", f"{MARKETS_INFO_ROUTE}")["markets"]
         for market_name in markets_info:
             market = markets_info[market_name]
             if "baseCurrency" in market:
                 baseid, quoteid = market['baseCurrency']['soloMarketId'], market['quoteCurrency']['soloMarketId']
                 decimals = market['baseCurrency']['decimals']
                 try:
-                    price_increment=Decimal(self.token_configuration.pad(self.token_configuration.unpad(market['minimumTickSize'], baseid), quoteid))
+                    price_increment = self.token_configuration.unpad_price(market['minimumTickSize'], baseid, quoteid)
                     self._trading_rules[f"{market_name}-limit"] = TradingRule(
-                        trading_pair=market_name,
-                        min_order_size =Decimal(self.token_configuration.unpad(market['smallOrderThreshold'], baseid)),
-                        min_price_increment=price_increment,
-                        min_base_amount_increment=Decimal(f"1e-{decimals}"),
-                        min_notional_size = Decimal(self.token_configuration.unpad(market['smallOrderThreshold'], baseid)) * price_increment,
+                        trading_pair = market_name,
+                        min_order_size = self.token_configuration.unpad(market['smallOrderThreshold'], baseid),
+                        min_price_increment = price_increment,
+                        min_base_amount_increment = Decimal(f"1e-{decimals}"),
+                        min_notional_size = self.token_configuration.unpad(market['smallOrderThreshold'], baseid) * price_increment,
                         supports_limit_orders = True,
                         supports_market_orders = False
                     )
                     self._trading_rules[f"{market_name}-market"] = TradingRule(
-                        trading_pair=market_name,
-                        min_order_size =Decimal(self.token_configuration.unpad(market['minimumOrderSize'], baseid)),
-                        min_price_increment=price_increment,
-                        min_base_amount_increment=Decimal(f"1e-{decimals}"),
-                        min_notional_size = Decimal(self.token_configuration.unpad(market['minimumOrderSize'], baseid)) * price_increment,
+                        trading_pair = market_name,
+                        min_order_size = self.token_configuration.unpad(market['minimumOrderSize'], baseid),
+                        min_price_increment = price_increment,
+                        min_base_amount_increment = Decimal(f"1e-{decimals}"),
+                        min_notional_size = self.token_configuration.unpad(market['minimumOrderSize'], baseid) * price_increment,
                         supports_limit_orders = False,
                         supports_market_orders = True
                     )
                     self._fee_rules[market_name] = {
-                      "makerFee": market["makerFee"],
-                      "largeTakerFee": market["largeTakerFee"],
-                      "smallTakerFee": market["smallTakerFee"]
+                      "makerFee": Decimal(market["makerFee"]),
+                      "largeTakerFee": Decimal(market["largeTakerFee"]),
+                      "smallTakerFee": Decimal(market["smallTakerFee"])
                     }
                 except Exception as e:
                     self.logger().warning("Error updating trading rules")
@@ -815,7 +828,7 @@ cdef class DydxExchange(ExchangeBase):
 
             dydx_order_request = None
             try:
-                dydx_order_request = self._dydx_client.get_order(dydx_order_id)
+                dydx_order_request = self.dydx_client.get_order(dydx_order_id)
                 data = dydx_order_request["order"]
             except Exception as e:
                 self.logger().warning(f"Failed to fetch tracked dydx order " \
@@ -829,11 +842,12 @@ cdef class DydxExchange(ExchangeBase):
                         self.logger().warning(f"marking {client_order_id} as cancelled")
                         cancellation_event = OrderCancelledEvent(now(), client_order_id)
                         self.c_trigger_event(ORDER_CANCELLED_EVENT, cancellation_event)
-                        self.stop_tracking(client_order_id)
+                        self.c_stop_tracking_order(client_order_id)
                 continue
 
             try:
-                self._update_inflight_order(tracked_order, data)
+                tracked_order.update(data)
+                self._issue_order_events(tracked_order)
             except Exception as e:
                 self.logger().error(f"Failed to update dydx order {tracked_order.exchange_order_id}")
                 self.logger().error(e)

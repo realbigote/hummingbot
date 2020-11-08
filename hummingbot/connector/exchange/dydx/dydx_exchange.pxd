@@ -13,7 +13,7 @@ cdef class DydxExchange(ExchangeBase):
         object _dydx_auth
         str _dydx_node
         str _dydx_private_key
-        object _dydx_client
+        object dydx_client
         object _order_sign_param
 
         object _user_stream_tracker
@@ -35,3 +35,13 @@ cdef class DydxExchange(ExchangeBase):
         object _dydx_order_sign_param
         bint _fee_override
         dict _reserved_balances
+
+    cdef c_start_tracking_order(self, 
+                                object side,
+                                str client_order_id,
+                                long long created_at,
+                                str hash,
+                                str trading_pair,
+                                object price,
+                                object amount)
+    cdef object c_get_order_by_exchange_id(self, str exchange_order_id)

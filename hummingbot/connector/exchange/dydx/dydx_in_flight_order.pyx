@@ -4,6 +4,7 @@ import time
 from typing import (Any, Dict, List, Tuple)
 from decimal import Decimal
 from hummingbot.connector.exchange.dydx.dydx_order_status import DydxOrderStatus
+from hummingbot.connector.exchange.dydx.dydx_fill_report import DydxFillReport
 from hummingbot.connector.in_flight_order_base cimport InFlightOrderBase
 from hummingbot.connector.exchange.dydx.dydx_exchange cimport DydxExchange
 from hummingbot.core.event.events import (OrderFilledEvent, TradeType, OrderType, TradeFee, MarketEvent)
@@ -35,10 +36,13 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
         self.market = market
         self.status = initial_state
         self.created_at = created_at
+        self._last_executed_amount_from_order_status = Decimal(0)
         self.executed_amount_base = filled_size
         self.executed_amount_quote = filled_volume
         self.fee_paid = filled_fee
-        self.fill_ids = []
+        self.fills = set()
+        self._queued_events = []
+        self._queued_fill_events = []
 
         (base, quote) = self.market.split_trading_pair(trading_pair)
         self.fee_asset = base if trade_type is TradeType.BUY else quote
@@ -84,12 +88,14 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
             "executed_amount_base": str(self.executed_amount_base),
             "executed_amount_quote": str(self.executed_amount_quote),
             "fee_paid": str(self.fee_paid),
-            "created_at": self.created_at
+            "created_at": self.created_at,
+            "fills": [f.as_dict() for f in self.fills],
+            "_last_executed_amount_from_order_status": self._last_executed_amount_from_order_status,
         })
 
     @classmethod
     def from_json(cls, market, data: Dict[str, Any]) -> DydxInFlightOrder:
-        return DydxInFlightOrder(
+        order = DydxInFlightOrder(
             market,
             data["client_order_id"],
             data["exchange_order_id"],
@@ -104,6 +110,9 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
             Decimal(data["fee_paid"]),
             data["created_at"]
         )
+        for fill in data["fills"]:
+            order.fills.add( DydxFillReport(fill['id'], Decimal(fill['amount']), Decimal(fill['price']), Decimal(fill['fee'])))
+        order._last_executed_amount_from_order_status = Decimal(data['_last_executed_amount_from_order_status'])
 
     @classmethod
     def from_dydx_order(cls,
@@ -113,8 +122,8 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
                             created_at: int,
                             hash: str,
                             trading_pair: str,
-                            price: float,
-                            amount: float) -> DydxInFlightOrder:
+                            price: Decimal,
+                            amount: Decimal) -> DydxInFlightOrder:
         return DydxInFlightOrder(
             market,
             client_order_id,
@@ -122,8 +131,8 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
             trading_pair,
             OrderType.LIMIT, # TODO: fix this to the actual type (ie. LIMIT_MAKER)
             side,
-            Decimal(price),
-            Decimal(amount),
+            price,
+            amount,
             DydxOrderStatus.PENDING,
             Decimal(0),
             Decimal(0),
@@ -131,67 +140,68 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
             created_at
         )
 
-    def update(self, data: Dict[str, Any], dydx_client) -> List[Any]:
-        events: List[Any] = []
+    def _enqueue_completion_event(self):
+        if (self.status is DydxOrderStatus.done and 
+            self.executed_amount_base == self.amount and 
+            self.executed_amount_base == self._last_executed_amount_from_order_status):
+            
+            self._queued_events.append( (MarketEvent.BuyOrderCompleted if self.trade_type is TradeType.BUY else MarketEvent.SellOrderCompleted, 
+                                        self.executed_amount_base, 
+                                        self.executed_amount_quote, 
+                                        self.fee_paid) )
 
+    def register_fill(self, id: str, amount: Decimal, price: Decimal, fee: Decimal):
+        if id not in self.fills:
+            report = DydxFillReport(id, amount, price, fee)
+            self.fills.add(report)
+            self.executed_amount_base += report.amount
+            self.executed_amount_quote += report.value
+            self.fee_paid += fee
+
+            # enqueue the relevent events caused by this fill report
+            self._queued_fill_events.append( (MarketEvent.OrderFilled, amount, price, fee) )
+            self._enqueue_completion_event()
+
+    def _issue_order_events(self) -> List[Any]:
+        # We can always issue our fill events
+        events: List[Any] = self._queued_fill_events.copy()
+        self._queued_fill_events.clear()
+
+        if self.executed_amount_base == self._last_executed_amount_from_order_status:
+            # We have all the fill reports up to our observed order status, so we can issue all
+            # order status update related events.
+            events.extend(self._queued_events)
+            self._queued_events.clear()
+        
+        return events
+
+    def update(self, data: Dict[str, Any], dydx_client) -> List[Any]:
         base: str
         quote: str
         trading_pair: str = data["market"]
         (base, quote) = self.market.split_trading_pair(trading_pair)
         base_id: int = self.market.token_configuration.get_tokenid(base)
-        quote_id: int = self.market.token_configuration.get_tokenid(quote)
-        #fee_currency_id: int = self.market.token_configuration.get_tokenid(self.fee_asset)
 
         new_status: DydxOrderStatus = DydxOrderStatus[data["status"]]
-        filled_amount = self.market.token_configuration.unpad(data["filledAmount"],base_id)
-
-        new_executed_amount_quote: Decimal = 0
-        new_executed_amount_base: Decimal = 0
-
-        if filled_amount > self.executed_amount_base:
-
-            fills = self._dydx_client.get_my_fills(
-              market=[self.trading_pair]
-            )
-
-            for fill in fills:
-                if fill["orderId"] == self.exchange_order_id:
-                    if fill["uuid"] in self.fill_ids:
-                        continue
-                    else:
-                        self.fill_ids.append(fill["uuid"])
-                        executed_amount_base: Decimal = self.market.token_configuration.unpad(fill["amount"], base_id)
-                        price: Decimal = self.market.token_configuration.pad(self.market.token_configuration.unpad(fill["price"], base_id), quote_id)
-                        new_executed_amount_quote += price * executed_amount_base
-                        new_executed_amount_base += executed_amount_base
-
-        if new_executed_amount_base > self.executed_amount_base or new_executed_amount_quote > self.executed_amount_quote:
-            diff_base: Decimal = new_executed_amount_base - self.executed_amount_base
-            diff_quote: Decimal = new_executed_amount_quote - self.executed_amount_quote
-            if diff_quote > Decimal(0):
-                price: Decimal = diff_quote / diff_base
-            else:
-                price: Decimal = self.executed_amount_quote / self.executed_amount_base
-
-            events.append((MarketEvent.OrderFilled, diff_base, price, 0))
+        new_executed_amount_base: Decimal = self.market.token_configuration.unpad(data["filledAmount"],base_id)
 
         if not self.is_done and new_status == DydxOrderStatus.CANCELED:
             reason = data.get('cancelReason')
             if reason is None and reason == "EXPIRED":
-                events.append((MarketEvent.OrderExpired, None, None, None))
+                self._queued_events.append((MarketEvent.OrderExpired, None, None, None))
                 new_status = DydxOrderStatus.expired
             elif reason is None and reason in ["UNDERCOLLATERALIZED", "FAILED"]:
-                events.append( (MarketEvent.OrderFailure, None, None, None) )
+                self._queued_events.append( (MarketEvent.OrderFailure, None, None, None) )
                 new_status = DydxOrderStatus.failed
             else:
-                events.append((MarketEvent.OrderCancelled, None, None, None))
+                self._queued_events.append((MarketEvent.OrderCancelled, None, None, None))
 
         self.status = new_status
         self.last_state = str(new_status)
-        self.executed_amount_base = new_executed_amount_base
-        self.executed_amount_quote = new_executed_amount_quote
+        self._last_executed_amount_from_order_status = new_executed_amount_base
+
+        # check and enqueue our completion event if it is time to do so
+        self._enqueue_completion_event()
 
         if self.exchange_order_id is None:
             self.update_exchange_order_id(data.get('hash', None))
-
-        return events

@@ -8,9 +8,9 @@ class DydxOrderStatus(Enum):
     PARTIALLY_FILLED  = 102
     done              = 300
     FILLED            = 301
-    expired           = 401
-    CANCELED          = 402
-    failed            = 500
+    failed            = 400
+    expired           = 501
+    CANCELED          = 502
 
     def __ge__(self, other):
         if self.__class__ is other.__class__:

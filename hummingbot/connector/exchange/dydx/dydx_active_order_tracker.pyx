@@ -123,7 +123,7 @@ cdef class DydxActiveOrderTracker:
         pair_tuple = tuple(market.split('-'))
         basetokenid = self.token_configuration.get_tokenid(pair_tuple[0])
         quotetokenid = self.token_configuration.get_tokenid(pair_tuple[1])
-        new_price = float(self.token_configuration.unpad(self.token_configuration.pad(price,basetokenid), quotetokenid))
+        new_price = float(self.token_configuration.unpad_price(price, basetokenid, quotetokenid))
         new_amount = float(self.token_configuration.unpad(amount, basetokenid))
         return new_price, new_amount
 
