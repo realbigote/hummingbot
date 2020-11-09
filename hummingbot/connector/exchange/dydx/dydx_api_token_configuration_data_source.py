@@ -26,6 +26,7 @@ class DydxAPITokenConfigurationDataSource():
         self._tokenid_lookup: Dict[str, int] = {}
         self._symbol_lookup: Dict[int, str] = {}
         self._token_configurations: Dict[int, Any] = {}
+        self._digits: Dict[int, int] = {}
         self._decimals: Dict[int, Decimal] = {}
 
     @classmethod
@@ -54,8 +55,10 @@ class DydxAPITokenConfigurationDataSource():
                     self._tokenid_lookup[details['quoteCurrency']['currency']] = details['quoteCurrency']['soloMarketId']
                     self._symbol_lookup[details['baseCurrency']['soloMarketId']] = details['baseCurrency']['currency']
                     self._symbol_lookup[details['quoteCurrency']['soloMarketId']] = details['quoteCurrency']['currency']
-                    self._decimals[details['baseCurrency']['soloMarketId']] = Decimal(f"10e{-(details['baseCurrency']['decimals'] + 1)}")
-                    self._decimals[details['quoteCurrency']['soloMarketId']] = Decimal(f"10e{-(details['quoteCurrency']['decimals'] + 1)}")
+                    self._digits[details['baseCurrency']['soloMarketId']] = int(details['baseCurrency']['decimals'])
+                    self._digits[details['quoteCurrency']['soloMarketId']] = int(details['quoteCurrency']['decimals'])
+                    self._decimals[details['baseCurrency']['soloMarketId']] = Decimal(f"1e{-(details['baseCurrency']['decimals'])}")
+                    self._decimals[details['quoteCurrency']['soloMarketId']] = Decimal(f"1e{-(details['quoteCurrency']['decimals'])}")
 
     def get_bq(self, symbol: str) -> List[str]:
         """ Returns the base and quote of a trading pair """
@@ -79,7 +82,7 @@ class DydxAPITokenConfigurationDataSource():
         """Converts the padded price string into the correct Decimal representation
         based on the "decimals" setting from the token configuration for the referenced base and quote.
         """
-        return Decimal(price) * Decimal(f"10e{self._decimals[quote_id] - self._decimals[base_id]}")
+        return Decimal(price) * Decimal(f"1e{self._digits[quote_id] - self._digits[base_id]}")
 
     def pad(self, volume: Decimal, tokenid: int) -> str:
         """Converts the volume/size Decimal into the padded string representation for the api

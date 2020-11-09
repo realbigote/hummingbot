@@ -90,7 +90,7 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
             "fee_paid": str(self.fee_paid),
             "created_at": self.created_at,
             "fills": [f.as_dict() for f in self.fills],
-            "_last_executed_amount_from_order_status": self._last_executed_amount_from_order_status,
+            "_last_executed_amount_from_order_status": str(self._last_executed_amount_from_order_status),
         })
 
     @classmethod
@@ -113,6 +113,8 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
         for fill in data["fills"]:
             order.fills.add( DydxFillReport(fill['id'], Decimal(fill['amount']), Decimal(fill['price']), Decimal(fill['fee'])))
         order._last_executed_amount_from_order_status = Decimal(data['_last_executed_amount_from_order_status'])
+
+        return order
 
     @classmethod
     def from_dydx_order(cls,

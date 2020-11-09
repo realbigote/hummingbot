@@ -75,6 +75,8 @@ class DydxAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
     @classmethod
     async def get_last_traded_prices(cls, trading_pairs: List[str]) -> Dict[str, float]:
+        # TODO: we'regetting blocked by cloudflare here. Maybe this endpoint is problematic, so see if we can find last trade
+        # prices elsewhere, or failing that, bring it up with them
         async with aiohttp.ClientSession() as client:
             resp = await client.get(f"{DYDX_V1_API_URL}{TICKER_URL}".replace(":markets", ",".join(trading_pairs)))
             resp_json = await resp.json()

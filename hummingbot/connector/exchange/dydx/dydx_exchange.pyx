@@ -266,8 +266,8 @@ cdef class DydxExchange(ExchangeBase):
                 in_flight_order.register_fill(fill.id, fill.amount, fill.price, fill.fee)
             del self._unclaimed_fills[exchange_order_id]
 
-        self._orders_pending_ack.discard(tracked_order.client_order_id)
-        if len(_orders_pending_ack) == 0:
+        self._orders_pending_ack.discard(in_flight_order.client_order_id)
+        if len(self._orders_pending_ack) == 0:
             # We are no longer waiting on any exchange order ids, so all uncalimed fills can be discarded
             self._unclaimed_fills.clear()
 
@@ -349,6 +349,8 @@ cdef class DydxExchange(ExchangeBase):
                 #   get_orders()
                 #   see if any lost orders are in the returned orders and set the exchange id if so
                 # ...
+
+                # TODO: ensure this is the right exception from place_order with our wrapped library call...
                 return
                 
             # Verify the response from the exchange
@@ -387,14 +389,19 @@ cdef class DydxExchange(ExchangeBase):
                           amount: Decimal,
                           order_type: OrderType,
                           price: Optional[Decimal] = Decimal('NaN')):
-        await self.execute_order(TradeType.BUY, order_id, trading_pair, amount, order_type, price)
-        self.c_trigger_event(BUY_ORDER_CREATED_EVENT,
-                                BuyOrderCreatedEvent(now(), order_type, trading_pair, Decimal(amount), Decimal(price), order_id))
+        try:
+            await self.execute_order(TradeType.BUY, order_id, trading_pair, amount, order_type, price)
+            self.c_trigger_event(BUY_ORDER_CREATED_EVENT,
+                                    BuyOrderCreatedEvent(now(), order_type, trading_pair, Decimal(amount), Decimal(price), order_id))
 
-        # Issue any other events (fills) for this order that arrived while waiting for the exchange id
-        tracked_order = self.in_flight_orders.get(order_id)
-        if tracked_order is not None:
-            self._issue_order_events(tracked_order)
+            # Issue any other events (fills) for this order that arrived while waiting for the exchange id
+            tracked_order = self.in_flight_orders.get(order_id)
+            if tracked_order is not None:
+                self._issue_order_events(tracked_order)
+        except ValueError as e:
+            # never tracked, so no need to stop tracking
+            self.c_trigger_event(ORDER_FAILURE_EVENT, MarketOrderFailureEvent(now(), order_id, order_type))
+            self.logger().warning(f"Failed to place {order_id} on dydx. {str(e)}")
 
     async def execute_sell(self,
                            order_id: str,
@@ -402,14 +409,19 @@ cdef class DydxExchange(ExchangeBase):
                            amount: Decimal,
                            order_type: OrderType,
                            price: Optional[Decimal] = Decimal('NaN')):
-        await self.execute_order(TradeType.SELL, order_id, trading_pair, amount, order_type, price)
-        self.c_trigger_event(SELL_ORDER_CREATED_EVENT,
-                                SellOrderCreatedEvent(now(), order_type, trading_pair, Decimal(amount), Decimal(price), order_id))
+        try:
+            await self.execute_order(TradeType.SELL, order_id, trading_pair, amount, order_type, price)
+            self.c_trigger_event(SELL_ORDER_CREATED_EVENT,
+                                    SellOrderCreatedEvent(now(), order_type, trading_pair, Decimal(amount), Decimal(price), order_id))
 
-        # Issue any other events (fills) for this order that arrived while waiting for the exchange id
-        tracked_order = self.in_flight_orders.get(order_id)
-        if tracked_order is not None:
-            self._issue_order_events(tracked_order)
+            # Issue any other events (fills) for this order that arrived while waiting for the exchange id
+            tracked_order = self.in_flight_orders.get(order_id)
+            if tracked_order is not None:
+                self._issue_order_events(tracked_order)
+        except ValueError as e:
+            # never tracked, so no need to stop tracking
+            self.c_trigger_event(ORDER_FAILURE_EVENT, MarketOrderFailureEvent(now(), order_id, order_type))
+            self.logger().warning(f"Failed to place {order_id} on dydx. {str(e)}")
 
     cdef str c_buy(self, str trading_pair, object amount, object order_type = OrderType.LIMIT, object price = 0.0,
                    dict kwargs = {}):
@@ -532,8 +544,6 @@ cdef class DydxExchange(ExchangeBase):
         await self._token_configuration._configure()
         self._order_book_tracker.start()
         if self._trading_required:
-            exchange_info = await self.dydx_client.get_markets()
-
             tokens = set()
             for pair in self._trading_pairs:
                 (base, quote) = self.split_trading_pair(pair)
@@ -755,7 +765,7 @@ cdef class DydxExchange(ExchangeBase):
                     message_type = data['type']
                     if message_type == 'ORDER':
                         exchange_order_id: str = data['order']['id']
-                        tracked_order: DydxInFlightOrder = c_get_order_by_exchange_id(exchange_order_id)
+                        tracked_order: DydxInFlightOrder = self.c_get_order_by_exchange_id(exchange_order_id)
 
                         if tracked_order is None:
                             self.logger().debug(f"Unrecognized order ID from user stream: {exchange_order_id}.")
@@ -777,7 +787,7 @@ cdef class DydxExchange(ExchangeBase):
                         price = self.token_configuration.unpad_price(fill['price'], base_id, quote_id)
                         side = TradeType.BUY if fill['side'] == 'BUY' else TradeType.SELL
                         fee_paid = c_get_fee(base, quote, liquidity, side, amount, price)
-                        tracked_order: DydxInFlightOrder = c_get_order_by_exchange_id(exchange_order_id)
+                        tracked_order: DydxInFlightOrder = self.c_get_order_by_exchange_id(exchange_order_id)
                         if tracked_order is not None:
                             tracked_order.register_fill(id, amount, price, fee_paid)
                             self._issue_order_events(tracked_order)
@@ -820,7 +830,7 @@ cdef class DydxExchange(ExchangeBase):
         await self._set_balances(current_balances["balances"], True)
 
     async def _update_trading_rules(self):
-        markets_info = await self.dydx_client.get_markets()["markets"]
+        markets_info = (await self.dydx_client.get_markets())["markets"]
         for market_name in markets_info:
             market = markets_info[market_name]
             if "baseCurrency" in market:

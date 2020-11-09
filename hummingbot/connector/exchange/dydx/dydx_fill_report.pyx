@@ -29,9 +29,9 @@ cdef class DydxFillReport:
     def as_dict(self):
         return {
             "id": self.id,
-            "amount": self.amount,
-            "price": self.price,
-            "fee": self.fee
+            "amount": str(self.amount),
+            "price": str(self.price),
+            "fee": str(self.fee)
         }
 
     @property

@@ -1,5 +1,6 @@
 import aiohttp
 import asyncio
+from functools import partial
 
 from dydx.client import Client
 from dydx.exceptions import DydxAPIError
@@ -24,15 +25,14 @@ class DYDXClientWrapper:
         self._loop = asyncio.get_event_loop()
 
     async def place_order(self, market, side, amount, price, fillOrKill, postOnly, clientId):
-        f = self._loop.run_in_executor(None,
-                                       self.client.place_order,
-                                       market=market,
-                                       side=side,
-                                       amount=amount,
-                                       price=price,
-                                       fillOrKill=fillOrKill,
-                                       postOnly=postOnly,
-                                       clientId=clientId)
+        f = self._loop.run_in_executor(None, partial(self.client.place_order,
+                                                     market = market,
+                                                     side = side,
+                                                     amount = amount,
+                                                     price = price,
+                                                     fillOrKill = fillOrKill,
+                                                     postOnly = postOnly,
+                                                     clientId = clientId))
         return await f
 
     async def cancel_order(self, exchange_order_id):
