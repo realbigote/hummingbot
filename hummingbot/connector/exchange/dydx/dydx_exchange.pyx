@@ -7,16 +7,17 @@ import uuid
 import traceback
 import urllib
 import hashlib
+import math
+import logging
+from collections import defaultdict
+from decimal import *
+from libc.stdint cimport int64_t
 from typing import (
     Any,
     Dict,
     List,
     Optional
 )
-import math
-import logging
-from decimal import *
-from libc.stdint cimport int64_t
 
 from dydx.exceptions import DydxAPIError
 import dydx.constants as dydx_consts
@@ -29,11 +30,13 @@ from hummingbot.core.event.event_listener cimport EventListener
 from hummingbot.core.network_iterator import NetworkStatus
 from hummingbot.wallet.ethereum.web3_wallet import Web3Wallet
 from hummingbot.connector.exchange_base import ExchangeBase
-from hummingbot.connector.exchange.dydx.dydx_auth import DydxAuth
-from hummingbot.connector.exchange.dydx.dydx_client_wrapper import DYDXClientWrapper
-from hummingbot.connector.exchange.dydx.dydx_order_book_tracker import DydxOrderBookTracker
 from hummingbot.connector.exchange.dydx.dydx_api_order_book_data_source import DydxAPIOrderBookDataSource
 from hummingbot.connector.exchange.dydx.dydx_api_token_configuration_data_source import DydxAPITokenConfigurationDataSource
+from hummingbot.connector.exchange.dydx.dydx_auth import DydxAuth
+from hummingbot.connector.exchange.dydx.dydx_client_wrapper import DYDXClientWrapper
+from hummingbot.connector.exchange.dydx.dydx_fill_report import DydxFillReport
+from hummingbot.connector.exchange.dydx.dydx_in_flight_order cimport DydxInFlightOrder
+from hummingbot.connector.exchange.dydx.dydx_order_book_tracker import DydxOrderBookTracker
 from hummingbot.connector.exchange.dydx.dydx_user_stream_tracker import DydxUserStreamTracker
 from hummingbot.connector.exchange.dydx.dydx_utils import hash_order_id
 from hummingbot.core.utils.async_utils import (
@@ -54,7 +57,6 @@ from hummingbot.core.event.events import (
     TradeFee,
 )
 from hummingbot.logger import HummingbotLogger
-from hummingbot.connector.exchange.dydx.dydx_in_flight_order cimport DydxInFlightOrder
 from hummingbot.connector.trading_rule cimport TradingRule
 from hummingbot.core.utils.estimate_fee import estimate_fee
 from hummingbot.core.utils.tracking_nonce import get_tracking_nonce
@@ -82,7 +84,7 @@ API_CALL_TIMEOUT = 10.0
 MAINNET_API_REST_ENDPOINT = "https://api.dydx.exchange/"
 MAINNET_WS_ENDPOINT = "wss://api.dydx.exchange/v1/ws"
 MARKETS_INFO_ROUTE = "v2/markets"
-UNRECOGNIZED_ORDER_DEBOUCE = 20  # seconds
+UNRECOGNIZED_ORDER_DEBOUCE = 60  # seconds
 
 class LatchingEventResponder(EventListener):
     def __init__(self, callback : any, num_expected : int):
@@ -175,13 +177,14 @@ cdef class DydxExchange(ExchangeBase):
         # State
         self._lock = asyncio.Lock()
         self._trading_rules = {}
-        self._pending_approval_tx_hashes = set()
         self._in_flight_orders = {}
         self._trading_pairs = trading_pairs
         self._fee_rules = {}
-        self._order_id_lock = asyncio.Lock()
         self._fee_override = ("dydx_maker_fee_amount" in fee_overrides_config_map)
         self._reserved_balances = {}
+        self._unclaimed_fills = defaultdict(set)
+        self._in_flight_orders_by_exchange_id = {}
+        self._orders_pending_ack = set()
 
     @property
     def name(self) -> str:
@@ -253,6 +256,21 @@ cdef class DydxExchange(ExchangeBase):
     def supported_order_types(self):
         return [OrderType.LIMIT, OrderType.LIMIT_MAKER]
 
+    def _set_exchange_id(self, in_flight_order, exchange_order_id):
+        in_flight_order.update_exchange_order_id(exchange_order_id)
+        self._in_flight_orders_by_exchange_id[exchange_order_id] = in_flight_order
+
+        # Claim any fill reports for this order that came in while we awaited this exchange id
+        if exchange_order_id in self._unclaimed_fills:
+            for fill in self._unclaimed_fills[exchange_order_id]:
+                in_flight_order.register_fill(fill.id, fill.amount, fill.price, fill.fee)
+            del self._unclaimed_fills[exchange_order_id]
+
+        self._orders_pending_ack.discard(tracked_order.client_order_id)
+        if len(_orders_pending_ack) == 0:
+            # We are no longer waiting on any exchange order ids, so all uncalimed fills can be discarded
+            self._unclaimed_fills.clear()
+
     async def place_order(self,
                           client_order_id: str,
                           trading_pair: str,
@@ -318,8 +336,19 @@ cdef class DydxExchange(ExchangeBase):
                 creation_response = await self.place_order(client_order_id, trading_pair, amount, order_side is TradeType.BUY, order_type, price)
             except asyncio.exceptions.TimeoutError:
                 # We timed out while placing this order. We may have successfully submitted the order, or we may have had connection
-                # issues that prevented the submission from taking place. We'll assume that the order is live and let our order status 
-                # updates mark this as cancelled if it doesn't actually exist.             
+                # issues that prevented the submission from taking place.
+
+                # Note that if this order is live and we never recieved the exchange_order_id, we have no way of re-linking with this order
+                # TODO: we can use the /v2/orders endpoint to get a list of orders that match the parameters of the lost orders and that will contain
+                # the clientId that we have set. This can resync orders, but wouldn't be a garuntee of finding them in the list and would require a fair amout
+                # of work in handling this re-syncing process
+                # This would be somthing like
+                # self._lost_orders.append(client_order_id) # add this here
+                # ...
+                # some polling loop:
+                #   get_orders()
+                #   see if any lost orders are in the returned orders and set the exchange id if so
+                # ...
                 return
                 
             # Verify the response from the exchange
@@ -334,7 +363,7 @@ cdef class DydxExchange(ExchangeBase):
             dydx_order_id = order["id"]
             in_flight_order = self._in_flight_orders.get(client_order_id)
             if in_flight_order is not None:
-                in_flight_order.update_exchange_order_id(dydx_order_id)
+                self._set_exchange_id(in_flight_order, dydx_order_id)
 
                 # Begin tracking order
                 self.logger().info(
@@ -362,6 +391,11 @@ cdef class DydxExchange(ExchangeBase):
         self.c_trigger_event(BUY_ORDER_CREATED_EVENT,
                                 BuyOrderCreatedEvent(now(), order_type, trading_pair, Decimal(amount), Decimal(price), order_id))
 
+        # Issue any other events (fills) for this order that arrived while waiting for the exchange id
+        tracked_order = self.in_flight_orders.get(order_id)
+        if tracked_order is not None:
+            self._issue_order_events(tracked_order)
+
     async def execute_sell(self,
                            order_id: str,
                            trading_pair: str,
@@ -371,6 +405,11 @@ cdef class DydxExchange(ExchangeBase):
         await self.execute_order(TradeType.SELL, order_id, trading_pair, amount, order_type, price)
         self.c_trigger_event(SELL_ORDER_CREATED_EVENT,
                                 SellOrderCreatedEvent(now(), order_type, trading_pair, Decimal(amount), Decimal(price), order_id))
+
+        # Issue any other events (fills) for this order that arrived while waiting for the exchange id
+        tracked_order = self.in_flight_orders.get(order_id)
+        if tracked_order is not None:
+            self._issue_order_events(tracked_order)
 
     cdef str c_buy(self, str trading_pair, object amount, object order_type = OrderType.LIMIT, object price = 0.0,
                    dict kwargs = {}):
@@ -400,7 +439,16 @@ cdef class DydxExchange(ExchangeBase):
             self.c_trigger_event(ORDER_CANCELLED_EVENT, cancellation_event)
             return True
 
-        try:            
+        try:
+            if exchange_order_id is None:
+                # Note, we have no way of canceling an order without an exchange_order_id
+                if in_flight_order.created_at < (int(time.time()) - UNRECOGNIZED_ORDER_DEBOUCE):
+                    # Order didn't exist on exchange, mark this as canceled
+                    self.c_trigger_event(ORDER_CANCELLED_EVENT, cancellation_event)
+                    self.c_stop_tracking_order(in_flight_order.client_order_id)
+                    return True
+                else:
+                    raise Exception(f"order {client_order_id} has no exchange id")   
             res = await self.dydx_client.cancel_order(exchange_order_id)
             return True
 
@@ -497,7 +545,6 @@ cdef class DydxExchange(ExchangeBase):
 
     async def stop_network(self):
         self._order_book_tracker.stop()
-        self._pending_approval_tx_hashes.clear()
         self._polling_update_task = None
         if self._user_stream_tracker_task is not None:
             self._user_stream_tracker_task.cancel()
@@ -549,6 +596,7 @@ cdef class DydxExchange(ExchangeBase):
                                                             price, 
                                                             amount)
         self._in_flight_orders[in_flight_order.client_order_id] = in_flight_order
+        self._orders_pending_ack.add(client_order_id)
 
         old_reserved = self._reserved_balances.get(in_flight_order.reserved_asset, Decimal(0))
         new_reserved = old_reserved + in_flight_order.reserved_balance
@@ -564,13 +612,21 @@ cdef class DydxExchange(ExchangeBase):
             self._reserved_balances[in_flight_order.reserved_asset] = new_reserved
             self._account_available_balances[in_flight_order.reserved_asset] = \
                 max(self._account_balances.get(in_flight_order.reserved_asset, Decimal(0)) - new_reserved, Decimal(0))
+            if in_flight_order.exchange_order_id is not None and in_flight_order.exchange_order_id in self._in_flight_orders_by_exchange_id:
+                del self._in_flight_orders_by_exchange_id[in_flight_order.exchange_order_id]
             if client_order_id in self._in_flight_orders:
                 del self._in_flight_orders[client_order_id]
+            if client_order_id in self._orders_pending_ack:
+                self._orders_pending_ack.remove(client_order_id)
 
     cdef object c_get_order_by_exchange_id(self, str exchange_order_id):
-        for o in self._in_flight_orders.values(): #TODO: add lookup by exchange order id
+        if exchange_order_id in self._in_flight_orders_by_exchange_id:
+            return self._in_flight_orders_by_exchange_id[exchange_order_id]
+
+        for o in self._in_flight_orders.values():
             if o.exchange_order_id == exchange_order_id:
                 return o
+
         return None
 
     # ----------------------------------------
@@ -712,26 +768,22 @@ cdef class DydxExchange(ExchangeBase):
                     elif message_type == 'FILL':
                         fill = data['fill']
                         exchange_order_id: str = fill['id']
-                        tracked_order: DydxInFlightOrder = c_get_order_by_exchange_id(exchange_order_id)
-                        if tracked_order is None:
-                            self.logger().debug(f"Unrecognized order ID from user stream fill report: {exchange_order_id}.")
-                            self.logger().debug(f"Event: {event_message}")
-                            continue
-
-                        base, quote = self.split_trading_pair(tracked_order.trading_pair)
+                        base, quote = self.split_trading_pair(fill['market'])
                         base_id = self.token_configuration.get_tokenid(base)
                         quote_id = self.token_configuration.get_tokenid(quote)
                         id = fill['uuid']
                         liquidity = OrderType.LIMIT if fill['liquidity'] == 'MAKER' else OrderType.MARKET
                         amount = self.token_configuration.unpad(fill['amount'], base_id)
                         price = self.token_configuration.unpad_price(fill['price'], base_id, quote_id)
-                        fee_paid = c_get_fee(base, quote, liquidity, tracked_order.trade_type, amount, price)
-                        tracked_order.register_fill(id, amount, price, fee_paid)
-                        self._issue_order_events(tracked_order)
-
-                        # TODO: if we get a fill report before we get an exchange order id back from palce_order, we
-                        # will lose our fill report. We need a structure that holds these unlinked fill reports until they
-                        # are either claimed by getting an exchange_order_id or we have no order placement requests in-transit
+                        side = TradeType.BUY if fill['side'] == 'BUY' else TradeType.SELL
+                        fee_paid = c_get_fee(base, quote, liquidity, side, amount, price)
+                        tracked_order: DydxInFlightOrder = c_get_order_by_exchange_id(exchange_order_id)
+                        if tracked_order is not None:
+                            tracked_order.register_fill(id, amount, price, fee_paid)
+                            self._issue_order_events(tracked_order)
+                        else:
+                            if len(self._orders_pending_ack) > 0:
+                                self._unclaimed_fills[exchange_order_id].add(DydxFillReport(id, amount, price, fee_paid))
                     else:
                         self.logger().debug(f"Unrecognized user stream event topic type for orders channel: {message_type}.")    
                 else:
@@ -832,10 +884,10 @@ cdef class DydxExchange(ExchangeBase):
                 # is reasonably old, mark the orde as cancelled
                 if "could not be found" in str(msg):
                     if tracked_order.created_at < (int(time.time()) - UNRECOGNIZED_ORDER_DEBOUCE):
-                        self.logger().warning(f"marking {client_order_id} as cancelled")
-                        cancellation_event = OrderCancelledEvent(now(), client_order_id)
-                        self.c_trigger_event(ORDER_CANCELLED_EVENT, cancellation_event)
-                        self.c_stop_tracking_order(client_order_id)
+                        try:
+                            self.cancel_order(client_order_id)
+                        except Exception:
+                            pass
                 continue
 
             try:
