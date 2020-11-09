@@ -12,6 +12,11 @@ DEFAULT_FEES = [0.0, 0.2]
 
 DYDX_ROOT_API = "https://api.dydx.exchange/v1"
 
+V2_TO_V1 = {
+  "WETH-DAI": "ETH-DAI",
+  "WETH-USDC": "ETH-USDC",
+  "DAI-USDC": "DAI-USDC",
+}
 
 def convert_from_exchange_trading_pair(exchange_trading_pair: str) -> str:
     # dydx returns trading pairs in the correct format natively
