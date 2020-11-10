@@ -448,17 +448,19 @@ cdef class DydxExchange(ExchangeBase):
         exchange_order_id = in_flight_order.exchange_order_id
 
         if in_flight_order is None:
+            self.logger().warning("Cancelled an untracked order {client_order_id}")
             self.c_trigger_event(ORDER_CANCELLED_EVENT, cancellation_event)
-            return True
+            return False
 
         try:
             if exchange_order_id is None:
-                # Note, we have no way of canceling an order without an exchange_order_id
+                # Note, we have no way of canceling an order or querying for information about the order 
+                # without an exchange_order_id
                 if in_flight_order.created_at < (int(time.time()) - UNRECOGNIZED_ORDER_DEBOUCE):
-                    # Order didn't exist on exchange, mark this as canceled
-                    self.c_trigger_event(ORDER_CANCELLED_EVENT, cancellation_event)
+                    # We'll just have to assume that this order doesn't exist
                     self.c_stop_tracking_order(in_flight_order.client_order_id)
-                    return True
+                    self.c_trigger_event(ORDER_CANCELLED_EVENT, cancellation_event)
+                    return False
                 else:
                     raise Exception(f"order {client_order_id} has no exchange id")   
             res = await self.dydx_client.cancel_order(exchange_order_id)
@@ -469,10 +471,11 @@ cdef class DydxExchange(ExchangeBase):
             # If this says that it doesn't exist, don't stop tracking this order until X time has passed
             if f"Order with specified id: {exchange_order_id} could not be found" in str(e):
                 # Order didn't exist on exchange, mark this as canceled
-                self.c_trigger_event(ORDER_CANCELLED_EVENT,cancellation_event)
                 self.c_stop_tracking_order(in_flight_order.client_order_id)
-                return True
+                self.c_trigger_event(ORDER_CANCELLED_EVENT,cancellation_event)
+                return False
             else:
+                self.logger().warning("Unable to cancel order {exchange_order_id}: {str(e)}")
                 return False
         except Exception as e:
             self.logger().warning(f"Failed to cancel order {client_order_id}")
@@ -487,9 +490,7 @@ cdef class DydxExchange(ExchangeBase):
         if len(cancellation_queue) == 0:
             return []
 
-        order_status = {o.client_order_id: False for o in cancellation_queue.values()}
-        for o, s in order_status.items():
-            self.logger().info(o + ' ' + str(s))
+        order_status = {o.client_order_id: o.is_done for o in cancellation_queue.values()}
         
         def set_cancellation_status(oce : OrderCancelledEvent):
             if oce.order_id in order_status:
@@ -501,12 +502,16 @@ cdef class DydxExchange(ExchangeBase):
         self.c_add_listener(ORDER_CANCELLED_EVENT, cancel_verifier)
 
         for order_id, in_flight in cancellation_queue.iteritems():
-            try:            
-                if not await self.cancel_order(order_id):
+            try:
+                if order_status[order_id]:
+                    cancel_verifier.cancel_one()
+                elif not await self.cancel_order(order_id):
                     # this order did not exist on the exchange
                     cancel_verifier.cancel_one()
+                    order_status[order_id] = True
             except Exception:
                 cancel_verifier.cancel_one()
+                order_status[order_id] = True
         
         all_completed : bool = await cancel_verifier.wait_for_completion(timeout_seconds)
         self.c_remove_listener(ORDER_CANCELLED_EVENT, cancel_verifier)
@@ -585,7 +590,9 @@ cdef class DydxExchange(ExchangeBase):
     def restore_tracking_states(self, saved_states: Dict[str, any]):
         for order_id, in_flight_repr in saved_states.iteritems():
             in_flight_json: Dict[Str, Any] = json.loads(in_flight_repr)
-            self._in_flight_orders[order_id] = DydxInFlightOrder.from_json(self, in_flight_json)
+            order = DydxInFlightOrder.from_json(self, in_flight_json)
+            if not order.is_done:
+                self._in_flight_orders[order_id] = order
 
     cdef c_start_tracking_order(self, 
                                 object order_side,
@@ -649,10 +656,10 @@ cdef class DydxExchange(ExchangeBase):
         for (market_event, new_amount, new_price, new_fee) in issuable_events:
             if market_event == MarketEvent.OrderCancelled:
                 self.logger().info(f"Successfully cancelled order {tracked_order.client_order_id}")
+                self.c_stop_tracking_order(tracked_order.client_order_id)
                 self.c_trigger_event(ORDER_CANCELLED_EVENT,
                                      OrderCancelledEvent(self._current_timestamp,
                                                          tracked_order.client_order_id))
-                self.c_stop_tracking_order(tracked_order.client_order_id)
             elif market_event == MarketEvent.OrderFilled:
                 self.c_trigger_event(ORDER_FILLED_EVENT,
                                      OrderFilledEvent(self._current_timestamp,
@@ -665,21 +672,24 @@ cdef class DydxExchange(ExchangeBase):
                                                       TradeFee(Decimal(0), [(tracked_order.fee_asset, new_fee)]),
                                                       tracked_order.client_order_id))
             elif market_event == MarketEvent.OrderExpired:
+                self.logger().info(f"The market order {tracked_order.client_order_id} has expired according to "
+                                   f"order status API.")
+                self.c_stop_tracking_order(tracked_order.client_order_id)
                 self.c_trigger_event(ORDER_EXPIRED_EVENT,
                                      OrderExpiredEvent(self._current_timestamp,
                                                        tracked_order.client_order_id))
-                self.c_stop_tracking_order(tracked_order.client_order_id)
             elif market_event == MarketEvent.OrderFailure:
                 self.logger().info(f"The market order {tracked_order.client_order_id} has failed according to "
                                    f"order status API.")
+                self.c_stop_tracking_order(tracked_order.client_order_id)
                 self.c_trigger_event(ORDER_FAILURE_EVENT,
                                      MarketOrderFailureEvent(self._current_timestamp,
                                                              tracked_order.client_order_id,
                                                              tracked_order.order_type))
-                self.c_stop_tracking_order(tracked_order.client_order_id)
             elif market_event == MarketEvent.BuyOrderCompleted:
                 self.logger().info(f"The market buy order {tracked_order.client_order_id} has completed "
                                     f"according to user stream.")
+                self.c_stop_tracking_order(tracked_order.client_order_id)
                 self.c_trigger_event(BUY_ORDER_COMPLETED_EVENT,
                                         BuyOrderCompletedEvent(self._current_timestamp,
                                                             tracked_order.client_order_id,
@@ -690,10 +700,10 @@ cdef class DydxExchange(ExchangeBase):
                                                             tracked_order.executed_amount_quote,
                                                             tracked_order.fee_paid,
                                                             tracked_order.order_type))
-                self.c_stop_tracking_order(tracked_order.client_order_id)
             elif market_event == MarketEvent.SellOrderCompleted:
                 self.logger().info(f"The market sell order {tracked_order.client_order_id} has completed "
                                     f"according to user stream.")
+                self.c_stop_tracking_order(tracked_order.client_order_id)    
                 self.c_trigger_event(SELL_ORDER_COMPLETED_EVENT,
                                         SellOrderCompletedEvent(self._current_timestamp,
                                                                 tracked_order.client_order_id,
@@ -704,10 +714,8 @@ cdef class DydxExchange(ExchangeBase):
                                                                 tracked_order.executed_amount_quote,
                                                                 tracked_order.fee_paid,
                                                                 tracked_order.order_type))
-                self.c_stop_tracking_order(tracked_order.client_order_id)    
 
-    def _set_balance_for_token(self, token_str: str, padded_total_amount: str):
-        token_id = int(token_str)
+    def _set_balance_for_token(self, token_id: int, padded_total_amount: str):
         token_symbol: str = self.token_configuration.get_symbol(token_id)
         if token_symbol is None:
             return
@@ -723,9 +731,9 @@ cdef class DydxExchange(ExchangeBase):
                 await self.token_configuration._configure()
             async with self._lock:
                 if is_snapshot:
-                    for token_id, data in updates.items():
+                    for token_str, data in updates.items():
                         padded_total_amount: str = data['wei']
-                        self._set_balance_for_token(token_id, padded_total_amount)
+                        self._set_balance_for_token(int(token_str), padded_total_amount)
 
                 elif 'balanceUpdate' in updates:
                     data = updates['balanceUpdate']
@@ -777,7 +785,7 @@ cdef class DydxExchange(ExchangeBase):
                         self._issue_order_events(tracked_order)
                     elif message_type == 'FILL':
                         fill = data['fill']
-                        exchange_order_id: str = fill['id']
+                        exchange_order_id: str = fill['orderId']
                         base, quote = self.split_trading_pair(fill['market'])
                         base_id = self.token_configuration.get_tokenid(base)
                         quote_id = self.token_configuration.get_tokenid(quote)
@@ -786,7 +794,7 @@ cdef class DydxExchange(ExchangeBase):
                         amount = self.token_configuration.unpad(fill['amount'], base_id)
                         price = self.token_configuration.unpad_price(fill['price'], base_id, quote_id)
                         side = TradeType.BUY if fill['side'] == 'BUY' else TradeType.SELL
-                        fee_paid = c_get_fee(base, quote, liquidity, side, amount, price)
+                        fee_paid = self.c_get_fee(base, quote, liquidity, side, amount, price).percent
                         tracked_order: DydxInFlightOrder = self.c_get_order_by_exchange_id(exchange_order_id)
                         if tracked_order is not None:
                             tracked_order.register_fill(id, amount, price, fee_paid)
@@ -922,7 +930,7 @@ cdef class DydxExchange(ExchangeBase):
                     liquidity = OrderType.LIMIT if fill['liquidity'] == 'MAKER' else OrderType.MARKET
                     amount = self.token_configuration.unpad(fill['amount'], base_id)
                     price = self.token_configuration.unpad_price(fill['price'], base_id, quote_id)
-                    fee_paid = c_get_fee(base, quote, liquidity, tracked_order.trade_type, amount, price)
+                    fee_paid = self.c_get_fee(base, quote, liquidity, tracked_order.trade_type, amount, price).percent
                     tracked_order.register_fill(id, amount, price, fee_paid)
 
         except DydxAPIError as e:

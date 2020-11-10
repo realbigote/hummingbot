@@ -43,6 +43,7 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
         self.fills = set()
         self._queued_events = []
         self._queued_fill_events = []
+        self._completion_sent = False
 
         (base, quote) = self.market.split_trading_pair(trading_pair)
         self.fee_asset = base if trade_type is TradeType.BUY else quote
@@ -147,7 +148,8 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
         return self.executed_amount_base == self._last_executed_amount_from_order_status
 
     def _enqueue_completion_event(self):
-        if (self.status is DydxOrderStatus.done and 
+        if (not self._completion_sent and
+            self.status is DydxOrderStatus.FILLED and 
             self.executed_amount_base == self.amount and 
             self.executed_amount_base == self._last_executed_amount_from_order_status):
             
@@ -155,6 +157,7 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
                                         self.executed_amount_base, 
                                         self.executed_amount_quote, 
                                         self.fee_paid) )
+            self._completion_sent = True
 
     def register_fill(self, id: str, amount: Decimal, price: Decimal, fee: Decimal):
         if id not in self.fills:
@@ -162,7 +165,7 @@ cdef class DydxInFlightOrder(InFlightOrderBase):
             self.fills.add(report)
             self.executed_amount_base += report.amount
             self.executed_amount_quote += report.value
-            self.fee_paid += fee
+            self.fee_paid += fee * (report.amount if self.trade_type is TradeType.BUY else report.value)
 
             # enqueue the relevent events caused by this fill report
             self._queued_fill_events.append( (MarketEvent.OrderFilled, amount, price, fee) )
