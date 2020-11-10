@@ -22,7 +22,7 @@ from websockets.exceptions import ConnectionClosed
 from hummingbot.connector.exchange.dydx.dydx_order_book import DydxOrderBook
 from hummingbot.connector.exchange.dydx.dydx_active_order_tracker import DydxActiveOrderTracker
 from hummingbot.connector.exchange.dydx.dydx_api_token_configuration_data_source import DydxAPITokenConfigurationDataSource
-from hummingbot.connector.exchange.dydx.dydx_utils import convert_from_exchange_trading_pair, V2_TO_V1#, get_ws_api_key
+from hummingbot.connector.exchange.dydx.dydx_utils import convert_from_exchange_trading_pair, convert_v2_pair_to_v1  #, get_ws_api_key
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
 from hummingbot.logger import HummingbotLogger
 from hummingbot.core.data_type.order_book import OrderBook
@@ -75,14 +75,12 @@ class DydxAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
     @classmethod
     async def get_last_traded_prices(cls, trading_pairs: List[str]) -> Dict[str, float]:
-        # TODO: we'regetting blocked by cloudflare here. Maybe this endpoint is problematic, so see if we can find last trade
-        # prices elsewhere, or failing that, bring it up with them
         async with aiohttp.ClientSession() as client:
             resp = await client.get(f"{DYDX_V1_API_URL}{TICKER_URL}")
             resp_json = await resp.json()
             retval = {}
             for pair in trading_pairs:
-                retval[pair] = float(resp_json["markets"][V2_TO_V1[pair]]["last"])
+                retval[pair] = float(resp_json["markets"][convert_v2_pair_to_v1(pair)]["last"])
             return retval
 
     @property

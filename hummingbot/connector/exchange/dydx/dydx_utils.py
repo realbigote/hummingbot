@@ -1,9 +1,3 @@
-import aiohttp
-from typing import Dict, Any
-
-from hummingbot.client.config.config_var import ConfigVar
-from hummingbot.client.config.config_methods import using_exchange
-
 CENTRALIZED = False
 
 EXAMPLE_PAIR = "WETH-DAI"
@@ -13,10 +7,15 @@ DEFAULT_FEES = [0.0, 0.2]
 DYDX_ROOT_API = "https://api.dydx.exchange/v1"
 
 V2_TO_V1 = {
-  "WETH-DAI": "ETH-DAI",
-  "WETH-USDC": "ETH-USDC",
-  "DAI-USDC": "DAI-USDC",
+    "WETH-DAI": "ETH-DAI",
+    "WETH-USDC": "ETH-USDC",
+    "DAI-USDC": "DAI-USDC",
 }
+
+
+def convert_v2_pair_to_v1(trading_pair: str) -> str:
+    return V2_TO_V1.get(trading_pair, trading_pair)
+
 
 def convert_from_exchange_trading_pair(exchange_trading_pair: str) -> str:
     # dydx returns trading pairs in the correct format natively

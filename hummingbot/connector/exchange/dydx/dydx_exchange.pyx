@@ -467,13 +467,14 @@ cdef class DydxExchange(ExchangeBase):
             return True
 
         except DydxAPIError as e:
-            # TODO: Verify what happens if we try to cancel an order before it fully exists (we have a response from place order)
-            # If this says that it doesn't exist, don't stop tracking this order until X time has passed
             if f"Order with specified id: {exchange_order_id} could not be found" in str(e):
-                # Order didn't exist on exchange, mark this as canceled
-                self.c_stop_tracking_order(in_flight_order.client_order_id)
-                self.c_trigger_event(ORDER_CANCELLED_EVENT,cancellation_event)
-                return False
+                if in_flight_order.created_at < (int(time.time()) - UNRECOGNIZED_ORDER_DEBOUCE):
+                    # Order didn't exist on exchange, mark this as canceled
+                    self.c_stop_tracking_order(in_flight_order.client_order_id)
+                    self.c_trigger_event(ORDER_CANCELLED_EVENT,cancellation_event)
+                    return False
+                else:
+                    raise Exception(f"order {client_order_id} does not yet exist on the exchange and could not be cancelled.")
             else:
                 self.logger().warning("Unable to cancel order {exchange_order_id}: {str(e)}")
                 return False
