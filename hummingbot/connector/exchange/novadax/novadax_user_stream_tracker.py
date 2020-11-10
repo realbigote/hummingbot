@@ -29,10 +29,9 @@ class NovadaxUserStreamTracker(UserStreamTracker):
         return cls._bust_logger
 
     def __init__(self,
-                 data_source_type: UserStreamTrackerDataSourceType = UserStreamTrackerDataSourceType.EXCHANGE_API,
                  novadax_client: Optional[NovaClient] = None,
                  novadax_uid: str = None):
-        super().__init__(data_source_type=data_source_type)
+        super().__init__()
         self._novadax_client: NovaClient = novadax_client
         self._novadax_uid = novadax_uid
         self._ev_loop: asyncio.events.AbstractEventLoop = asyncio.get_event_loop()
@@ -42,10 +41,7 @@ class NovadaxUserStreamTracker(UserStreamTracker):
     @property
     def data_source(self) -> UserStreamTrackerDataSource:
         if not self._data_source:
-            if self._data_source_type is UserStreamTrackerDataSourceType.EXCHANGE_API:
-                self._data_source = NovadaxAPIUserStreamDataSource(novadax_client=self._novadax_client,novadax_uid=self._novadax_uid)
-            else:
-                raise ValueError(f"data_source_type {self._data_source_type} is not supported.")
+            self._data_source = NovadaxAPIUserStreamDataSource(novadax_client=self._novadax_client, novadax_uid=self._novadax_uid)
         return self._data_source
 
     @property

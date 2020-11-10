@@ -336,7 +336,6 @@ cdef class BlocktaneExchange(ExchangeBase):
 
         try:
             if current_tick > last_tick and len(self._in_flight_orders) > 0:
-                self.logger().info("Running the _update_order_status loop")
                 tracked_orders = list(self._in_flight_orders.values())
                 for tracked_order in tracked_orders:
                     client_order_id = tracked_order.client_order_id
