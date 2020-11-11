@@ -860,7 +860,8 @@ cdef class NovadaxExchange(ExchangeBase):
             order = self._in_flight_orders.pop(order_id)
             exchange_id = order.exchange_order_id
             if exchange_id is not None and exchange_id != '':
-                del self._in_flight_orders_by_exchange_id[exchange_id]
+                if exchange_id in self._in_flight_orders_by_exchange_id:
+                    del self._in_flight_orders_by_exchange_id[exchange_id]
         if order_id in self._order_not_found_records:
             del self._order_not_found_records[order_id]
 
