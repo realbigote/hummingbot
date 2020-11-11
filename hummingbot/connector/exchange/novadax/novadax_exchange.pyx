@@ -436,7 +436,7 @@ cdef class NovadaxExchange(ExchangeBase):
                     exchange_id = event_message[1]["id"]
                     tracked_order = self._in_flight_orders_by_exchange_id.get(exchange_id, None)
                     if tracked_order is None:
-                        for o in self._in_flight_orders: # FIXME: add a lookup by exchange order id
+                        for o in self._in_flight_orders.values(): # FIXME: add a lookup by exchange order id
                             if o.exchange_order_id == exchange_id:
                                 tracked_order = o
 
