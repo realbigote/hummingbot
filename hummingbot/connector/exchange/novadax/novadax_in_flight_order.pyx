@@ -76,7 +76,6 @@ cdef class NovadaxInFlightOrder(InFlightOrderBase):
     def update(self, data: Dict[str, Any]) -> List[Any]:
         events: List[Any] = []
 
-
         new_status: NovadaxOrderStatus = NovadaxOrderStatus[data["status"]]
         new_executed_amount_base: Decimal = Decimal(data["filledAmount"])
         new_executed_amount_quote: Decimal = Decimal(data["filledValue"])

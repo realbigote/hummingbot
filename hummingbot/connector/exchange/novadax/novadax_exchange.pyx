@@ -269,16 +269,14 @@ cdef class NovadaxExchange(ExchangeBase):
             list balances
             str asset_name
 
-        account_balances = self._novadax_client.get_account_balance()
+        account_balances = self.novadax_client.get_account_balance()
+
         for balance_entry in account_balances["data"]:
             asset_name = balance_entry["currency"]
-            available_balance = Decimal(balance_entry["balance"]) # FIXME: is this correct? It looks like "balance" is the available balance and "available" is the total
-            total_balance = Decimal(balance_entry["available"]) 
+            available_balance = Decimal(balance_entry["available"])
+            total_balance = Decimal(balance_entry["balance"]) 
             self._account_available_balances[asset_name] = available_balance
             self._account_balances[asset_name] = total_balance
-
-        self._in_flight_orders_snapshot = {k: copy.copy(v) for k, v in self._in_flight_orders.items()}
-        self._in_flight_orders_snapshot_timestamp = self._current_timestamp
 
     cdef object c_get_fee(self,
                           str base_currency,
@@ -447,7 +445,7 @@ cdef class NovadaxExchange(ExchangeBase):
                         self.logger().debug(f"Event: {event_message}")
                         continue
 
-                    self._update_inflight_order(tracked_order, event_message)
+                    self._update_inflight_order(tracked_order, event_message[1])
 
             except asyncio.CancelledError:
                 raise
@@ -619,6 +617,7 @@ cdef class NovadaxExchange(ExchangeBase):
                 raise ValueError(f"Invalid OrderType {order_type}. Aborting.")
 
             exchange_order_id = str(order_result["data"]["id"])
+
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None:
                 self.logger().info(f"Created {order_type} buy order {order_id} for "

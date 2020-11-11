@@ -110,7 +110,7 @@ class NovadaxAPIUserStreamDataSource(UserStreamTrackerDataSource):
             try:
                 async for message in self.messages():
                     decoded: List[any] = ujson.loads(message)
-                    output.put_nowait(message)
+                    output.put_nowait(decoded)
             except asyncio.CancelledError:
                 raise
             except Exception:
