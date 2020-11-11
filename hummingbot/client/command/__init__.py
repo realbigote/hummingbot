@@ -41,7 +41,7 @@ __all__ = [
     SillyCommands,
     OrderBookCommand,
     TickerCommand,
-    GenerateCertsCommand
+    GenerateCertsCommand,
     ManualTradeCommand,
     OffsetCommand,
     DepthCommand,
