@@ -279,6 +279,9 @@ cdef class NovadaxExchange(ExchangeBase):
             total_balance = Decimal(balance_entry["balance"]) 
             self._account_available_balances[asset_name] = available_balance
             self._account_balances[asset_name] = total_balance
+        
+        self._in_flight_orders_snapshot = {k: copy.copy(v) for k, v in self._in_flight_orders.items()}
+        self._in_flight_orders_snapshot_timestamp = self._current_timestamp
 
     cdef object c_get_fee(self,
                           str base_currency,
