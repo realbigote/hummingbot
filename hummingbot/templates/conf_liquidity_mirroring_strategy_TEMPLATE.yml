@@ -28,6 +28,7 @@ bid_amount_ratios: null
 ask_amount_ratios: null
 paper_trade_offset: null
 post_only: null
+fee_override: null
 slack_update_period: null
 max_offsetting_exposure: null
 order_replacement_threshold: null

@@ -74,6 +74,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                  post_only: bool,
                  slack_hook: str,
                  slack_update_period: Decimal,
+                 fee_override: Decimal,
                  logging_options: int = OPTION_LOG_ORDER_COMPLETED,
                  status_report_interval: Decimal = 60.0,
                  next_trade_delay_interval: Decimal = 15.0,
@@ -173,6 +174,8 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         self.mm_order_type = OrderType.LIMIT
         if post_only and OrderType.LIMIT_MAKER in primary_market_pairs[0].market.supported_order_types():
             self.mm_order_type = OrderType.LIMIT_MAKER
+
+        self.fee_override = fee_override
 
     @property
     def tracked_limit_orders(self) -> List[Tuple[ExchangeBase, LimitOrder]]:
@@ -486,34 +489,44 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
             self.log_with_clock(logging.INFO,
                                 f"Limit order canceled on {market_trading_pair_tuple[0].name}: {order_id}")
 
-    def check_flat_fee_coverage(self, market, flat_fees):
-        covered = True
-        for fee in flat_fees:
-            covered = covered and (market.get_available_balance(fee[0]) > fee[1])
-            if covered == False:
-                break
-        return covered
+    cdef object c_get_fee_markup(self, object primary_side, object price, object amount):
+        if self.fee_override is not None:
+            return self.fee_override
 
-    cdef object factor_in_fees(self, market_pair: MarketTradingPairTuple, price: object, amount: object, is_buy: bool, is_primary: bool):
+        return self.c_get_fee_markup_from_exchanges(primary_side, price, amount)
+
+    cdef object c_get_fee_markup_from_exchanges(self, object primary_side, object price, object amount):
         cdef:
-            ExchangeBase market = market_pair.market
-
-        fee_object = market.c_get_fee(market_pair.base_asset,
-                                          market_pair.quote_asset,
-                                          OrderType.LIMIT,
-                                          TradeType.BUY if is_buy else TradeType.SELL,
-                                          amount,
-                                          price
-                                      )
-            
-        total_flat_fees = self.c_sum_flat_fees(market_pair.quote_asset,
-                                                   fee_object.flat_fees)
-        fixed_cost_per_unit = total_flat_fees / amount                                                       
-        if (is_buy and is_primary) or ((not is_buy) and (not is_primary)):
-            price_tx = Decimal(price) / (Decimal(1) + fee_object.percent) - fixed_cost_per_unit
+            ExchangeBase primary_market = self.primary_market_pairs[0].market
+            ExchangeBase mirrored_market = self.mirrored_market_pairs[0].market
+        if primary_side is TradeType.BUY:
+            mirrored_side = TradeType.SELL
         else:
-            price_tx = Decimal(price) / (Decimal(1) - fee_object.percent) + fixed_cost_per_unit
-        return price_tx, fee_object
+            mirrored_side = TradeType.BUY
+        primary_base_asset = self.primary_market_pairs[0].base_asset
+        primary_quote_asset = self.primary_market_pairs[0].quote_asset
+        mirrored_base_asset = self.mirrored_market_pairs[0].base_asset
+        mirrored_quote_asset = self.mirrored_market_pairs[0].quote_asset
+
+        primary_fees = primary_market.c_get_fee(primary_base_asset,
+                                               primary_quote_asset,
+                                               self.mm_order_type,
+                                               primary_side,
+                                               amount,
+                                               price)
+        primary_flat_fee = self.c_sum_flat_fees(primary_quote_asset, primary_fees.flat_fees)
+        mirrored_fees = mirrored_market.c_get_fee(mirrored_base_asset,
+                                               mirrored_quote_asset,
+                                               OrderType.LIMIT,
+                                               mirrored_side,
+                                               amount,
+                                               price)
+        mirrored_flat_fee = self.c_sum_flat_fees(mirrored_quote_asset, mirrored_fees.flat_fees)
+
+        total_flat_fees_rate: Decimal = (primary_flat_fee + mirrored_flat_fee) / amount
+        total_fee_rate: Decimal = primary_fees.percent + mirrored_fees.percent + total_flat_fees_rate
+
+        return total_fee_rate
 
     cdef c_process_market_pair(self, object market_pair):
         primary_market_pair = self.primary_market_pairs[0]
@@ -634,19 +647,17 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         bid_amount = Decimal(min(best_bid.amount, self.bid_amounts[0]))
         if (bid_amount > 0):
-            primary_fees_bid, bid_fee_object = self.factor_in_fees(primary_market_pair, best_bid.price, bid_amount, True, True)
-            both_fees_bid, fee_object_unused = self.factor_in_fees(mirrored_market_pair, primary_fees_bid, bid_amount, False, False)
-            adjusted_bid = both_fees_bid * (1 - self.order_price_markup)
+            markup = self.order_price_markup + self.c_get_fee_markup(TradeType.BUY, best_bid.price, bid_amount)
+            adjusted_bid = best_bid.price * (1 - markup)
         else:
-            adjusted_bid = best_bid.price * (1 - self.order_price_markup)
+            raise RuntimeError("invalid bid amount")
 
         ask_amount = Decimal(min(best_ask.amount, self.ask_amounts[0]))
         if (ask_amount > 0):
-            primary_fees_ask, ask_fee_object = self.factor_in_fees(primary_market_pair, best_ask.price, ask_amount, False, True)
-            both_fees_ask, fee_object_unused = self.factor_in_fees(mirrored_market_pair, primary_fees_ask, ask_amount, True, False)
-            adjusted_ask = both_fees_ask * (1 + self.order_price_markup)
+            markup = self.order_price_markup + self.c_get_fee_markup(TradeType.SELL, best_ask.price, ask_amount)
+            adjusted_ask = best_ask.price * (1 + markup)
         else:
-            adjusted_ask = best_ask.price * (1 + self.order_price_markup)
+            raise RuntimeError("invalid ask amount")
 
         no_more_bids = (self.pm.amount_to_offset > self.max_offsetting_exposure)
 
@@ -685,8 +696,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
 
                         try:
-                            if (primary_market.get_available_balance(primary_market_pair.quote_asset) > quant_price * quant_amount
-                                    and self.check_flat_fee_coverage(primary_market, bid_fee_object.flat_fees)):
+                            if (primary_market.get_available_balance(primary_market_pair.quote_asset) > quant_price * quant_amount):
                                 order_id = self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),self.mm_order_type,Decimal(quant_price))
                                 self.marked_for_deletion[order_id] = {"is_buy": True,
                                                                       "rank": 0,
@@ -702,30 +712,23 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                             pass
 
                 price = self.primary_best_bid
-                for i in range(0,min(len(self.bid_amounts) - 1, len(bids) - 1)):
+                for i in range(0, min(len(self.bid_amounts) - 1, len(bids) - 1)):
                     price -= bid_inc
                     if (i+1) in self.buys_to_replace:
-                        if len(bids) > (i + 1):
-                            bid_price = bids[i+1]["price"]
-                            bid_amount = bids[i+1]["amount"]
-                        else:
-                            bid_price = price
-                            bid_amount = Decimal("inf")
+                        bid_price = bids[i+1]["price"]
+                        bid_amount = bids[i+1]["amount"]
 
                         amount = Decimal(min(bid_amount, (self.bid_amounts[i+1])))
                         if (amount >= Decimal(self.min_primary_amount)):
                             self.buys_to_replace.remove(i+1)
-                            price_tx, fee_object = self.factor_in_fees(primary_market_pair, bid_price, amount, True, True)
-                            min_price, fee_object_unused = self.factor_in_fees(mirrored_market_pair, price_tx, amount, False, False)
-                        
-                            min_price = min(min_price * (1 - self.order_price_markup), bid_price)
+                            markup = self.order_price_markup + self.c_get_fee_markup(TradeType.BUY, bid_price, amount)
+                            adjusted_price = bid_price * (1 - markup)
 
-                            quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, min_price)
+                            quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, adjusted_price)
                             quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
 
                             try:
-                                if (primary_market.get_available_balance(primary_market_pair.quote_asset) > quant_price * quant_amount 
-                                        and self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
+                                if (primary_market.get_available_balance(primary_market_pair.quote_asset) > quant_price * quant_amount):
                                     order_id = self.c_buy_with_specific_market(primary_market_pair,Decimal(quant_amount),self.mm_order_type,Decimal(quant_price))
                                     self.marked_for_deletion[order_id] = {"is_buy": True,
                                                                             "rank": (i+1),
@@ -778,8 +781,7 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                         quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
 
                         try:
-                            if (primary_market.get_available_balance(primary_market_pair.base_asset) > quant_amount
-                                    and self.check_flat_fee_coverage(primary_market, ask_fee_object.flat_fees)):
+                            if (primary_market.get_available_balance(primary_market_pair.base_asset) > quant_amount):
                                 order_id = self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),self.mm_order_type,Decimal(quant_price))
                                 self.marked_for_deletion[order_id] = {"is_buy": False,
                                                                       "rank": 0,
@@ -797,28 +799,21 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                 price = self.primary_best_ask
                 for i in range(0,min(len(self.ask_amounts) - 1, len(asks) - 1)):
                     price += ask_inc
-                    if (i+1) in self.sells_to_replace:
-                        if len(asks) > (i + 1):
-                            ask_price = asks[i+1]["price"]
-                            ask_amount = asks[i+1]["amount"]
-                        else:
-                            ask_price = price
-                            ask_amount = Decimal("inf")
-
+                    if (i+1) in self.sells_to_replace:                        
+                        ask_price = asks[i+1]["price"]
+                        ask_amount = asks[i+1]["amount"]
+                    
                         amount = Decimal(min(ask_amount, self.ask_amounts[i+1]))
                         if (amount >= Decimal(self.min_primary_amount)):
                             self.sells_to_replace.remove(i+1)
-                            price_tx, fee_object = self.factor_in_fees(primary_market_pair, ask_price, amount, False, True)
-                            max_price, fee_object_unused = self.factor_in_fees(mirrored_market_pair, price_tx, amount, True, False)
-                        
-                            max_price = max(max_price * (1 + self.order_price_markup), ask_price)
+                            markup = self.order_price_markup + self.c_get_fee_markup(TradeType.SELL, ask_price, amount)
+                            adjusted_price = ask_price * (1 + markup)
 
-                            quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, max_price)
+                            quant_price = primary_market.c_quantize_order_price(primary_market_pair.trading_pair, adjusted_price)
                             quant_amount = primary_market.c_quantize_order_amount(primary_market_pair.trading_pair, amount)
 
                             try:
-                                if (primary_market.get_available_balance(primary_market_pair.base_asset) > quant_amount
-                                        and self.check_flat_fee_coverage(primary_market, fee_object.flat_fees)):
+                                if (primary_market.get_available_balance(primary_market_pair.base_asset) > quant_amount):
                                     order_id = self.c_sell_with_specific_market(primary_market_pair,Decimal(quant_amount),self.mm_order_type,Decimal(quant_price))
                                     self.marked_for_deletion[order_id] = {"is_buy": False,
                                                                           "rank": (i+1),
