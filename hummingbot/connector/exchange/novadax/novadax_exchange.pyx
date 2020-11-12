@@ -59,6 +59,7 @@ from hummingbot.connector.exchange.novadax.novadax_order_book_tracker import Nov
 from hummingbot.connector.exchange.novadax.novadax_user_stream_tracker import NovadaxUserStreamTracker
 from hummingbot.connector.exchange.novadax.novadax_in_flight_order import NovadaxInFlightOrder
 from hummingbot.connector.exchange.novadax.novadax_utils import convert_to_exchange_trading_pair, convert_from_exchange_trading_pair
+from hummingbot.connector.exchange.novadax.novadax_auth import NovadaxAuth
 from hummingbot.core.data_type.user_stream_tracker import UserStreamTrackerDataSourceType
 from hummingbot.core.data_type.cancellation_result import CancellationResult
 from hummingbot.core.data_type.transaction_tracker import TransactionTracker
@@ -121,8 +122,9 @@ cdef class NovadaxExchange(ExchangeBase):
         self._real_time_balance_update = False
         self._trading_required = trading_required
         self._order_book_tracker = NovadaxOrderBookTracker(trading_pairs=trading_pairs)
+        self._novadax_auth: NovadaxAuth = NovadaxAuth(novadax_api_key, novadax_api_secret)
         self._novadax_client = NovaClient(novadax_api_key, novadax_api_secret)
-        self._user_stream_tracker = NovadaxUserStreamTracker(novadax_client=self._novadax_client, novadax_uid=novadax_uid)
+        self._user_stream_tracker = NovadaxUserStreamTracker(novadax_auth=self._novadax_auth, novadax_uid=novadax_uid)
         self._ev_loop = asyncio.get_event_loop()
         self._poll_notifier = asyncio.Event()
         self._last_timestamp = 0
