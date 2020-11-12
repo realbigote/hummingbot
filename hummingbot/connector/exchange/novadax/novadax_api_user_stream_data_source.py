@@ -22,8 +22,8 @@ NOVADAX_USER_STREAM_ENDPOINT = "userDataStream"
 
 class NovadaxAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
-    MESSAGE_TIMEOUT = 10.0
-    PING_TIMEOUT = 10.0
+    MESSAGE_TIMEOUT = 60.0
+    PING_TIMEOUT = 60.0
 
     _bausds_logger: Optional[HummingbotLogger] = None
 
