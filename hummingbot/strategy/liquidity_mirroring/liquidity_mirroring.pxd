@@ -66,10 +66,12 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
         object _last_failed_market_order_timestamp
         int cycle_number
         object slack_update_period
-        object mm_order_type 
+        object mm_order_type
+        object fee_override
 
     cdef c_process_market_pair(self, object market_pair)
-    cdef object factor_in_fees(self, market_pair: MarketTradingPairTuple, price: object, amount: object, is_buy: bool, is_primary: bool)
+    cdef object c_get_fee_markup(self, object primary_side, object price, object amount)
+    cdef object c_get_fee_markup_from_exchanges(self, object primary_side, object price, object amount)
     cdef bint is_maker_exchange(self, object market)
     cdef bint is_taker_exchange(self, object market)
     cdef bint _has_different_sign(self, object a, object b)
