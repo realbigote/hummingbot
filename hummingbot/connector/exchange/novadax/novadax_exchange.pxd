@@ -8,6 +8,7 @@ cdef class NovadaxExchange(ExchangeBase):
         object _novadax_client
         object _ev_loop
         object _poll_notifier
+        object _novadax_auth
         double _last_timestamp
         double _last_poll_timestamp
         dict _in_flight_orders

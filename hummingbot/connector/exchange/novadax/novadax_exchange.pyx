@@ -59,6 +59,7 @@ from hummingbot.connector.exchange.novadax.novadax_order_book_tracker import Nov
 from hummingbot.connector.exchange.novadax.novadax_user_stream_tracker import NovadaxUserStreamTracker
 from hummingbot.connector.exchange.novadax.novadax_in_flight_order import NovadaxInFlightOrder
 from hummingbot.connector.exchange.novadax.novadax_utils import convert_to_exchange_trading_pair, convert_from_exchange_trading_pair
+from hummingbot.connector.exchange.novadax.novadax_auth import NovadaxAuth
 from hummingbot.core.data_type.user_stream_tracker import UserStreamTrackerDataSourceType
 from hummingbot.core.data_type.cancellation_result import CancellationResult
 from hummingbot.core.data_type.transaction_tracker import TransactionTracker
@@ -121,8 +122,9 @@ cdef class NovadaxExchange(ExchangeBase):
         self._real_time_balance_update = False
         self._trading_required = trading_required
         self._order_book_tracker = NovadaxOrderBookTracker(trading_pairs=trading_pairs)
+        self._novadax_auth: NovadaxAuth = NovadaxAuth(novadax_api_key, novadax_api_secret)
         self._novadax_client = NovaClient(novadax_api_key, novadax_api_secret)
-        self._user_stream_tracker = NovadaxUserStreamTracker(novadax_client=self._novadax_client, novadax_uid=novadax_uid)
+        self._user_stream_tracker = NovadaxUserStreamTracker(novadax_auth=self._novadax_auth, novadax_uid=novadax_uid)
         self._ev_loop = asyncio.get_event_loop()
         self._poll_notifier = asyncio.Event()
         self._last_timestamp = 0
@@ -269,14 +271,15 @@ cdef class NovadaxExchange(ExchangeBase):
             list balances
             str asset_name
 
-        account_balances = self._novadax_client.get_account_balance()
+        account_balances = self.novadax_client.get_account_balance()
+
         for balance_entry in account_balances["data"]:
             asset_name = balance_entry["currency"]
-            available_balance = Decimal(balance_entry["balance"]) # FIXME: is this correct? It looks like "balance" is the available balance and "available" is the total
-            total_balance = Decimal(balance_entry["available"]) 
+            available_balance = Decimal(balance_entry["available"])
+            total_balance = Decimal(balance_entry["balance"]) 
             self._account_available_balances[asset_name] = available_balance
             self._account_balances[asset_name] = total_balance
-
+        
         self._in_flight_orders_snapshot = {k: copy.copy(v) for k, v in self._in_flight_orders.items()}
         self._in_flight_orders_snapshot_timestamp = self._current_timestamp
 
@@ -438,7 +441,7 @@ cdef class NovadaxExchange(ExchangeBase):
                     exchange_id = event_message[1]["id"]
                     tracked_order = self._in_flight_orders_by_exchange_id.get(exchange_id, None)
                     if tracked_order is None:
-                        for o in self._in_flight_orders: # FIXME: add a lookup by exchange order id
+                        for o in self._in_flight_orders.values(): # FIXME: add a lookup by exchange order id
                             if o.exchange_order_id == exchange_id:
                                 tracked_order = o
 
@@ -447,7 +450,7 @@ cdef class NovadaxExchange(ExchangeBase):
                         self.logger().debug(f"Event: {event_message}")
                         continue
 
-                    self._update_inflight_order(tracked_order, event_message)
+                    self._update_inflight_order(tracked_order, event_message[1])
 
             except asyncio.CancelledError:
                 raise
@@ -619,6 +622,7 @@ cdef class NovadaxExchange(ExchangeBase):
                 raise ValueError(f"Invalid OrderType {order_type}. Aborting.")
 
             exchange_order_id = str(order_result["data"]["id"])
+
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None:
                 self.logger().info(f"Created {order_type} buy order {order_id} for "
@@ -861,7 +865,8 @@ cdef class NovadaxExchange(ExchangeBase):
             order = self._in_flight_orders.pop(order_id)
             exchange_id = order.exchange_order_id
             if exchange_id is not None and exchange_id != '':
-                del self._in_flight_orders_by_exchange_id[exchange_id]
+                if exchange_id in self._in_flight_orders_by_exchange_id:
+                    del self._in_flight_orders_by_exchange_id[exchange_id]
         if order_id in self._order_not_found_records:
             del self._order_not_found_records[order_id]
 
