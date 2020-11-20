@@ -23,9 +23,6 @@ def start(self):
     max_offsetting_exposure = liquidity_mirroring_config_map.get("max_offsetting_exposure").value
     max_loss = liquidity_mirroring_config_map.get("max_offset_loss").value
     max_total_loss = liquidity_mirroring_config_map.get("max_total_offset_loss").value
-    #equivalent_tokens = liquidity_mirroring_config_map.get("equivalent_tokens").value
-    equivalent_tokens = [["USDT", "USDC", "USDS", "DAI", "PAX", "TUSD", "USD", "ZUSD", "TKMKB", "COMP"],
-        ["XETH", "ETH", "WETH", "FTH"], ["BTC", "WBTC", "XXBT", "TKMKB"], ["ZRX"], ["XTZ", "TKMKA"], ["LRC"], ["BRL"]]
     min_primary_amount = liquidity_mirroring_config_map.get("min_primary_amount").value
     min_mirroring_amount = liquidity_mirroring_config_map.get("min_mirroring_amount").value
     slack_hook = global_config_map.get("SLACK_HOOK").value
@@ -80,17 +77,6 @@ def start(self):
     else:
         ask_ratios = [Decimal(1/55),Decimal(2/55),Decimal(3/55),Decimal(4/55),Decimal(5/55),Decimal(6/55),
                                Decimal(7/55),Decimal(8/55),Decimal(9/55),Decimal(10/55)]
-    
-    for primary_asset in primary_assets:
-        found = False
-        for token_list in equivalent_tokens:
-            if primary_asset.upper() in token_list:
-                for mirror_asset in secondary_assets:
-                    if mirror_asset.upper() in token_list:
-                        found = True
-        if not found:            
-            self.logger().warning(f"{primary_asset} not equivalent to any mirrored asset")
-            return
 
     market_names: List[Tuple[str, List[str]]] = [(primary_market, [primary_market_trading_pair]),
                                                  (mirrored_market, [mirrored_market_trading_pair])]
@@ -132,7 +118,6 @@ def start(self):
                                                max_total_loss=max_total_loss,
                                                bid_amount_percents=bid_ratios,
                                                ask_amount_percents=ask_ratios,
-                                               equivalent_tokens=equivalent_tokens,
                                                min_primary_amount=min_primary_amount,
                                                min_mirroring_amount=min_mirroring_amount,
                                                order_replacement_threshold=order_replacement_threshold,
