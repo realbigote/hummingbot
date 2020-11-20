@@ -153,6 +153,14 @@ liquidity_mirroring_config_map = {
         prompt="Enter the type of ask amount ratios you would like >>> ",
         prompt_on_new=True,
     ),
+    "fee_override": ConfigVar(
+        key="fee_override",
+        prompt="Enter the total fee percentage to use, inclusive of both exchanges (1% = 0.01) >>> ",
+        prompt_on_new=False,
+        default=None,
+        required_if=lambda: False, 
+        type_str="decimal"
+    ),
     "slack_update_period": ConfigVar(
         key="slack_update_period",
         prompt="Enter the period of time between slack status updates (in hours) >>> ",
@@ -174,5 +182,11 @@ liquidity_mirroring_config_map = {
         type_str="bool",
         on_validated=lambda value: configure_offsetting_exchange(value)
     ),
+    "post_only": ConfigVar(
+        key="post_only",
+        prompt="Use POST-only order types on primary exchange if supported (True/False) >>> ",
+        default=False,
+        type_str="bool"
+    )
 }
 
