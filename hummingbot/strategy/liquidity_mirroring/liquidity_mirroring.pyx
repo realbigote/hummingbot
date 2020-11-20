@@ -65,7 +65,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
                  max_offsetting_exposure: Decimal,
                  max_loss: Decimal,
                  max_total_loss: Decimal,
-                 equivalent_tokens: list,
                  min_primary_amount: Decimal,
                  min_mirroring_amount: Decimal,
                  bid_amount_percents: list,
@@ -133,7 +132,6 @@ cdef class LiquidityMirroringStrategy(StrategyBase):
 
         self.outstanding_offsets = {}
         self.max_loss = Decimal(max_loss)
-        self.equivalent_tokens = equivalent_tokens
 
         self.max_total_loss = Decimal(max_total_loss)
         self.pm = PositionManager()
